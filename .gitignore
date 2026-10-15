@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+*.egg-info/
+build/
+dist/
+
+# Third-party thermodynamic databases and reference codes are never committed:
+# their licenses are unclear or differ from this project's. Point the importers
+# at a local copy instead (see docs/DESIGN.md, "Data policy").
+data/external/
+*.data0
+data0.*
+data1.*
+cache/
