@@ -33,3 +33,17 @@ def eq36_tests() -> Path:
     if root is None:
         pytest.skip("set REACTION_EQ36_TESTS to the EQ3/6 test library folder")
     return root
+
+
+@pytest.fixture(scope="session")
+def obigt_dir() -> Path:
+    root = _dir("REACTION_OBIGT_DIR")
+    if root is None or not (root / "inorganic_aq.csv").exists():
+        pytest.skip("set REACTION_OBIGT_DIR to a folder with the CHNOSZ OBIGT csv files")
+    return root
+
+
+@pytest.fixture(scope="session")
+def eos_db_supcrt92(obigt_dir, data0_cmp):
+    from reaction.thermo.eosdb import load_eos_database
+    return load_eos_database(obigt_dir, "supcrt92", eq36_database=data0_cmp)

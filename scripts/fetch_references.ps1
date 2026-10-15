@@ -35,4 +35,5 @@ foreach ($f in "AD","Berman_cr","DEW","H2O_aq","SLOP98-a","SLOP98-b","SUPCRT92",
 Write-Host "Done. To run the validation tests:"
 Write-Host "  `$env:REACTION_EQ36_DIR   = '$Dest\eq36_win\Eq3_6v8.0a'"
 Write-Host "  `$env:REACTION_EQ36_TESTS = '$Dest\eq36_tests'"
+Write-Host "  `$env:REACTION_OBIGT_DIR  = '$obigt'"
 Write-Host "  python -m pytest"

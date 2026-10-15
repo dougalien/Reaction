@@ -29,6 +29,13 @@ src/reaction/
     model.py              Species, Provenance, GridLogK, ThermoDatabase
     eq36.py               EQ3/6 data0 importer
   activity.py             B-dot, Davies, Bates-Guggenheim, Drummond, water activity
+  thermo/                 high-T/P thermodynamics from equations of state (M2)
+    water.py              IAPWS-95 water: density, Gibbs energy, saturation
+    electrostatics.py     Johnson-Norton dielectric constant, Born functions, Debye-Hueckel A, B
+    hkf.py                HKF aqueous species, Shock et al. g function
+    crystal.py            Maier-Kelley minerals/gases/liquids, SUPCRT92 quartz volumes
+    obigt.py              reader for the OBIGT csv files (CHNOSZ)
+    eosdb.py              EosDatabase: formation reactions from formulas, logK(T,P)
   network.py              every species/phase written over a chosen basis
                           (basis switches, suppression, decoupled components)
   speciation.py           constraints + Newton solver (speciate)
@@ -36,6 +43,7 @@ src/reaction/
     eq3nr.py              parser for EQ3NR .3o reference outputs
     eq3nr_input.py        reader for EQ3NR .3i inputs (multi-problem files)
     eq3nr_run.py          runs a .3i through Reaction and compares with its .3o
+    logk_compare.py       logK from equations of state against an EQ3/6 database
 tests/                    toy-database + synthetic-data0 tests; EQ3/6 regression tests
 ```
 
@@ -95,6 +103,60 @@ polynuclear species (Al13O4(OH)24 7+) explodes from a bad starting guess.
   span of valid points the polynomial is still evaluated, as in EQ3/6;
   `Speciation.extrapolated` lists the species that rely on that.
 
+## High temperature and pressure (M2)
+
+`EosDatabase` is a `ThermoDatabase` whose logK comes from Gibbs energies:
+
+    log K = -(sum_i nu_i G_i(T, P)) / (R T ln 10)
+
+* **Water**: IAPWS-95 (56-term Helmholtz energy, own analytic derivatives), solved
+  for density at T, P.  The 56 coefficients were checked against the published
+  verification table (pressure to 1e-8 at ten state points, saturated-liquid density
+  at 300 K to 5e-10).
+* **Dielectric constant**: Johnson and Norton (1991), the form the HKF parameters
+  were regressed with.  Debye-Hueckel A and B at the eight EQ3/6 grid points agree
+  with the SUPCRT92 values in the data0 header to 2e-4.
+* **Aqueous species**: revised HKF equations; the effective radius depends on T and
+  P through the Shock et al. (1992) g function.  Only G is needed for logK.
+* **Minerals, gases, liquids**: Maier-Kelley Cp, constant volume, polymorphs by
+  minimum G, SUPCRT92 quartz/coesite volume functions.  Gases are 1-bar ideal-gas
+  standard states: there are no fugacity coefficients yet.
+* **Reactions** are generated from formulas over a set of master species (one per
+  element, plus H2O, H+ and O2(g)), so any species with data and masters is usable.
+* **Eh reaction** 2 H2O = O2 + 4 H+ + 4 e- (e- has G = 0 at all T) reproduces the
+  data0 header to 3e-4.
+* Pressure defaults to the EQ3/6 curve (1.0132 bar to 100 C, saturation above).
+  Steam is refused for aqueous species; up to 1% below saturation is taken as
+  metastable liquid.  `Speciation.warnings` flags B-dot above 300 C (its parameters
+  stop there; the value at 300 C is held) and water below 0.35 g/cm3 (HKF
+  extrapolation).
+
+### How well does it agree?
+
+Computed against the SUPCRT92-derived logK grids of `data0.com` (263 species whose
+reactions coincide in both databases, 0-300 C):
+
+* 88 agree to 0.01; the rock-forming minerals and main complexes are within
+  0.007: quartz, calcite, aragonite, dolomite, magnesite, siderite, anhydrite,
+  halite, brucite, periclase, lime, wollastonite, forsterite, fayalite, diopside,
+  talc, chrysotile, tremolite, OH-, CO3--, HS-, HSO4-, NaCl(aq), CaSO4(aq),
+  KSO4-, FeCl+.
+* Clusters with larger differences share one species whose parameters were revised
+  after SUPCRT92 (all Al minerals and aluminate, Fe+++, Tb/rare-earth complexes,
+  KCl(aq), CaCl+, MgCl+ ...).  These are data differences, not equation errors:
+  the same equations give 0.002 for the species whose data did not change.
+* Seawater at 25 C on the OBIGT database: Cl-, Na+, NaCl(aq), K+, HCO3-, CO3--
+  within 0.003 log units of EQ3NR; complexes of Mg and Ca within 0.01-0.1;
+  KCl(aq) 1.0 (revised dissociation constant).
+* Seawater heated at 500 bar crosses anhydrite saturation near 145 C (SI -0.19 at
+  125 C, +0.07 at 150 C), as observed.
+
+Known limitations: the Born pressure derivative Q (from JN91 and IAPWS-95) is 11%
+above the value SUPCRT92's tabulated volumes imply (6.64e-7 against 5.97e-7 /bar at
+25 C), which shifts computed standard volumes of ions by up to 1 cm3/mol and logK
+at 1 kbar by about 0.01; Y and X agree.  Berman minerals (92 in OBIGT) and the
+Akinfiev-Diamond and DEW models are not implemented yet.
+
 ## Data policy
 
 * No third-party database is ever committed.  Importers read from a path you
@@ -104,9 +166,11 @@ polynuclear species (Al13O4(OH)24 7+) explodes from a bad starting guess.
   needs notification to DOE/LLNL, and nothing found states the license of the
   `data0.*` database files.  Treat them as reference material for personal and
   academic use and do not redistribute them.
-* **CHNOSZ / OBIGT** (github.com/jedick/CHNOSZ): GPL-3.0.  Provides HKF
-  parameters (SUPCRT92, SLOP98, DEW, Berman, inorganic aq/cr/gas CSVs, about
-  0.5 MB) for the high-T/P work in M2.  Anything derived and redistributed
+* **CHNOSZ / OBIGT** (github.com/jedick/CHNOSZ): GPL-3.0.  Its csv files (SUPCRT92,
+  SLOP98, inorganic aq/cr/gas, about 0.5 MB) are the HKF and Maier-Kelley parameters
+  for M2, read from a path you supply.  CHNOSZ's R sources (IAPWS95.R, water.R, hkf.R,
+  cgl.R ...) were used as a reference for constants and cross-checks only; Reaction's
+  code is written from the published equations.  Anything derived and redistributed
   inherits GPL-3.
 * **Geochemist's Workbench** databases are proprietary and are not used.
 * Every imported species keeps its source database, file, section, revision
@@ -135,6 +199,7 @@ aqueous part only (exchangers are computed after the aqueous speciation).
 ```
 set REACTION_EQ36_DIR=...\Eq3_6v8.0a
 set REACTION_EQ36_TESTS=...                (the folder that contains 3tlib_cmp)
+set REACTION_OBIGT_DIR=...                 (the OBIGT csv files)
 python -m pytest
 ```
 
@@ -153,10 +218,10 @@ Known, understood differences from EQ3/6:
   switching, decoupling, suppression, Davies, `.3i` reader and the all-cases
   regression above.  Not covered by the library and still missing: alkalinity,
   log-activity combinations (pHCl...), ion exchange, solid solutions.
-* **M2**: temperature and pressure.  Water properties (IAPWS), dielectric
-  constant, Debye-Hueckel A and B at T,P, HKF for aqueous species and
-  Maier-Kelley/Berman for minerals, so logK(T,P) reaches about 400 C and 1 kbar
-  instead of the data0 saturation-curve grid (to 300 C).
+* **M2 (done)**: temperature and pressure.  IAPWS-95 water, dielectric constant,
+  Debye-Hueckel A and B at T,P, HKF aqueous species and Maier-Kelley minerals, so
+  logK(T,P) works to 400 C and 1 kbar (see above).  Still to do from this thread:
+  Berman minerals, a B-dot-type model valid above 300 C, gas fugacity coefficients.
 * **M3**: reaction paths: titration, water/rock ratio, precipitation and
   dissolution under the phase rule, fixed-fugacity gas buffers, fluid mixing,
   temperature paths.  Oracle: `6tlib_*`.

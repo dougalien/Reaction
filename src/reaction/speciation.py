@@ -16,7 +16,7 @@ activity coefficients and water activity until they stop changing.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -127,6 +127,7 @@ class Speciation:
     dropped: list[str]                       # no logK data at this temperature
     extrapolated: list[str]                  # logK outside the span of valid grid points
     iterations: int
+    warnings: list[str] = field(default_factory=list)
 
     def molality(self, name: str) -> float:
         return self.species[name].molality
@@ -274,6 +275,8 @@ def speciate(
                       suppress=suppress, suppress_phases=suppress_phases)
     except NetworkError as exc:
         raise SpeciationError(str(exc)) from exc
+    if pressure_bar is None:
+        pressure_bar = db.reference_pressure(temperature_c)
     ev = net.evaluate(temperature_c, pressure_bar)
 
     names = net.basis
@@ -290,8 +293,14 @@ def speciate(
     ph_kind = [net.phase_kind[i] for i in ev.phase_index]
     logk_ph = ev.logk_phase
 
-    A, B, bdot = db.dh_params(temperature_c)
-    logk_eh = db.logk_eh(temperature_c)
+    A, B, bdot = db.dh_params(temperature_c, pressure_bar)
+    notes: list[str] = []
+    if hasattr(db, "bdot_extrapolated") and db.bdot_extrapolated(temperature_c):
+        notes.append("B-dot is tabulated to 300 C and is held at its 300 C value here "
+                     "(activity coefficients are extrapolated)")
+    if hasattr(db, "condition_warnings"):
+        notes += db.condition_warnings(temperature_c, pressure_bar)
+    logk_eh = db.logk_eh(temperature_c, pressure_bar)
     unk = list(range(1, nbf))                    # everything but H2O
     pos = {j: r for r, j in enumerate(unk)}
     nu_unk = nu[:, unk]
@@ -579,5 +588,5 @@ def speciate(
         pmh=float(-math.log10(m_h)), pe=float(pe), eh_volts=float(eh), log_fo2=float(log_fo2),
         charge_imbalance=cations + anions, species=states, totals=totals,
         saturation=saturation, log_fugacity=fugacity, dropped=ev.dropped,
-        extrapolated=ev.extrapolated, iterations=total_inner,
+        extrapolated=ev.extrapolated, iterations=total_inner, warnings=notes,
     )

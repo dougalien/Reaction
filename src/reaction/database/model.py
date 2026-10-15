@@ -153,8 +153,12 @@ class ThermoDatabase:
     def _grid(self, values: np.ndarray, t_c: float) -> float:
         return GridLogK(self.temps_c, values, *self.t_limits)(t_c)
 
-    def dh_params(self, t_c: float) -> tuple[float, float, float]:
-        """Return (A, B, bdot) at t_c."""
+    def reference_pressure(self, t_c: float) -> float | None:
+        """Pressure (bar) used when none is given; None means "the data file's own curve"."""
+        return None
+
+    def dh_params(self, t_c: float, p_bar: float | None = None) -> tuple[float, float, float]:
+        """Return (A, B, bdot) at t_c (tabulated on the data file's pressure curve)."""
         return (self._grid(self.adh, t_c), self._grid(self.bdh, t_c),
                 self._grid(self.bdot, t_c))
 
