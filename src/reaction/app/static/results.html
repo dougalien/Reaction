@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reaction: results</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<div class="bar">
+  <h1>Reaction</h1>
+  <span class="muted small">results</span>
+  <span class="spacer"></span>
+  <span id="pill-link" class="pill">connecting</span>
+  <span id="pill-run" class="pill" style="display:none"></span>
+</div>
+<main class="results">
+  <div id="empty" class="empty panel">
+    <h2>No results yet</h2>
+    <p>Ask for a run in the chat window, for example "heat seawater to 350 C at 500 bar". The results appear here.</p>
+  </div>
+  <div id="content" style="display:none;gap:14px;flex-direction:column">
+    <section class="panel">
+      <div class="row" style="justify-content:space-between;align-items:flex-start">
+        <div>
+          <h2 id="title"></h2>
+          <div id="meta" class="small muted"></div>
+        </div>
+        <div class="row">
+          <button id="dl-csv" title="The plotted curves as a table">Download CSV</button>
+          <button id="dl-svg" title="The plot as a vector image">Download plot</button>
+        </div>
+      </div>
+      <h3 style="margin:12px 0 6px">Here is what we found</h3>
+      <div id="story" class="story"></div>
+      <details style="margin-top:8px"><summary>Assumptions and limits</summary><ul id="notes"></ul></details>
+    </section>
+    <section class="panel">
+      <div class="row" style="justify-content:space-between;margin-bottom:8px">
+        <div class="row">
+          <div class="seg" id="modes" role="group" aria-label="Modes shown"></div>
+          <div class="seg" id="axis" role="group" aria-label="Y axis">
+            <button data-log="1">Log</button><button data-log="0">Linear</button>
+          </div>
+          <div class="seg" id="units" role="group" aria-label="Units">
+            <button data-unit="mol">mol/kg</button><button data-unit="mmol">mmol/kg</button><button data-unit="umol">&micro;mol/kg</button>
+          </div>
+        </div>
+        <span id="axisnote" class="hint"></span>
+      </div>
+      <div id="legend" class="legend"></div>
+      <div id="plot" class="plotwrap"></div>
+    </section>
+    <section class="panel">
+      <div class="tabs" id="tabs"></div>
+      <input id="search" type="search" placeholder="Filter by name" aria-label="Filter by name" style="max-width:260px;margin-bottom:8px">
+      <div id="picker" class="picker"></div>
+      <div class="hint" style="margin-top:6px">Click to add or remove a curve. Anything on the same axis must share a unit, so picking another kind replaces the current ones. You can also ask in the chat window.</div>
+    </section>
+  </div>
+</main>
+<script src="/static/common.js"></script>
+<script src="/static/plot.js"></script>
+<script src="/static/results.js"></script>
+</body>
+</html>

@@ -9,6 +9,9 @@ description = "Open geochemical reaction-path modelling: speciation, equilibrium
 requires-python = ">=3.10"
 dependencies = ["numpy>=1.24", "scipy>=1.10"]
 
+[project.scripts]
+reaction-app = "reaction.app.__main__:main"
+
 [project.optional-dependencies]
 dev = ["pytest>=7", "matplotlib>=3.6", "pandas>=2.0"]
 
@@ -18,3 +21,6 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+
+[tool.setuptools.package-data]
+"reaction.app" = ["static/*"]

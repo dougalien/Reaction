@@ -6,7 +6,33 @@ stage: speciation (B-dot or Davies activity models) works to 400 C and 1 kbar
 and reproduces all 41 speciation cases of the EQ3/6 test library; reaction
 paths and kinetics are next (see [docs/DESIGN.md](docs/DESIGN.md)).
 
-## Try it
+## The calculator
+
+Reaction runs as a small local app with two browser windows that stay in step: a
+control window (chat, scenario card, run history) and a results window (what we
+found, an interactive plot, a picker for any species, element, mineral or
+property).  Put one on each screen.  Nothing leaves your machine.
+
+```
+scripts\reaction.cmd            # starts the server and opens the control window
+```
+
+In the control window, say what to model ("heat seawater to 350 C at 500 bar,
+both modes") or edit the card by hand, then press Run.  Use "Open results
+window" to get the second window.  Ask for plot changes in either window
+("plot CaCl+ instead of Ca++", "show anhydrite on a linear axis") or click.  If
+Ollama is running (default model `qwen2.5:7b`, override with
+`REACTION_OLLAMA_MODEL`), it fills the card and asks about anything missing;
+without it, plain rules read the obvious details.  The language model never
+produces numbers, only the card and the plot request.
+
+Needed beside the code: the OBIGT csv files in `OBIGT/` and `EQ36_DB/data0.cmp`
+(ion sizes only) under `%LOCALAPPDATA%\Reaction\external` (override with
+`REACTION_DATA_DIR`).  Saved runs go to `workspace/` (override with
+`REACTION_WORKSPACE`).  What exists so far is seawater heating, static and
+flow-through; see [docs/PRODUCT.md](docs/PRODUCT.md) for the plan.
+
+## Try it (library)
 
 Needs Python 3.10+, numpy and scipy.  The thermodynamic database is not part
 of this repository; point the importer at your own copy of an EQ3/6 `data0`

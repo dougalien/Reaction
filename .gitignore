@@ -14,3 +14,6 @@ data/external/
 data0.*
 data1.*
 cache/
+
+# saved runs and chat session of the local app
+workspace/

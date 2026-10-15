@@ -1,0 +1,131 @@
+# Reaction: what it is for
+
+Written 2026-10-15 after a design conversation with the user. This supersedes the "input files first"
+framing in DESIGN.md. DESIGN.md still describes the physics and data layers; this file describes the
+product those layers serve.
+
+## Purpose
+
+A geochemical calculator for one person (a geochemist who models seafloor hydrothermal systems and
+carbon-sequestration sites). Not for sale and not built for a general audience. The goal is to ask a
+question in plain language, get a result, and learn from it graphically. Setup effort has kept many
+questions unresearched; removing that effort is the point.
+
+Not a re-implementation of EQ3/6. EQ3/6 is the example of the bare-bones workflow this replaces. It
+survives only as an oracle for checking numbers, never as a design driver. The reference for usability
+is Geochemist's Workbench: simple, visual, quick to change.
+
+## Questions it should answer (the user's own examples)
+
+1. A methane-bearing fluid reacts with calcite at 100 C (gas seep).
+2. How do mineral reaction rates behave under static versus flow-through conditions?
+3. Can aragonite converting to calcite over time be simulated? (kinetics)
+4. What happens to dissolved silica if quartz is undersaturated or not allowed to precipitate in a
+   mid-ocean-ridge reaction zone? (phase what-ifs)
+5. The first end-to-end target: "React seawater and basalt at 350 C", static and flow-through, over a
+   range of water/rock ratios.
+
+## How it is used
+
+1. The user types a question. The local LLM turns it into a visible, editable scenario card and asks only
+   about what is missing ("what W/R? static or flow-through?").
+2. The solver runs. The LLM never produces numbers.
+3. A results view shows "here is what we found" plus interactive plots. Any species, mineral, ratio or
+   property can go on an axis (CaCl+ instead of Ca++ is one click). Log/linear, overlays, static versus
+   flow-through together, fluid versus mineral views.
+4. Every run is saved with its scenario and the user's notes so earlier questions can be found again.
+
+A clickable mock-up of this flow was shown in the chat on 2026-10-15 (placeholder numbers) and the user
+approved the look.
+
+## Layout: two windows
+
+The user works on a two-screen laptop setup. The chat and scenario card live in one window and the
+results in another, one on each screen. So the app is a local server (nothing leaves the machine) with
+two browser windows that share one session: a control window (chat, scenario card, run history) and a
+results window (narrative, plots, species picker). Changes in either update the other. A second results
+window must be possible for comparing runs.
+
+## Rules
+
+- Numbers come only from the solver. The LLM fills the card, asks questions and narrates, and the
+  narration quotes values from the result table.
+- Everything works by hand with forms and clicks. The LLM is a convenience, never a dependency.
+- Every datum has a source (database, paper, fit). Rate laws included; Palandri and Kharaka (2004) is the
+  likely starting compilation for dissolution kinetics.
+- The basis, switching and suppression details are chosen by the program, never shown to the user unless
+  asked.
+- Solid solutions are a standard phase type, not an add-on. Isotopes (O, H, C, S, Sr) come as a layer on
+  the solved speciation.
+
+## Local LLM
+
+Ollama on the user's machine: `qwen2.5:7b` (4.7 GB), `llama3.2:3b`, `nomic-embed-text`; GPU is an RTX
+2060 with 6 GB. The 7B model has to fit beside the calculations. Use constrained (JSON-schema) output for
+the scenario card so a small model cannot wander. The embedding model can retrieve presets (seawater,
+basalt) and earlier runs.
+
+## What the engine needs, against what exists
+
+| Capability | Status |
+|---|---|
+| Water properties, HKF, logK from 0 to about 400 C, 1 kbar | done (M2), validated |
+| Speciation, B-dot/Davies, redox, pH scales | done (M1/M1.5), validated against 41 EQ3NR cases |
+| Closed-system equilibrium with minerals | works for carbonate/sulfate/hydroxide systems (seawater heating, EQ6 `micro`); unreliable at redox fronts with mineral reactants (EQ6 `methane`, `pyrsw`) |
+| Reaction path with reactants, T path, fixed fugacity | prototype, same limits |
+| Flow-through (products removed each step) | done for heating runs (app runner); not in the general path class |
+| Fluid mixing, titration | titration cases (`rwtitr`, `swtitr`) match EQ6; mixing not done |
+| Kinetics (rate laws, time axis, surface area) | not started |
+| Solid solutions | not started; affects solver design |
+| Gas phases and methane chemistry | partial; needs a decision about redox coupling |
+| Isotopes | not started |
+
+## Open decisions
+
+- Solver core: keep extending the mass-action Newton plus active-set approach, or move to Gibbs-energy
+  minimization, which handles phase appearance and solid solutions more systematically. Decide before more
+  solver work.
+- Which solid solutions and which isotope systems first.
+- Redox coupling in the gas-seep case: whether CH4 and sulfate are allowed to equilibrate at 100 C is a
+  modelling choice the program should ask about.
+
+## Built so far (the skeleton, 2026-10-15)
+
+`src/reaction/app/` holds the two-window calculator, standard library only on the server side:
+
+- `scenario.py`: the card, a flat set of fields (fluid, start and end temperature, steps, pressure, mode,
+  blocked minerals, activity model) with validation (for example water must stay liquid at the end
+  temperature). It is stored with every result, so a run can be reproduced from its card.
+- `engine.py`: runs a card. Heats a fluid in temperature steps at constant pressure and finds the
+  closed-system equilibrium at each step. Static keeps minerals; flow-through leaves each step's minerals
+  behind. Uses OBIGT/HKF logK above the 300 C limit of the EQ3/6 grids.
+- `assistant.py`: the chat. Ollama (JSON-schema output) fills the card and asks about missing details; plain
+  rules are the fallback. Numbers and modes from the model are kept only if the user's words contain them,
+  because the 7B model invents values otherwise.
+- `view.py`: what the results window shows; chat and clicks both go through it.
+- `narrate.py`: the "here is what we found" text, every number read from the result tables.
+- `session.py`, `server.py`, `static/`: shared state, the local server (loopback only, Host/Origin checked,
+  never shares a busy port) and the two pages. The plot is a small dependency-free SVG chart (log axis,
+  hover readout, SVG and CSV export), so nothing is loaded from the internet.
+
+Decided while building it: the scenario format is the flat card above; the plot library is our own SVG
+chart; the app needs no packages beyond numpy and scipy.
+
+Seawater heating is the only run kind so far. The next steps are the seawater-basalt reaction (needs the
+solver hardened for redox and many minerals), then the gas seep, kinetics, solid solutions and isotopes.
+
+## Solver status
+
+The closed-system solver (`equilibrium.py`) is used by the app. Against EQ6's own output: `micro`, `rwtitr`
+and `swtitr` match to the printed precision (tested in `tests/test_eq6_cases.py`); `methane` (49 of 1203
+numbers outside tolerance, mostly EQ6's pre-conversion reporting at xi = 0 and uranium phases near their
+boundaries) and `pyrsw` (17 of 935) now run through a 40-unit jump in log fO2 but are not yet exact. Two
+changes got there: a sign-split logarithmic mass balance for components held in no mineral (fixed the
+titration cases; using it for mineral-bound components broke `micro`, so it is not applied there), and the
+solver now raises an error instead of returning a state that is still supersaturated in a mineral it failed
+to add, which makes the step subdivision follow the redox front. Still open: `dedolo` (alias minerals with
+identical data, such as Dolomite and Dolomite-ord), `microft` (flow-through in the general path class), and
+the cases that need special basis switches, solid solutions, ion exchangers or kinetics.
+
+Nothing in `equilibrium.py`, `path.py`, `validation/eq6_*.py` or `app/` is committed yet; the last commit is
+M2 (e90e9d9).
