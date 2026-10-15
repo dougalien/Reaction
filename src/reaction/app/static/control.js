@@ -14,7 +14,7 @@ function render(s) {
   setIfIdle($("f-title"), c.title);
   $("f-fluid").value = c.fluid;
   $("f-activity_model").value = c.activity_model;
-  for (const k of ["pressure_bar", "t_start_c", "t_end_c", "steps"]) setIfIdle($("f-" + k), c[k]);
+  for (const k of ["p_start_bar", "p_end_bar", "t_start_c", "t_end_c", "steps"]) setIfIdle($("f-" + k), c[k]);
   document.querySelectorAll("#modeseg button").forEach((b) => b.classList.toggle("on", b.dataset.mode === c.mode));
 
   const blocked = $("blocked");
@@ -23,7 +23,8 @@ function render(s) {
       onclick: () => api("/api/card", { changes: { blocked_minerals: c.blocked_minerals.filter((x) => x !== m) } }) }, "×"))));
   if (!c.blocked_minerals.length) blocked.replaceChildren(h("span", { class: "hint" }, "none: every mineral in the database may form"));
 
-  $("problems").replaceChildren(...s.card_problems.map((p) => h("div", { class: "warnbox", style: "margin-bottom:4px" }, p)));
+  $("problems").replaceChildren(...s.card_problems.map((p) => h("div", { class: "errbox", style: "margin-bottom:4px" }, p)));
+  $("advice").replaceChildren(...(s.advisories || []).map((p) => h("div", { class: "warnbox", style: "margin-bottom:4px" }, p)));
 
   const running = s.run.state === "running";
   $("run").disabled = running;
@@ -73,7 +74,7 @@ $("msg").addEventListener("keydown", (ev) => {
 });
 
 function edit(field, value) { api("/api/card", { changes: { [field]: value } }); }
-for (const k of ["title", "pressure_bar", "t_start_c", "t_end_c", "steps"]) {
+for (const k of ["title", "p_start_bar", "p_end_bar", "t_start_c", "t_end_c", "steps"]) {
   $("f-" + k).addEventListener("change", (ev) => edit(k, ev.target.value));
 }
 $("f-fluid").addEventListener("change", (ev) => edit("fluid", ev.target.value));

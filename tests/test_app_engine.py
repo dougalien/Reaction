@@ -18,7 +18,7 @@ def engine():
 
 @pytest.fixture(scope="module")
 def result(engine):
-    card = Scenario(t_start_c=25.0, t_end_c=250.0, steps=10, pressure_bar=500.0, mode="both")
+    card = Scenario(t_start_c=25.0, t_end_c=250.0, steps=10, p_start_bar=500.0, p_end_bar=500.0, mode="both")
     return engine.run(card)
 
 
@@ -79,4 +79,4 @@ def test_story_and_catalog_are_consistent(result):
 
 def test_a_bad_card_is_refused(engine):
     with pytest.raises(ValueError, match="boils"):
-        engine.run(Scenario(pressure_bar=100.0))
+        engine.run(Scenario(p_start_bar=100.0, p_end_bar=100.0))

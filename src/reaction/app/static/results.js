@@ -86,11 +86,20 @@ function draw() {
   $("content").style.display = has ? "flex" : "none";
   if (!has) return;
   const view = snap.view;
-  $("title").textContent = result.scenario.title;
+  $("title").textContent = result.title || result.scenario.title;
   $("meta").textContent = `${result.summary} · ${result.created.replace("T", " ")} · ${result.elapsed_s} s`;
   $("story").replaceChildren(...(result.story || []).map((p) => h("p", {}, p)));
   $("notes").replaceChildren(...result.notes.map((n) => h("li", {}, n)));
-  document.title = "Reaction: " + result.scenario.title;
+  document.title = "Reaction: " + (result.title || result.scenario.title);
+
+  // horizontal axis: only a quantity that changes along the path, and a choice if both do
+  const varies = result.varies || ["temperature_c"];
+  const xkey = varies.includes(view.x) ? view.x : result.x.key;
+  const xax = result.axes ? result.axes[xkey] : result.x;
+  const xb = $("xaxis");
+  xb.style.display = varies.length > 1 ? "" : "none";
+  xb.replaceChildren(...varies.map((k) => h("button", {
+    class: k === xkey ? "on" : "", onclick: () => api("/api/view", { patch: { x: k } }) }, result.axes[k].label)));
 
   const modeIds = Object.keys(result.modes);
   const m = $("modes");
@@ -123,10 +132,15 @@ function draw() {
     h("span", { class: "sw", style: s.dash
       ? `border-color:color-mix(in srgb, ${s.color} 55%, var(--ink));border-top-style:dashed;border-top-width:2px`
       : `border-color:${s.color}` }), s.label)));
-  plot.set(result.x.values, series, {
-    log: useLog, yLabel: yLabel(items, view), xLabel: `${result.x.label} (${result.x.unit})`,
-    xName: result.x.label, xUnit: " " + result.x.unit, refLines: g === "saturation" ? [0] : null,
-    title: result.summary,
+  const rel = result.reliability ? result.reliability.levels : [];
+  const anyRisk = rel.some((l) => l !== "good");
+  const other = varies.length > 1 ? result.axes[varies.find((k) => k !== xkey)] : null;
+  $("reliab").style.display = anyRisk ? "" : "none";
+  plot.set(xax.values, series, {
+    log: useLog, yLabel: yLabel(items, view), xLabel: `${xax.label} (${xax.unit})`,
+    xName: xax.label, xUnit: " " + xax.unit, refLines: g === "saturation" ? [0] : null,
+    title: result.summary, strip: anyRisk ? rel : null,
+    sub: other ? (i) => `${other.label} ${fmtVal(other.values[i])} ${other.unit}` : null,
   });
   drawPicker();
 }
@@ -174,8 +188,9 @@ function download(name, text, type) {
 $("dl-csv").addEventListener("click", () => {
   const series = currentSeries();
   const q = (s) => `"${s.replace(/"/g, '""')}"`;
-  const rows = [[q(`${result.x.label} (${result.x.unit})`), ...series.map((s) => q(s.csv))].join(",")];
-  result.x.values.forEach((x, i) => rows.push([x, ...series.map((s) => (s.y[i] === null ? "" : s.y[i]))].join(",")));
+  const T = result.axes.temperature_c, P = result.axes.pressure_bar;
+  const rows = [[q(`${T.label} (${T.unit})`), q(`${P.label} (${P.unit})`), ...series.map((s) => q(s.csv))].join(",")];
+  T.values.forEach((t, i) => rows.push([t, P.values[i], ...series.map((s) => (s.y[i] === null ? "" : s.y[i]))].join(",")));
   download(`${result.id}.csv`, rows.join("\n"), "text/csv");
 });
 $("dl-svg").addEventListener("click", () => download(`${result.id}.svg`, plot.svgText(), "image/svg+xml"));

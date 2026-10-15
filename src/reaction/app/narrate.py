@@ -51,7 +51,34 @@ def _retained(result: dict, run: dict, element: str) -> float | None:
     return (series[i1] * water[i1]) / start
 
 
-def _mineral_clauses(run: dict, temps: list, blocked: set[str]) -> list[str]:
+def _axes(result: dict):
+    """(temperatures, pressures, varying axes) of the run's path."""
+    axes = result["axes"]
+    return axes["temperature_c"]["values"], axes["pressure_bar"]["values"], result["varies"]
+
+
+def point_text(result: dict, i: int) -> str:
+    """Where on the path point ``i`` is, mentioning only what varies."""
+    temps, pressures, varies = _axes(result)
+    if "temperature_c" in varies and "pressure_bar" in varies:
+        return f"{temps[i]:.0f} °C and {pressures[i]:.0f} bar"
+    if "pressure_bar" in varies:
+        return f"{pressures[i]:.0f} bar"
+    return f"{temps[i]:.0f} °C"
+
+
+def _when(result: dict, i: int) -> str:
+    temps, pressures, varies = _axes(result)
+    if i == 0:
+        return "from the start"
+    if "temperature_c" in varies and "pressure_bar" in varies:
+        return f"from about {temps[i]:.0f} °C ({pressures[i]:.0f} bar)"
+    if "pressure_bar" in varies:
+        return f"at about {pressures[i]:.0f} bar"
+    return f"from about {temps[i]:.0f} °C"
+
+
+def _mineral_clauses(result: dict, run: dict, blocked: set[str]) -> list[str]:
     found = []
     for name, series in run["minerals"].items():
         if name.lower() in blocked:
@@ -61,8 +88,7 @@ def _mineral_clauses(run: dict, temps: list, blocked: set[str]) -> list[str]:
             continue
         end = series[_last_valid(series)]
         peak = max(v for v in series if v is not None)
-        when = "from the start" if i == 0 else f"from about {temps[i]:.0f} °C"
-        clause = f"{pretty_mineral(name).lower()} {when}"
+        clause = f"{pretty_mineral(name).lower()} {_when(result, i)}"
         if end > APPEARS:
             clause += f" ({_amount(end)} per kg of original water at the end"
             clause += ")" if peak <= end * 1.05 else f", up to {_amount(peak)} on the way)"
@@ -74,21 +100,20 @@ def _mineral_clauses(run: dict, temps: list, blocked: set[str]) -> list[str]:
 
 def story(result: dict) -> list[str]:
     sc = result["scenario"]
-    temps = result["x"]["values"]
     blocked = {b.lower() for b in sc["blocked_minerals"]}
     modes = result["modes"]
     paras: list[str] = []
 
     first_key = next(iter(modes))
-    props = modes[first_key]["properties"]["pH"]
-    i0, i1 = _first_valid(props), _last_valid(props)
+    ph = modes[first_key]["properties"]["pH"]
+    i0, i1 = _first_valid(ph), _last_valid(ph)
     paras.append(
         f"{result['summary'][0].upper()}{result['summary'][1:]}. The in situ pH goes from "
-        f"{props[i0]:.1f} at {temps[i0]:.0f} °C to {props[i1]:.1f} at {temps[i1]:.0f} °C.")
+        f"{ph[i0]:.1f} at {point_text(result, i0)} to {ph[i1]:.1f} at {point_text(result, i1)}.")
 
     labels = {"static": "Static", "flow_through": "Flow-through"}
     for key, run in modes.items():
-        clauses = _mineral_clauses(run, temps, blocked)
+        clauses = _mineral_clauses(result, run, blocked)
         lost = []
         for el in ("S", "Mg", "Ca", "C"):
             kept = _retained(result, run, el)
@@ -131,4 +156,12 @@ def story(result: dict) -> list[str]:
     if held:
         paras.append("Held out as kinetically blocked although the fluid is supersaturated in them: "
                      + ", ".join(held) + ".")
+
+    levels = result.get("reliability", {}).get("levels", [])
+    if any(level != "good" for level in levels):
+        worst = "poor" if "poor" in levels else "caution"
+        where = "some" if worst == "caution" else "part"
+        paras.append(f"{where.capitalize()} of this path lies where the thermodynamics of charged species is "
+                     f"less certain ({'unreliable' if worst == 'poor' else 'approximate'} there): see "
+                     f"Assumptions and limits, and the coloured strip under the plot.")
     return paras

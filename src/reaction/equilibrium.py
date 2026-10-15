@@ -57,7 +57,7 @@ class System:
             pressure_bar = self.db.reference_pressure(temperature_c)
         key = (round(temperature_c, 9), None if pressure_bar is None else round(pressure_bar, 9))
         if key not in self._models:
-            if len(self._models) > 32:
+            if len(self._models) > 400:
                 self._models.clear()
             self._models[key] = AqueousModel(self.db, self.net, temperature_c, pressure_bar,
                                              self.activity_model, self.ph_scale)

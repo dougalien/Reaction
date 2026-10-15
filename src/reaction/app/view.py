@@ -43,7 +43,7 @@ def default_view(result: dict) -> dict:
     if not items:
         biggest = sorted(first["species"], key=lambda k: -max(v or 0.0 for v in first["species"][k]))[:3]
         items = [{"group": "species", "key": k} for k in biggest]
-    return {"items": items, "log": True, "modes": modes, "unit": "mmol"}
+    return {"items": items, "log": True, "modes": modes, "unit": "mmol", "x": result["x"]["key"]}
 
 
 def _present(item: dict, result: dict) -> bool:
@@ -56,11 +56,15 @@ def _present(item: dict, result: dict) -> bool:
 
 def sanitize(view: dict, result: dict | None) -> dict:
     """Drop anything the result cannot plot and enforce one unit group."""
-    out = {"items": [], "log": bool(view.get("log", True)), "modes": [], "unit": view.get("unit", "mmol")}
+    out = {"items": [], "log": bool(view.get("log", True)), "modes": [], "unit": view.get("unit", "mmol"),
+           "x": view.get("x", "temperature_c")}
     if out["unit"] not in UNITS:
         out["unit"] = "mmol"
     if result is None:
         return out
+    # the horizontal axis must be a quantity that actually changes along the path
+    if out["x"] not in result.get("varies", []):
+        out["x"] = result["x"]["key"]
     avail = list(result["modes"])
     out["modes"] = [m for m in view.get("modes", avail) if m in avail] or avail
     group = None
@@ -77,7 +81,7 @@ def sanitize(view: dict, result: dict | None) -> dict:
 
 def apply_patch(view: dict, patch: dict[str, Any], result: dict | None) -> dict:
     new = {**view, "items": [dict(i) for i in view.get("items", [])]}
-    for key in ("log", "modes", "unit"):
+    for key in ("log", "modes", "unit", "x"):
         if key in patch and patch[key] is not None:
             new[key] = patch[key]
     if "replace" in patch:

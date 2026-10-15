@@ -30,7 +30,8 @@ SCHEMA = {
                 "t_start_c": {"type": "number"},
                 "t_end_c": {"type": "number"},
                 "steps": {"type": "integer"},
-                "pressure_bar": {"type": "number"},
+                "p_start_bar": {"type": "number"},
+                "p_end_bar": {"type": "number"},
                 "mode": {"type": "string", "enum": ["static", "flow_through", "both"]},
                 "blocked_minerals": {"type": "array", "items": {"type": "string"}},
             },
@@ -39,10 +40,11 @@ SCHEMA = {
         "show": {"type": "array", "items": {"type": "string"}},
         "hide": {"type": "array", "items": {"type": "string"}},
         "axis": {"type": "string", "enum": ["log", "linear", "unchanged"]},
+        "x_axis": {"type": "string", "enum": ["temperature", "pressure", "unchanged"]},
         "run": {"type": "boolean"},
         "question": {"type": "string"},
     },
-    "required": ["reply", "scenario_changes", "show", "hide", "axis", "run", "question"],
+    "required": ["reply", "scenario_changes", "show", "hide", "axis", "x_axis", "run", "question"],
 }
 
 SYSTEM = """You are the assistant inside a personal geochemical calculator. The user describes a \
@@ -52,9 +54,13 @@ Rules:
 - Change only the card fields the user actually asked for or clearly implied. Never invent values.
 - You never state or guess any chemical results (concentrations, pH, minerals). The calculator does that.
 - Temperatures are degrees C. Pressure is in bar (1 MPa = 10 bar, 1 kbar = 1000 bar).
-- Only heating runs exist so far. If the user asks for something else, say so briefly in reply.
+- A run follows a straight line from a start point to an end point in temperature and pressure. To hold
+  pressure fixed at X, set both p_start_bar and p_end_bar to X; likewise for temperature. Either or both
+  may change (heating, cooling, compression, decompression).
+- Only these path runs exist so far. If the user asks for something else, say so briefly in reply.
 - "show" lists species, minerals, or properties to plot exactly as the user wrote them (for example
   "CaCl+", "anhydrite", "pH", "SO4--"). "hide" lists ones to remove. "axis" is log, linear or unchanged.
+  "x_axis" is temperature, pressure or unchanged.
 - Set run to true only when the user asks to run, calculate, simulate, react, or heat something.
 - If something essential is unclear, put ONE short question in "question"; otherwise leave it empty.
 - reply: one or two short sentences saying what you changed. No chemistry claims.
@@ -69,9 +75,11 @@ Currently plotted: {plotted}
 
 Examples (user message -> JSON):
 "heat seawater to 300 C at 400 bar, static" ->
-{{"reply":"Set seawater heated to 300 C at 400 bar, static.","scenario_changes":{{"t_end_c":300,"pressure_bar":400,"mode":"static"}},"show":[],"hide":[],"axis":"unchanged","run":true,"question":""}}
+{{"reply":"Set seawater heated to 300 C at 400 bar, static.","scenario_changes":{{"t_end_c":300,"p_start_bar":400,"p_end_bar":400,"mode":"static"}},"show":[],"hide":[],"axis":"unchanged","x_axis":"unchanged","run":true,"question":""}}
+"decompress from 1000 to 200 bar at 300 C" ->
+{{"reply":"Set 300 C held fixed, pressure from 1000 down to 200 bar.","scenario_changes":{{"t_start_c":300,"t_end_c":300,"p_start_bar":1000,"p_end_bar":200}},"show":[],"hide":[],"axis":"unchanged","x_axis":"pressure","run":true,"question":""}}
 "plot CaCl+ instead of Ca++" ->
-{{"reply":"Plotting CaCl+ in place of Ca++.","scenario_changes":{{}},"show":["CaCl+"],"hide":["Ca++"],"axis":"unchanged","run":false,"question":""}}
+{{"reply":"Plotting CaCl+ in place of Ca++.","scenario_changes":{{}},"show":["CaCl+"],"hide":["Ca++"],"axis":"unchanged","x_axis":"unchanged","run":false,"question":""}}
 """
 
 
@@ -82,6 +90,7 @@ class Interpretation:
     show: list[str] = field(default_factory=list)
     hide: list[str] = field(default_factory=list)
     axis: str = "unchanged"
+    x_axis: str = "unchanged"              # "temperature_c", "pressure_bar" or "unchanged"
     run: bool = False
     question: str = ""
     source: str = "rules"                  # "model" or "rules"
@@ -134,6 +143,8 @@ def interpret(text: str, card: Scenario, plotted: list[str], history: list[dict]
             show=[str(s) for s in data.get("show", []) if str(s).strip()],
             hide=[str(s) for s in data.get("hide", []) if str(s).strip()],
             axis=data.get("axis", "unchanged") if data.get("axis") in ("log", "linear") else "unchanged",
+            x_axis={"temperature": "temperature_c", "pressure": "pressure_bar"}.get(
+                data.get("x_axis"), "unchanged"),
             run=bool(data.get("run", False)), question=str(data.get("question", "")).strip(),
             source="model")
     except (OSError, ValueError, KeyError, TypeError):
@@ -143,9 +154,15 @@ def interpret(text: str, card: Scenario, plotted: list[str], history: list[dict]
     # A small model sometimes invents values.  Numbers and modes are kept only if the user's own
     # words contain them, and the rules' reading of those fields wins over the model's.
     got.scenario_changes = _guard(got.scenario_changes, text)
-    for key in ("t_start_c", "t_end_c", "pressure_bar", "mode", "fluid", "steps"):
+    for group in (T_KEYS, P_KEYS):                    # the rules' reading of T or P replaces the model's
+        if any(k in rules.scenario_changes for k in group):
+            for k in group:
+                got.scenario_changes.pop(k, None)
+    for key in (*T_KEYS, *P_KEYS, "mode", "fluid", "steps"):
         if key in rules.scenario_changes:
             got.scenario_changes[key] = rules.scenario_changes[key]
+    if got.x_axis == "unchanged":
+        got.x_axis = rules.x_axis
     got.mode_mentioned = rules.mode_mentioned
     plot_request = bool(rules.show or rules.hide)
     got.run = rules.run if plot_request else (got.run or rules.run)
@@ -156,6 +173,9 @@ def interpret(text: str, card: Scenario, plotted: list[str], history: list[dict]
     return got
 
 
+T_KEYS = ("t_start_c", "t_end_c", "temperature_c")
+P_KEYS = ("p_start_bar", "p_end_bar", "pressure_bar")
+_P_UNITS = {"bar": 1.0, "bars": 1.0, "mpa": 10.0, "kbar": 1000.0, "gpa": 10000.0, "atm": 1.01325}
 _BLOCK_WORDS = re.compile(r"block|suppress|prevent|exclude|forbid|not allowed|can'?t precipitate|cannot|"
                           r"without|\bno\b", re.I)
 
@@ -170,9 +190,9 @@ def _guard(changes: dict, text: str) -> dict:
     out = {}
     for key, value in changes.items():
         try:
-            if key in ("t_start_c", "t_end_c", "steps") and not said(value):
+            if key in (*T_KEYS, "steps") and not said(value):
                 continue
-            if key == "pressure_bar" and not said(value, (1.0, 10.0, 1000.0, 1.01325)):
+            if key in P_KEYS and not said(value, (1.0, 10.0, 1000.0, 10000.0, 1.01325)):
                 continue
         except (TypeError, ValueError):
             continue
@@ -187,7 +207,8 @@ def _guard(changes: dict, text: str) -> dict:
 # ---- plain rules ------------------------------------------------------------------------------------
 _NUM = r"(-?\d+(?:\.\d+)?)"
 _DEG = r"\s*(?:°|deg(?:rees?)?)?\s*c(?![a-z])"
-RUN_WORDS = re.compile(r"\b(run|go|start|simulate|calculate|compute|react|heat|warm|do it|what happens)\b", re.I)
+RUN_WORDS = re.compile(r"\b(run|go|start|simulate|calculate|compute|react|heat|warm|cool|decompress|"
+                       r"compress|depressuri[sz]e|pressuri[sz]e|do it|what happens)\b", re.I)
 
 
 def interpret_rules(text: str, card: Scenario) -> Interpretation:
@@ -195,18 +216,40 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
     out = Interpretation(source="rules")
     ch = out.scenario_changes
 
-    m = re.search(rf"from\s+{_NUM}(?:{_DEG})?\s*(?:to|-|until)\s*{_NUM}{_DEG}", low)
-    if m:
-        ch["t_start_c"], ch["t_end_c"] = float(m.group(1)), float(m.group(2))
+    unit_re = r"(bars?|mpa|kbar|gpa|atm)\b"
+    t_range = re.search(rf"from\s+{_NUM}(?:{_DEG})?\s*(?:to|-|until)\s*{_NUM}{_DEG}", low)
+    p_range = re.search(rf"(?:from\s+)?{_NUM}(?:\s*{unit_re})?\s*(?:to|-|until)\s*{_NUM}\s*{unit_re}", low)
+    pressure_verb = bool(re.search(r"compress|pressuri|(lower|drop|raise|reduce|increase) the pressure", low))
+    isothermal = bool(re.search(r"isotherm|constant temperature|fixed temperature|hold the temperature", low))
+
+    t_single = None
+    if t_range:
+        ch["t_start_c"], ch["t_end_c"] = float(t_range.group(1)), float(t_range.group(2))
     else:
         m = re.search(rf"(?:to|up to|until|at)\s*{_NUM}{_DEG}", low) or re.search(rf"{_NUM}{_DEG}", low)
         if m:
-            ch["t_end_c"] = float(m.group(1))
-    m = re.search(rf"{_NUM}\s*(bars?|mpa|kbar|atm)\b", low)
+            t_single = float(m.group(1))
+    if t_single is not None:
+        # a pressure sweep at "300 C" holds 300 C; "heat to 300 C" ends there
+        if isothermal or p_range or pressure_verb:
+            ch["temperature_c"] = t_single
+        else:
+            ch["t_end_c"] = t_single
+    if p_range:
+        k_end = _P_UNITS[p_range.group(4)]
+        k_start = _P_UNITS[p_range.group(2)] if p_range.group(2) else k_end     # "from 2 kbar to 500 bar"
+        ch["p_start_bar"], ch["p_end_bar"] = float(p_range.group(1)) * k_start, float(p_range.group(3)) * k_end
+    else:
+        m = re.search(rf"{_NUM}\s*{unit_re}", low)
+        if m:
+            value = float(m.group(1)) * _P_UNITS[m.group(2)]
+            if pressure_verb:
+                ch["p_end_bar"] = value                    # "decompress to 200 bar"
+            else:
+                ch["pressure_bar"] = value                 # "at 400 bar" holds it
+    m = re.search(r"\b(?:against|versus|vs\.?|as a function of|over)\s+(?:the\s+)?(pressure|temperature)\b", low)
     if m:
-        v, unit = float(m.group(1)), m.group(2)
-        ch["pressure_bar"] = v * (10.0 if unit == "mpa" else 1000.0 if unit == "kbar" else
-                                  1.01325 if unit == "atm" else 1.0)
+        out.x_axis = "pressure_bar" if m.group(1) == "pressure" else "temperature_c"
     m = re.search(r"(\d+)\s*(?:steps|points)", low)
     if m:
         ch["steps"] = int(m.group(1))
@@ -241,10 +284,18 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
         out.axis = "linear"
     if ch:
         bits = []
-        if "t_end_c" in ch:
+        if "t_start_c" in ch and "t_end_c" in ch:
+            bits.append(f"temperature {ch['t_start_c']:g} to {ch['t_end_c']:g} C")
+        elif "t_end_c" in ch:
             bits.append(f"end temperature {ch['t_end_c']:g} C")
+        if "temperature_c" in ch:
+            bits.append(f"temperature held at {ch['temperature_c']:g} C")
+        if "p_start_bar" in ch and "p_end_bar" in ch:
+            bits.append(f"pressure {ch['p_start_bar']:g} to {ch['p_end_bar']:g} bar")
+        elif "p_end_bar" in ch:
+            bits.append(f"end pressure {ch['p_end_bar']:g} bar")
         if "pressure_bar" in ch:
-            bits.append(f"pressure {ch['pressure_bar']:g} bar")
+            bits.append(f"pressure held at {ch['pressure_bar']:g} bar")
         if "mode" in ch:
             bits.append(ch["mode"].replace("_", "-"))
         out.reply = "Set " + ", ".join(bits) + "." if bits else ""
@@ -252,6 +303,8 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
 
 
 def _clean(s: str) -> str:
+    s = re.sub(r"\b(?:against|versus|vs\.?|as a function of|over)\s+(?:the\s+)?(?:pressure|temperature)\b",
+               "", s, flags=re.I)
     s = re.sub(r"\b(on|using|with|in)\s+(?:a\s+|an\s+|the\s+)?(?:linear|log(?:arithmic)?)(?:\s+(?:axis|scale))?",
                "", s, flags=re.I)
     s = re.sub(r"\b(please|the|on the plot|in the plot|from the plot|on the graph)\b", "", s, flags=re.I)

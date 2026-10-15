@@ -23,7 +23,7 @@
       <textarea id="msg" rows="2" placeholder="Describe what to model, or ask to change the plot" aria-label="Message"></textarea>
       <button class="primary" type="submit">Send</button>
     </form>
-    <div class="hint" style="margin-top:4px">Enter sends, Shift+Enter adds a line. Try: "heat seawater to 300 C, both modes", "plot CaCl+ instead of Ca++", "new".</div>
+    <div class="hint" style="margin-top:4px">Enter sends, Shift+Enter adds a line. Try: "heat seawater to 300 C, both modes", "decompress from 1000 to 200 bar at 300 C", "plot CaCl+ instead of Ca++", "new".</div>
   </section>
   <aside class="side">
     <section class="panel" id="card">
@@ -31,15 +31,20 @@
         <h2>Scenario card</h2>
         <button class="ghost" id="reset" title="Back to the default card">Reset</button>
       </div>
-      <label class="f">Title<input id="f-title" type="text"></label>
+      <label class="f">Title<input id="f-title" type="text" placeholder="optional"></label>
       <div class="grid2" style="margin-top:8px">
         <label class="f">Fluid<select id="f-fluid"></select></label>
-        <label class="f">Pressure (bar)<input id="f-pressure_bar" type="number" min="1" step="any"></label>
-        <label class="f">Start (&deg;C)<input id="f-t_start_c" type="number" step="any"></label>
-        <label class="f">End (&deg;C)<input id="f-t_end_c" type="number" step="any"></label>
         <label class="f">Steps<input id="f-steps" type="number" min="2" max="200" step="1"></label>
-        <label class="f">Activity model<select id="f-activity_model"><option value="bdot">B-dot</option><option value="davies">Davies</option></select></label>
       </div>
+      <div class="small muted" style="margin:10px 0 4px">Path: a straight line from start to end</div>
+      <div class="grid2">
+        <label class="f">Temperature start (&deg;C)<input id="f-t_start_c" type="number" min="0" max="600" step="any"></label>
+        <label class="f">Temperature end (&deg;C)<input id="f-t_end_c" type="number" min="0" max="600" step="any"></label>
+        <label class="f">Pressure start (bar)<input id="f-p_start_bar" type="number" min="1" max="5000" step="any"></label>
+        <label class="f">Pressure end (bar)<input id="f-p_end_bar" type="number" min="1" max="5000" step="any"></label>
+      </div>
+      <div class="hint" style="margin-top:4px">Equal start and end hold that variable fixed. Equilibrium constants are computed at every point, so any temperature and pressure works (up to 600 &deg;C and 5000 bar).</div>
+      <label class="f" style="margin-top:8px">Activity model<select id="f-activity_model"><option value="bdot">B-dot</option><option value="davies">Davies</option></select></label>
       <div style="margin-top:10px">
         <div class="small muted" style="margin-bottom:4px">Mode</div>
         <div class="seg" id="modeseg" role="group" aria-label="Mode">
@@ -53,6 +58,7 @@
         <input id="add-blocked" type="text" placeholder="add a mineral name, press Enter" style="margin-top:6px" aria-label="Add a blocked mineral">
       </div>
       <div id="problems" style="margin-top:10px"></div>
+      <div id="advice" style="margin-top:6px"></div>
       <div class="row" style="margin-top:12px">
         <button class="primary" id="run">Run</button>
         <span id="runmsg" class="small muted"></span>

@@ -83,6 +83,17 @@ class LinePlot {
     (opts.refLines || []).forEach((v) => {
       if (!opts.log) g += `<line class="refline" x1="${m.l}" x2="${m.l + pw}" y1="${f(sy(v))}" y2="${f(sy(v))}"/>`;
     });
+    // reliability strip along the bottom edge: the colour of each point's stretch of the path
+    if (opts.strip) {
+      const fills = { good: "var(--ok)", caution: "var(--warn)", poor: "var(--bad)" };
+      const pts = x.map((v, i) => ({ v, i })).filter((p) => p.v !== null);
+      pts.forEach((p, k) => {
+        const lo = k === 0 ? p.v : (pts[k - 1].v + p.v) / 2, hi = k === pts.length - 1 ? p.v : (p.v + pts[k + 1].v) / 2;
+        const xa = Math.min(sx(lo), sx(hi)), wd = Math.max(Math.abs(sx(hi) - sx(lo)), 2);
+        g += `<rect x="${f(xa)}" y="${m.t + ph - 5}" width="${f(wd)}" height="5" ` +
+          `style="fill:${fills[opts.strip[p.i]] || fills.good};stroke:none" opacity="0.85"/>`;
+      });
+    }
     // thick solid lines first, then thin darker dashed ones on top, so a dashed line that follows
     // a solid one exactly is still visible
     [...series].sort((a, b) => (a.dash ? 1 : 0) - (b.dash ? 1 : 0)).forEach((s) => {
@@ -119,6 +130,10 @@ class LinePlot {
     const cross = this.svgHost.querySelector("#cross");
     if (cross) { cross.setAttribute("x1", sx(x[best])); cross.setAttribute("x2", sx(x[best])); cross.style.display = ""; }
     let html = `<b>${opts.xName || "x"} ${fmtVal(x[best])}${opts.xUnit || ""}</b>`;
+    if (opts.sub) html += `<div class="muted">${opts.sub(best)}</div>`;
+    if (opts.strip && opts.strip[best] && opts.strip[best] !== "good") {
+      html += `<div class="muted">thermodynamics: ${opts.strip[best] === "poor" ? "unreliable" : "approximate"}</div>`;
+    }
     series.forEach((s) => {
       html += `<div><span style="color:${s.color}">■</span> ${s.label}: ${fmtVal(s.y[best])}</div>`;
     });

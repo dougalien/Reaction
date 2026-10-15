@@ -29,8 +29,11 @@ produces numbers, only the card and the plot request.
 Needed beside the code: the OBIGT csv files in `OBIGT/` and `EQ36_DB/data0.cmp`
 (ion sizes only) under `%LOCALAPPDATA%\Reaction\external` (override with
 `REACTION_DATA_DIR`).  Saved runs go to `workspace/` (override with
-`REACTION_WORKSPACE`).  What exists so far is seawater heating, static and
-flow-through; see [docs/PRODUCT.md](docs/PRODUCT.md) for the plan.
+`REACTION_WORKSPACE`).  What exists so far is seawater along a straight
+temperature-pressure path (0 to 600 C, 1 to 5000 bar, either or both changing),
+static and flow-through.  There are no fixed-pressure databases: equilibrium
+constants are computed at every point, and the app rates how far to trust them
+there; see [docs/PRODUCT.md](docs/PRODUCT.md) for the plan and the accuracy map.
 
 ## Try it (library)
 

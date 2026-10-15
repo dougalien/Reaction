@@ -93,12 +93,12 @@ basalt) and earlier runs.
 
 `src/reaction/app/` holds the two-window calculator, standard library only on the server side:
 
-- `scenario.py`: the card, a flat set of fields (fluid, start and end temperature, steps, pressure, mode,
-  blocked minerals, activity model) with validation (for example water must stay liquid at the end
-  temperature). It is stored with every result, so a run can be reproduced from its card.
-- `engine.py`: runs a card. Heats a fluid in temperature steps at constant pressure and finds the
+- `scenario.py`: the card, a flat set of fields (fluid, start and end temperature, start and end pressure,
+  steps, mode, blocked minerals, activity model) with validation (for example water must stay liquid all
+  along the path). It is stored with every result, so a run can be reproduced from its card.
+- `engine.py`: runs a card. Takes a fluid along a straight line in temperature and pressure and finds the
   closed-system equilibrium at each step. Static keeps minerals; flow-through leaves each step's minerals
-  behind. Uses OBIGT/HKF logK above the 300 C limit of the EQ3/6 grids.
+  behind. Uses OBIGT/HKF logK at every (T, P); also rates how far to trust the thermodynamics along the path.
 - `assistant.py`: the chat. Ollama (JSON-schema output) fills the card and asks about missing details; plain
   rules are the fallback. Numbers and modes from the model are kept only if the user's words contain them,
   because the 7B model invents values otherwise.
@@ -111,8 +111,47 @@ basalt) and earlier runs.
 Decided while building it: the scenario format is the flat card above; the plot library is our own SVG
 chart; the app needs no packages beyond numpy and scipy.
 
-Seawater heating is the only run kind so far. The next steps are the seawater-basalt reaction (needs the
+Seawater along a temperature-pressure path is the only run kind so far. The next steps are the seawater-basalt reaction (needs the
 solver hardened for redox and many minerals), then the gas seep, kinetics, solid solutions and isotopes.
+
+## Pressure and temperature are free variables
+
+There are no fixed-pressure databases. Every equilibrium constant is computed from Gibbs energies at the
+temperature and pressure of each point (IAPWS-95 water, Johnson-Norton dielectric constant, HKF equations for
+aqueous species, SUPCRT92 volume terms for minerals), so any T from 0 to 600 C and any P from 1 to 5000 bar
+can be chosen, and either can change along a run. A run follows a straight line from a start (T, P) to an end
+(T, P); equal values hold a variable fixed. This replaces the old workflow of generating a database per
+pressure (saturation, 300, 400, 500 bar) with SUPCRT92.
+
+How far to trust it. The water ionization constant is measured everywhere (Marshall and Franck, 1981) and
+depends on the same dielectric constant, g function and Born coefficients as every charged species, so the
+engine's own value, compared with the measurement, is an independent check at any (T, P). The app runs it
+along every path, flags stretches as good (within 0.15 log units and density at least 0.35 g/cm3), approximate
+(within 0.35) or unreliable, and shows this before the run (card advice), in the narrative, in the notes and as
+a coloured strip under the plot. Measured on 2026-10-15 (engine minus measurement, log units):
+
+| T (C) | 500 bar | 1000 bar | 2000 bar | 5000 bar |
+|---|---|---|---|---|
+| 25 | -0.01 | -0.03 | -0.07 | -0.24 |
+| 100 | -0.01 | -0.01 | -0.03 | -0.16 |
+| 200 | +0.04 | +0.06 | +0.07 | 0.00 |
+| 300 | +0.04 | +0.12 | +0.19 | +0.17 |
+| 350 | -0.03 | +0.10 | +0.23 | +0.25 |
+| 400 | -0.53 | +0.03 | +0.26 | +0.33 |
+| 500 | -1.76 (low density) | -0.36 | +0.26 | +0.46 |
+| 600 | -0.61 (low density) | -0.84 | +0.22 | +0.58 |
+
+The surface is smooth, so the pattern is the model's accuracy and not a bug: sound to about 350 C and 2 kbar,
+poor near the critical point and wherever water density is below about 0.35 g/cm3. The reaction volumes check
+out too (water ionization -22 cm3/mol at 25 C; calcite and anhydrite solubility rise with pressure).
+`tests/test_pressure.py` holds these checks.
+
+Not covered yet, and the most important for gas-bearing systems: free gas phases. A gas species'
+Gibbs energy is its 1-bar ideal-gas standard state, so the fugacity reported at equilibrium is correct at any
+pressure, but there is no gas phase in the assemblage and no fugacity coefficients to turn fugacity into
+partial pressure (CO2, CH4, H2O vapour), no gas-liquid equilibrium and no CO2 solubility model at high P. Other
+limits: minerals have constant molar volume (as in SUPCRT92), the B-dot activity model is tabulated only to
+300 C (held above), and ionic-strength effects beyond a few molal need Pitzer.
 
 ## Solver status
 

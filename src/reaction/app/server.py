@@ -181,4 +181,5 @@ def make_server(port: int | None = DEFAULT_PORT, workspace: Path | None = None,
     httpd.session = Session(workspace or config.workspace_dir(), engine or Engine(),   # type: ignore[attr-defined]
                             model if model is not None else Ollama())
     httpd.session.watch_model()          # type: ignore[attr-defined]
+    httpd.session.preload_engine()       # type: ignore[attr-defined]
     return httpd

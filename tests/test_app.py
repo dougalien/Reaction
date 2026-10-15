@@ -23,7 +23,13 @@ from reaction.app.session import Session
 # ---- helpers ------------------------------------------------------------------------------------
 def fake_result(card: Scenario, run_id: str = "20260101-000000-test") -> dict:
     n = 6
-    temps = [card.t_start_c + i * (card.t_end_c - card.t_start_c) / (n - 1) for i in range(n)]
+    points = [(card.t_start_c + (card.t_end_c - card.t_start_c) * i / (n - 1),
+               card.p_start_bar + (card.p_end_bar - card.p_start_bar) * i / (n - 1)) for i in range(n)]
+    axes = {"temperature_c": {"key": "temperature_c", "label": "Temperature", "unit": "°C",
+                              "values": [p[0] for p in points]},
+            "pressure_bar": {"key": "pressure_bar", "label": "Pressure", "unit": "bar",
+                             "values": [p[1] for p in points]}}
+    varies = card.varies
     rows = [{"pH": 8.0 - 0.5 * i, "ionic_strength": 0.6, "water_kg": 1.0, "log_aw": -0.02,
              "species": {"Ca+2": 0.010 - 0.001 * i, "CaCl+": 0.001 * i, "Mg+2": 0.05, "SO4-2": 0.028 - 0.004 * i},
              "elements": {"Ca": 0.0102, "Mg": 0.053 - 0.004 * i, "S": 0.028 - 0.004 * i},
@@ -42,10 +48,11 @@ def fake_result(card: Scenario, run_id: str = "20260101-000000-test") -> dict:
                      "dolomite": {"label": "Dolomite", "blocked": True}},
     }
     return {"id": run_id, "created": "2026-01-01T00:00:00", "scenario": card.to_dict(),
-            "summary": card.describe(), "database": "stub",
+            "title": card.display_title, "summary": card.describe(), "database": "stub",
             "fluid": {"key": "seawater", "label": "Seawater", "description": "", "measured_t_c": 25.0,
                       "source": "", "totals_molal": {}},
-            "x": {"key": "temperature_c", "label": "Temperature", "unit": "°C", "values": temps},
+            "axes": axes, "varies": varies, "x": axes[varies[0] if varies else "temperature_c"],
+            "reliability": {"levels": ["good"] * n, "deviation": [0.0] * n, "density": [0.9] * n},
             "start_elements": {"Ca": 0.0102, "Mg": 0.053, "S": 0.028}, "catalog": catalog,
             "modes": runs, "notes": ["stub"], "elapsed_s": 0.0}
 
@@ -128,12 +135,12 @@ def test_card_edits_are_validated_field_by_field():
 
 
 def test_card_problems_cover_boiling_and_ranges():
-    low_p = Scenario(pressure_bar=100.0)                          # water boils at 350 C below ~165 bar
+    low_p = Scenario(p_start_bar=100.0, p_end_bar=100.0)          # water boils at 350 C below ~165 bar
     assert any("boils" in p for p in low_p.problems())
-    assert Scenario(t_start_c=300, t_end_c=100).problems()
+    assert Scenario(t_end_c=700).problems() and Scenario(p_end_bar=9000).problems()
     assert Scenario(mode="sideways").problems()
     assert Scenario(fluid="mud").problems()
-    assert Scenario(pressure_bar=100.0, t_end_c=250).problems() == []
+    assert Scenario(p_start_bar=100.0, p_end_bar=100.0, t_end_c=250).problems() == []
 
 
 def test_blocked_minerals_accept_names_with_commas():
@@ -263,7 +270,7 @@ def test_chat_changes_the_plot_and_axis(session):
 
 
 def test_a_bad_card_is_reported_not_run(session):
-    session.edit_card({"mode": "static", "pressure_bar": 50})
+    session.edit_card({"mode": "static", "pressure_bar": 50})          # sets both ends
     chat_and_wait(session, "run it")
     assert session.engine_stub.calls == []
     assert "boils" in session.chat[-1]["text"]
@@ -395,3 +402,118 @@ def test_missing_thermodynamic_data_is_reported_clearly(tmp_path):
     assert s.start_run()
     assert wait(lambda: s.run_state["state"] == "error")
     assert "not found" in s.run_state["error"] and "failed" in s.chat[-1]["text"]
+
+
+# ---- pressure as a path variable ----------------------------------------------------------------
+def test_pressure_can_vary_alone_or_together_with_temperature():
+    assert Scenario().varies == ["temperature_c"]
+    dec = Scenario(t_start_c=300, t_end_c=300, p_start_bar=1000, p_end_bar=100)
+    assert dec.varies == ["pressure_bar"] and dec.problems() == []
+    both = Scenario(t_start_c=400, t_end_c=150, p_start_bar=1000, p_end_bar=200)
+    assert both.varies == ["temperature_c", "pressure_bar"] and both.problems() == []
+    assert "decompressed from 1000 to 100 bar" in dec.describe()
+    assert "cooled" in Scenario(t_start_c=300, t_end_c=100).describe()
+    assert "taken from" in both.describe()
+    pts = dec.points()
+    assert pts[0] == (300.0, 1000.0) and pts[-1] == (300.0, 100.0) and len(pts) == dec.steps
+    assert [round(p) for _, p in Scenario(t_start_c=0, t_end_c=100, p_start_bar=100, p_end_bar=500,
+                                          steps=5).points()] == [100, 200, 300, 400, 500]
+
+
+def test_a_path_where_nothing_changes_is_refused():
+    assert any("nothing changes" in p for p in Scenario(t_start_c=100, t_end_c=100).problems())
+
+
+def test_boiling_is_reported_where_it_happens_on_the_path():
+    # the line from (100 C, 200 bar) to (300 C, 50 bar) crosses the boiling curve before it ends
+    card = Scenario(t_start_c=100, t_end_c=300, p_start_bar=200, p_end_bar=50)
+    problems = card.problems()
+    assert len(problems) == 1 and "boils" in problems[0]
+    import re
+    t_report = float(re.search(r"at (\d+) C water boils", problems[0]).group(1))
+    assert 250 < t_report < 300
+    # the same pressures are fine if the temperature stays low
+    assert Scenario(t_start_c=100, t_end_c=200, p_start_bar=200, p_end_bar=50).problems() == []
+
+
+def test_old_cards_with_a_single_pressure_still_load():
+    card = Scenario.from_dict({"title": "Seawater heating", "kind": "heating", "pressure_bar": 300.0,
+                               "t_end_c": 250})
+    assert (card.p_start_bar, card.p_end_bar) == (300.0, 300.0)
+    assert card.kind == "path" and card.title == "" and card.display_title == "Seawater run"
+
+
+def test_pressure_and_temperature_shorthands_set_both_ends():
+    card, problems = Scenario().changed({"pressure_bar": 250, "temperature_c": 200})
+    assert (card.p_start_bar, card.p_end_bar, card.t_start_c, card.t_end_c) == (250, 250, 200, 200)
+    assert not problems and any("nothing changes" in p for p in card.problems())
+
+
+def test_rules_read_pressure_paths():
+    r = lambda text: interpret_rules(text, Scenario()).scenario_changes
+    assert r("decompress from 1000 to 200 bar at 300 C") == {
+        "p_start_bar": 1000.0, "p_end_bar": 200.0, "temperature_c": 300.0}
+    assert r("compress to 3000 bar at 25 C") == {"p_end_bar": 3000.0, "temperature_c": 25.0}
+    assert r("isothermal at 400 C from 2 kbar to 500 bar") == {
+        "temperature_c": 400.0, "p_start_bar": 2000.0, "p_end_bar": 500.0}
+    assert r("from 25 to 300 C while the pressure goes 500 to 300 bar") == {
+        "t_start_c": 25.0, "t_end_c": 300.0, "p_start_bar": 500.0, "p_end_bar": 300.0}
+    assert r("heat to 300 C at 400 bar") == {"t_end_c": 300.0, "pressure_bar": 400.0}
+    assert interpret_rules("decompress to 200 bar", Scenario()).run
+
+
+def test_rules_read_the_horizontal_axis():
+    got = interpret_rules("plot Ca++ against pressure", Scenario())
+    assert got.x_axis == "pressure_bar" and got.show == ["Ca++"]
+    assert interpret_rules("show it versus temperature", Scenario()).x_axis == "temperature_c"
+
+
+def test_the_guard_covers_pressure_and_temperature_inventions():
+    model = ScriptedModel({"scenario_changes": {"p_start_bar": 777, "p_end_bar": 400, "t_end_c": 300}})
+    got = interpret("heat seawater to 300 C at 400 bar", Scenario(), [], [], model)
+    assert "p_start_bar" not in got.scenario_changes                 # 777 was never said
+    assert got.scenario_changes["pressure_bar"] == 400.0 and got.scenario_changes["t_end_c"] == 300.0
+
+
+def test_view_x_axis_follows_what_varies():
+    both = fake_result(Scenario(t_start_c=300, t_end_c=100, p_start_bar=1000, p_end_bar=200))
+    v = viewmod.default_view(both)
+    assert v["x"] == "temperature_c"
+    assert viewmod.apply_patch(v, {"x": "pressure_bar"}, both)["x"] == "pressure_bar"
+    only_t = fake_result(Scenario())
+    v = viewmod.apply_patch(viewmod.default_view(only_t), {"x": "pressure_bar"}, only_t)
+    assert v["x"] == "temperature_c"                                  # pressure is constant here
+    only_p = fake_result(Scenario(t_start_c=300, t_end_c=300, p_start_bar=1000, p_end_bar=100))
+    assert viewmod.default_view(only_p)["x"] == "pressure_bar"
+
+
+def test_story_describes_a_pressure_path_in_bar(session=None):
+    result = fake_result(Scenario(t_start_c=300, t_end_c=300, p_start_bar=1000, p_end_bar=100))
+    text = " ".join(story(result))
+    assert "pH goes from 8.0 at 1000 bar to 5.5 at 100 bar" in text
+    assert "anhydrite at about" in text and "bar" in text
+
+
+def test_chat_runs_a_decompression_and_keeps_the_pressure_axis(session):
+    chat_and_wait(session, "decompress from 1000 to 200 bar at 300 C, static")
+    assert wait(lambda: session.engine_stub.calls and session.run_state["state"] == "idle")
+    call = session.engine_stub.calls[0]
+    assert (call["t_start_c"], call["t_end_c"], call["p_start_bar"], call["p_end_bar"]) == (
+        300.0, 300.0, 1000.0, 200.0)
+    assert session.view["x"] == "pressure_bar"
+    chat_and_wait(session, "plot against temperature")
+    assert "does not change" in session.chat[-1]["text"] and session.view["x"] == "pressure_bar"
+
+
+def test_an_axis_request_made_with_a_new_run_applies_to_that_run(session):
+    chat_and_wait(session, "decompress from 1000 to 200 bar at 300 C, static, plot against pressure")
+    assert wait(lambda: session.engine_stub.calls and session.run_state["state"] == "idle")
+    assert session.view["x"] == "pressure_bar"
+    assert not any("does not change" in m["text"] for m in session.chat)
+
+
+def test_an_axis_the_new_run_does_not_vary_is_explained_after_the_run(session):
+    chat_and_wait(session, "heat to 300 C at 400 bar, static, plot against pressure")
+    assert wait(lambda: session.engine_stub.calls and session.run_state["state"] == "idle")
+    assert wait(lambda: any("does not change" in m["text"] for m in session.chat))
+    assert session.view["x"] == "temperature_c"

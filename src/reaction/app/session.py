@@ -33,6 +33,7 @@ class Session:
         self.mode_confirmed = False
         self.rerun = False
         self.pending_run = False
+        self.pending_x: str | None = None
         self.version = 0
         self._result_cache: dict[str, dict] = {}
         self._llm_ok = False
@@ -93,8 +94,16 @@ class Session:
 
     def snapshot(self) -> dict:
         with self.lock:
+            advice: list[str] = []
+            advisories = getattr(self.engine, "advisories", None)
+            if advisories is not None and self.engine._db is not None:
+                try:
+                    advice = advisories(self.card)
+                except Exception:                      # advice is a courtesy, never a reason to fail
+                    advice = []
             return {"version": self.version, "card": self.card.to_dict(),
-                    "card_problems": self.card.problems(), "chat": self.chat[-KEEP_CHAT:],
+                    "card_problems": self.card.problems(), "advisories": advice,
+                    "chat": self.chat[-KEEP_CHAT:],
                     "run": dict(self.run_state), "runs": self.list_runs(), "current": self.current,
                     "view": self.view, "llm": {"model": getattr(self.model, "model", None),
                                                "ready": self._llm_ok},
@@ -115,6 +124,17 @@ class Session:
         if changed:
             self._publish()
         return ok
+
+    def preload_engine(self) -> None:
+        """Load the thermodynamic data in the background so path advice is ready before the first run."""
+        def load():
+            try:
+                self.engine.db
+            except Exception:
+                pass                                   # reported when a run is attempted
+            self._publish()
+        if getattr(self.engine, "_db", None) is None:
+            threading.Thread(target=load, daemon=True).start()
 
     def watch_model(self, every: float = 20.0) -> None:
         """Keep the "language model ready" indicator current in a background thread."""
@@ -186,6 +206,19 @@ class Session:
             got.question = "Static, flow-through, or both?"
             run_now = False
             self.pending_run = True
+        x_req = got.x_axis if got.x_axis in ("temperature_c", "pressure_bar") else None
+        if x_req:
+            name = "pressure" if x_req == "pressure_bar" else "temperature"
+            if run_now:
+                self.pending_x = x_req                  # applies to the result of the run about to start
+            elif result is None:
+                notes.append("There is no result to plot yet.")
+            elif x_req in result.get("varies", []):
+                self.view = apply_patch(self.view, {"x": x_req}, result)
+                reply = reply or f"Plotting against {name}."
+            else:
+                notes.append(f"{name.capitalize()} does not change in this run, so it cannot be the "
+                             f"horizontal axis.")
         if got.question:
             reply = (reply + " " + got.question).strip()
         if notes:
@@ -311,6 +344,13 @@ class Session:
                 self._result_cache[result["id"]] = result
                 self.current = result["id"]
                 self.view = default_view(result)
+                if self.pending_x in result.get("varies", []):
+                    self.view["x"] = self.pending_x
+                elif self.pending_x:
+                    asked = "pressure" if self.pending_x == "pressure_bar" else "temperature"
+                    self.say("assistant", f"{asked.capitalize()} does not change in this run, so the "
+                                          f"horizontal axis is {result['x']['label'].lower()}.")
+                self.pending_x = None
                 self.run_state = {"state": "idle", "progress": 1.0, "message": "", "error": ""}
                 self.say("assistant", f"Done in {result['elapsed_s']} s. The results are in the other window.")
                 self._save()

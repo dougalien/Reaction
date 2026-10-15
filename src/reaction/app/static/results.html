@@ -38,6 +38,7 @@
     <section class="panel">
       <div class="row" style="justify-content:space-between;margin-bottom:8px">
         <div class="row">
+          <div class="seg" id="xaxis" role="group" aria-label="Horizontal axis" style="display:none"></div>
           <div class="seg" id="modes" role="group" aria-label="Modes shown"></div>
           <div class="seg" id="axis" role="group" aria-label="Y axis">
             <button data-log="1">Log</button><button data-log="0">Linear</button>
@@ -49,6 +50,10 @@
         <span id="axisnote" class="hint"></span>
       </div>
       <div id="legend" class="legend"></div>
+      <div id="reliab" class="hint" style="display:none;margin-bottom:4px">Strip along the bottom of the plot: reliability of the aqueous thermodynamics at that point
+        <span style="color:var(--ok)">&#9632;</span> good
+        <span style="color:var(--warn)">&#9632;</span> approximate
+        <span style="color:var(--bad)">&#9632;</span> unreliable (see Assumptions and limits)</div>
       <div id="plot" class="plotwrap"></div>
     </section>
     <section class="panel">
