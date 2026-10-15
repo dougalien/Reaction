@@ -22,8 +22,9 @@ def log_gamma_bdot(z: float, a0: float, ionic_strength: float,
 
 
 def log_gamma_davies(z: float, ionic_strength: float, A: float) -> float:
+    """Davies (1962) equation with the 0.2 coefficient EQ3/6 uses."""
     s = math.sqrt(ionic_strength)
-    return -A * z * z * (s / (1.0 + s) - 0.3 * ionic_strength)
+    return -A * z * z * (s / (1.0 + s) - 0.2 * ionic_strength)
 
 
 def log_gamma_nonpolar(ionic_strength: float, t_c: float, cco2) -> float:
@@ -55,4 +56,18 @@ def log_activity_water_bdot(sum_molality: float, ionic_strength: float,
         sum_molality / LN10
         - (2.0 / 3.0) * A * ionic_strength ** 1.5 * _sigma(x)
         + bdot * ionic_strength ** 2
+    )
+
+
+def log_activity_water_davies(sum_molality: float, ionic_strength: float,
+                              A: float) -> float:
+    """log10 a_w consistent (Gibbs-Duhem) with the Davies equation.
+
+    The extended Debye-Hueckel part is the same as above with a*B = 1; the
+    linear 0.2*A*z^2*I term integrates to 0.2*A*I^2.
+    """
+    return -(1.0 / WATER_MOLES_PER_KG) * (
+        sum_molality / LN10
+        - (2.0 / 3.0) * A * ionic_strength ** 1.5 * _sigma(math.sqrt(ionic_strength))
+        + 0.2 * A * ionic_strength ** 2
     )

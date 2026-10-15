@@ -2,8 +2,9 @@
 
 Open geochemical reaction-path modelling in Python: aqueous speciation,
 equilibrium with minerals and gases, reaction paths and kinetics.  Early
-stage: speciation with the B-dot model works and is validated against EQ3/6;
-reaction paths, high-temperature physics and kinetics are next
+stage: speciation (B-dot or Davies activity models, 0-300 C on the database's
+grid) works and reproduces all 41 speciation cases of the EQ3/6 test library;
+reaction paths, high-temperature/pressure physics and kinetics are next
 (see [docs/DESIGN.md](docs/DESIGN.md)).
 
 ## Try it
@@ -29,6 +30,27 @@ print(seawater.saturation["Calcite"])       # log Q/K
 print(seawater.log_fugacity["CO2(g)"])
 ```
 
+Constraints can also be equilibria and a charge balance.  Rain water in
+equilibrium with atmospheric CO2 and calcite (pH and Ca come out of the model):
+
+```python
+from reaction.speciation import Equilibrium
+
+water = speciate(
+    db, 25.0,
+    {"H+": PH(7.0),                          # only a starting guess here
+     "Ca++": Equilibrium("Calcite"),
+     "HCO3-": Equilibrium("CO2(g)", -3.5)},  # log fCO2 = -3.5
+    balance_on="H+",
+)
+print(water.ph, water.totals["Ca++"])        # 8.27, 4.97e-4 mol/kg
+```
+
+Other options: `MgPerL`, `LogActivity`, `Eh` / `Pe` / `LogFO2` / `Couple`,
+`switches={"NH3(aq)": "NO3-"}` for basis switches, `suppress=[...]` and
+`suppress_phases=[...]`, `activity_model="davies"`.  Auxiliary species given a
+total (`"O2(aq)": MgPerL(6.6)`) become independent components, as in EQ3NR.
+
 ## Tests
 
 ```
@@ -37,3 +59,7 @@ set REACTION_EQ36_DIR=C:\path\to\Eq3_6v8.0a
 set REACTION_EQ36_TESTS=C:\path\to\folder-containing-3tlib_cmp
 python -m pytest                       # adds the EQ3/6 regression tests
 ```
+
+With the references present the suite runs all 41 EQ3/6 speciation cases (43
+problems) and compares every species, solid saturation index and gas fugacity
+with the stored EQ3NR output.

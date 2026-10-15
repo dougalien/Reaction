@@ -1,27 +1,29 @@
 """Aqueous speciation (the EQ3NR problem).
 
-Given total concentrations of the basis species, temperature and a redox
-state, solve the coupled mass-action / mass-balance system:
+Unknowns are the natural-log activities ``u_j`` of the basis species.  Every
+unknown gets exactly one equation, chosen by the constraint the user supplies:
 
-    log a_i = sum_j nu_ij log a_j - log K_i          (every dependent species i)
-    T_j     = m_j + sum_i nu_ij m_i                  (every basis species j)
+    mass balance        sum_i nu_ij m_i = T_j               (Molal, MgPerKg, MgPerL)
+    fixed activity      u_j = const                         (PH, LogActivity, LogFO2)
+    phase equilibrium   log Q/K of a mineral/gas = target   (Equilibrium)
+    charge balance      sum_i z_i m_i = 0                   (balance_on=...)
+    redox               Eh / pe / redox couple
 
-Newton iteration runs in ln(molality) with activity coefficients frozen; an
-outer loop updates activity coefficients, water activity and (for Eh/pe
-constraints) the oxygen fugacity until they stop changing.
+Dependent species follow from ``ln m_i = sum_j nu_ij u_j - ln10 logK_i - ln gamma_i``.
+Newton iteration runs with activity coefficients frozen; an outer loop updates
+activity coefficients and water activity until they stop changing.
 """
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import numpy as np
 
 from . import activity
 from .constants import FARADAY, KELVIN, LN10, R, WATER_MOLES_PER_KG
-from .database.model import Kind, ThermoDatabase, ThermoRangeError
-
-WATER, PROTON, OXYGEN = "H2O", "H+", "O2(g)"
+from .database.model import Kind, ThermoDatabase
+from .network import OXYGEN, PROTON, WATER, Network, NetworkError
 
 
 # --------------------------------------------------------------------------
@@ -40,6 +42,12 @@ class MgPerKg:
 
 
 @dataclass(frozen=True)
+class MgPerL:
+    """mg of the species per litre of solution (needs ``density``)."""
+    value: float
+
+
+@dataclass(frozen=True)
 class PH:
     """Fix the H+ activity through pH on the chosen pH scale."""
     value: float
@@ -48,6 +56,14 @@ class PH:
 @dataclass(frozen=True)
 class LogActivity:
     value: float
+
+
+@dataclass(frozen=True)
+class Equilibrium:
+    """Equilibrium with a mineral/liquid (log Q/K = ``value``, usually 0) or a
+    gas (log fugacity = ``value``).  Applied to the basis species it determines."""
+    phase: str
+    value: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -65,109 +81,17 @@ class LogFO2:
     value: float
 
 
+@dataclass(frozen=True)
+class Couple:
+    """Redox state from a redox-couple species whose total is also given."""
+    species: str
+
+
+MASS_CONSTRAINTS = (Molal, MgPerKg, MgPerL)
+
+
 class SpeciationError(RuntimeError):
     pass
-
-
-# --------------------------------------------------------------------------
-# Reaction network reduced to the chosen basis
-# --------------------------------------------------------------------------
-class Network:
-    """All species/phases of ``db`` expressible in the chosen basis.
-
-    Reactions that mention other non-basis species are rewritten recursively
-    until only basis species remain, so that
-
-        log a_i = sum_j nu_ij log a_j - sum_t coef_t * logK_t(T).
-    """
-
-    def __init__(self, db: ThermoDatabase, basis: list[str]):
-        self.db = db
-        for name in basis:
-            if name not in db or db[name].kind != Kind.BASIS:
-                raise SpeciationError(f"{name!r} is not a strict basis species in {db.title}")
-        self.basis = basis
-        self._index = {n: i for i, n in enumerate(basis)}
-        self._memo: dict[str, tuple[dict[str, float], list] | None] = {}
-
-        self.dep_names: list[str] = []
-        self._dep_red: list = []
-        for sp in db.of_kind(Kind.AUX_BASIS, Kind.AQUEOUS):
-            red = self._reduce(sp.name)
-            if red is not None:
-                self.dep_names.append(sp.name)
-                self._dep_red.append(red)
-        self.phase_names: list[str] = []
-        self._phase_red: list = []
-        for sp in db.of_kind(Kind.MINERAL, Kind.GAS, Kind.LIQUID):
-            red = self._reduce(sp.name)
-            if red is not None:
-                self.phase_names.append(sp.name)
-                self._phase_red.append(red)
-
-        nb = len(basis)
-        self.nu = self._matrix(self._dep_red, nb)
-        self.nu_phase = self._matrix(self._phase_red, nb)
-        self.z_basis = np.array([db[n].charge for n in basis])
-        self.z_dep = np.array([db[n].charge for n in self.dep_names])
-        self.a0_basis = np.array([self._ion_size(n) for n in basis])
-        self.a0_dep = np.array([self._ion_size(n) for n in self.dep_names])
-        self.type_basis = np.array([db[n].activity_type for n in basis])
-        self.type_dep = np.array([db[n].activity_type for n in self.dep_names])
-
-    def _ion_size(self, name: str) -> float:
-        a0 = self.db[name].a0
-        return a0 if a0 else activity.DEFAULT_ION_SIZE
-
-    def _reduce(self, name: str):
-        if name in self._index:
-            return {name: 1.0}, []
-        if name in self._memo:
-            return self._memo[name]
-        self._memo[name] = None                      # guards against cycles
-        sp = self.db.species.get(name)
-        if sp is None or sp.kind == Kind.BASIS or sp.logk is None or not sp.reaction:
-            return None
-        nu: dict[str, float] = {}
-        terms = [(1.0, sp.logk)]
-        for other, c in sp.reaction.items():
-            if other == name:
-                continue
-            red = self._reduce(other)
-            if red is None:
-                return None
-            nu_k, terms_k = red
-            for j, v in nu_k.items():
-                nu[j] = nu.get(j, 0.0) + c * v
-            terms += [(c * cf, lk) for cf, lk in terms_k]
-        self._memo[name] = (nu, terms)
-        return self._memo[name]
-
-    def _matrix(self, reduced: list, nb: int) -> np.ndarray:
-        m = np.zeros((len(reduced), nb))
-        for r, (nu, _) in enumerate(reduced):
-            for j, v in nu.items():
-                m[r, self._index[j]] = v
-        return m
-
-    def logk_at(self, t_c: float, p_bar: float | None):
-        """Evaluate effective logK at (T, P); species lacking data are dropped.
-
-        Returns (keep_dep, logk_dep, keep_phase, logk_phase, dropped_names).
-        """
-        def evaluate(reduced, names):
-            vals, keep, dropped = [], [], []
-            for r, ((_, terms), name) in enumerate(zip(reduced, names)):
-                try:
-                    vals.append(sum(cf * lk(t_c, p_bar) for cf, lk in terms))
-                    keep.append(r)
-                except ThermoRangeError:
-                    dropped.append(name)
-            return np.array(keep, dtype=int), np.array(vals), dropped
-
-        kd, vd, dd = evaluate(self._dep_red, self.dep_names)
-        kp, vp, dp = evaluate(self._phase_red, self.phase_names)
-        return kd, vd, kp, vp, dd + dp
 
 
 # --------------------------------------------------------------------------
@@ -197,9 +121,11 @@ class Speciation:
     log_fo2: float
     charge_imbalance: float                  # eq / kg H2O (cations + anions)
     species: dict[str, SpeciesState]
+    totals: dict[str, float]                 # total molality of each basis species
     saturation: dict[str, float]             # minerals/liquids: log Q/K
     log_fugacity: dict[str, float]           # gases: log f at equilibrium with the fluid
-    dropped: list[str]
+    dropped: list[str]                       # no logK data at this temperature
+    extrapolated: list[str]                  # logK outside the span of valid grid points
     iterations: int
 
     def molality(self, name: str) -> float:
@@ -222,6 +148,54 @@ class Speciation:
 # --------------------------------------------------------------------------
 # Solver
 # --------------------------------------------------------------------------
+def _globalized_step(u, unk, res, jac, step_cap, residual_only):
+    """One damped Newton step on ``u[unk]`` with a sum-of-squares merit function.
+
+    The Newton direction is shortened (never distorted) so no component moves
+    farther than ``step_cap``; if backtracking along it cannot reduce the merit
+    function, a Levenberg-Marquardt step takes over.
+    """
+    phi0 = 0.5 * float(res @ res)
+
+    def limited(d):
+        ratio = float(np.max(np.abs(d) / step_cap))
+        return d / ratio if ratio > 1.0 else d
+
+    def trial_of(step):
+        trial = u.copy()
+        trial[unk] += step
+        r = residual_only(trial)
+        return 0.5 * float(r @ r), trial
+
+    try:
+        newton = limited(np.linalg.solve(jac, -res))
+    except np.linalg.LinAlgError:
+        newton = None
+    if newton is not None:
+        if phi0 < 1e-16:                      # close to the root: take the full step
+            return trial_of(newton)[1]
+        lam = 1.0
+        for _ in range(12):
+            phi, trial = trial_of(lam * newton)
+            if phi < phi0 * (1.0 - 1e-4 * lam):
+                return trial
+            lam *= 0.5
+    jtj, grad = jac.T @ jac, jac.T @ res
+    diag = np.diag(np.maximum(np.diag(jtj), 1e-12))
+    mu = 1e-3
+    for _ in range(25):
+        try:
+            step = limited(np.linalg.solve(jtj + mu * diag, -grad))
+        except np.linalg.LinAlgError:
+            mu *= 10.0
+            continue
+        phi, trial = trial_of(step)
+        if phi < phi0:
+            return trial
+        mu *= 10.0
+    raise SpeciationError("Newton line search failed to reduce the residual")
+
+
 def speciate(
     db: ThermoDatabase,
     temperature_c: float,
@@ -229,250 +203,381 @@ def speciate(
     redox=None,
     *,
     pressure_bar: float | None = None,
+    switches: dict[str, str] | None = None,
+    suppress=(),
+    suppress_phases=(),
+    balance_on: str | None = None,
     activity_model: str = "bdot",
     ph_scale: str = "nbs",
+    density: float = 1.0,
     tds_mg_per_kg: float = 0.0,
     tol: float = 1e-12,
     max_outer: int = 200,
-    max_inner: int = 100,
+    max_inner: int = 200,
+    verbose: bool = False,
 ) -> Speciation:
     """Solve the speciation of a fluid.
 
-    ``basis`` maps strict basis-species names to a constraint (:class:`Molal`,
-    :class:`MgPerKg`, :class:`PH`, :class:`LogActivity`).  ``redox`` is an
-    :class:`Eh`, :class:`Pe` or :class:`LogFO2`; without it, species that
-    depend on oxygen fugacity are left out of the model.
+    ``basis`` maps species names to constraints.  Keys are strict basis
+    species, targets of ``switches`` ({old strict species: new basis species}),
+    or auxiliary species given their own total concentration, which become
+    independent ("decoupled") components, as in EQ3NR.  ``redox`` is an
+    :class:`Eh`, :class:`Pe`, :class:`LogFO2` or :class:`Couple` constraint on
+    O2(g); without it, species that depend on oxygen fugacity are omitted.
 
-    ``tds_mg_per_kg`` converts :class:`MgPerKg` inputs to molality the way
-    EQ3NR does: m = (c / 1000 / MW) / (1 - TDS/1e6).  EQ3NR's default of 0
-    means "treat mg/kg.sol as mg per kg of water".
+    ``tds_mg_per_kg`` and ``density`` convert :class:`MgPerKg` / :class:`MgPerL`
+    to molality as EQ3NR does: m = (c / 1000 / MW) / (1 - TDS/1e6), with
+    mg/L divided by the density first.  ``balance_on`` replaces that species'
+    constraint by a charge-balance equation.
     """
-    if activity_model not in ("bdot", "ideal"):
-        raise ValueError("activity_model must be 'bdot' or 'ideal'")
+    if activity_model not in ("bdot", "davies", "ideal"):
+        raise ValueError("activity_model must be 'bdot', 'davies' or 'ideal'")
     if ph_scale not in ("nbs", "internal", "mesmer"):
         raise ValueError("ph_scale must be 'nbs', 'internal' or 'mesmer'")
-
+    switches = dict(switches or {})
     t_k = temperature_c + KELVIN
-    names = [WATER, PROTON] + [n for n in basis if n not in (WATER, PROTON, OXYGEN)]
-    if redox is not None:
-        names.append(OXYGEN)
-    net = Network(db, names)
-    kd, logk_dep, kp, logk_phase, dropped = net.logk_at(temperature_c, pressure_bar)
-    nu = net.nu[kd]
-    z_dep, a0_dep, type_dep = net.z_dep[kd], net.a0_dep[kd], net.type_dep[kd]
-    dep_names = [net.dep_names[i] for i in kd]
-    nu_phase = net.nu_phase[kp]
-    phase_names = [net.phase_names[i] for i in kp]
-    ib = {n: i for i, n in enumerate(names)}
-    nb = len(names)
 
-    # ---- classify constraints --------------------------------------------
-    A, B, bdot = db.dh_params(temperature_c)
-    unknown: list[str] = []
-    totals: list[float] = []
-    fixed_log_a: dict[str, float] = {}
-    ph_value = None
-    for name, c in basis.items():
-        if name in (WATER, OXYGEN):
+    rows = dict(basis)
+    if redox is not None:
+        if OXYGEN in rows:
+            raise SpeciationError("redox given twice (redox= and an O2(g) entry)")
+        rows[OXYGEN] = redox
+    if PROTON not in rows:
+        raise SpeciationError("H+ needs a constraint (PH, LogActivity, Molal ... or balance_on)")
+
+    # ---- decide the basis ------------------------------------------------
+    targets = set(switches.values())
+    core, decoupled = [WATER, PROTON], []
+    for name, c in rows.items():
+        if name in (WATER, PROTON, OXYGEN):
             continue
-        if isinstance(c, Molal):
-            unknown.append(name); totals.append(c.value)
-        elif isinstance(c, MgPerKg):
-            mw = db.molecular_weight(name)
-            unknown.append(name)
-            totals.append(c.value / 1000.0 / mw / (1.0 - tds_mg_per_kg / 1e6))
+        if name not in db:
+            raise SpeciationError(f"unknown species {name!r}")
+        if db[name].kind == Kind.BASIS or name in targets:
+            core.append(name)
+        elif isinstance(c, MASS_CONSTRAINTS):
+            decoupled.append(name)
+        else:
+            raise SpeciationError(f"{name!r} is not a basis species; only a total "
+                                  f"concentration can be given for it")
+    for old, new in switches.items():
+        if new not in rows:
+            raise SpeciationError(f"switch {old} -> {new}: no constraint given for {new}")
+    if OXYGEN in rows:
+        core.append(OXYGEN)
+    for old in switches:
+        if old in rows:
+            raise SpeciationError(f"{old} was switched out of the basis; constrain "
+                                  f"{switches[old]} instead")
+    try:
+        net = Network(db, core, switches=switches, decoupled=tuple(decoupled),
+                      suppress=suppress, suppress_phases=suppress_phases)
+    except NetworkError as exc:
+        raise SpeciationError(str(exc)) from exc
+    ev = net.evaluate(temperature_c, pressure_bar)
+
+    names = net.basis
+    nbf = len(names)
+    ib = {n: i for i, n in enumerate(names)}
+    nu = net.nu_dep[ev.dep_index]
+    dep_names = [net.dep_names[i] for i in ev.dep_index]
+    logk_dep = ev.logk_dep
+    z_dep = net.z_dep[ev.dep_index]
+    a0_dep = net.a0_dep[ev.dep_index]
+    type_dep = net.type_dep[ev.dep_index]
+    nu_ph = net.nu_phase[ev.phase_index]
+    ph_names = [net.phase_names[i] for i in ev.phase_index]
+    ph_kind = [net.phase_kind[i] for i in ev.phase_index]
+    logk_ph = ev.logk_phase
+
+    A, B, bdot = db.dh_params(temperature_c)
+    logk_eh = db.logk_eh(temperature_c)
+    unk = list(range(1, nbf))                    # everything but H2O
+    pos = {j: r for r, j in enumerate(unk)}
+    nu_unk = nu[:, unk]
+
+    # ---- one equation per unknown ----------------------------------------
+    solvent_fraction = 1.0 - tds_mg_per_kg / 1e6
+    eqs: list[tuple] = []
+    u = np.zeros(nbf)
+    for j in unk:
+        name = names[j]
+        if name not in rows:
+            raise SpeciationError(f"no constraint given for {name!r}")
+        c = rows[name]
+        if isinstance(c, (Molal, MgPerKg, MgPerL)):
+            if isinstance(c, Molal):
+                total = c.value
+            else:
+                grams = c.value / 1000.0 / db.molecular_weight(name)
+                total = grams / (density if isinstance(c, MgPerL) else 1.0) / solvent_fraction
+            if total <= 0:
+                raise SpeciationError(f"total concentration of {name} must be positive")
+            eqs.append(("mass", total)); u[j] = math.log(total)
         elif isinstance(c, PH):
             if name != PROTON:
                 raise SpeciationError("PH applies to H+ only")
-            ph_value = c.value
+            eqs.append(("ph", c.value)); u[j] = -c.value * LN10
         elif isinstance(c, LogActivity):
-            fixed_log_a[name] = c.value * LN10
+            eqs.append(("loga", c.value * LN10)); u[j] = c.value * LN10
+        elif isinstance(c, LogFO2):
+            if name != OXYGEN:
+                raise SpeciationError("LogFO2 applies to O2(g) only")
+            eqs.append(("loga", c.value * LN10)); u[j] = c.value * LN10
+        elif isinstance(c, (Eh, Pe)):
+            if name != OXYGEN:
+                raise SpeciationError("Eh/Pe apply to O2(g) only")
+            pe = c.value if isinstance(c, Pe) else c.volts * FARADAY / (R * t_k * LN10)
+            eqs.append(("eh", pe)); u[j] = -30.0 * LN10
+        elif isinstance(c, Couple):
+            if name != OXYGEN or c.species not in net.couple:
+                raise SpeciationError(f"Couple({c.species!r}) needs the species to carry its "
+                                      f"own total concentration")
+            eqs.append(("couple", c.species)); u[j] = -30.0 * LN10
+        elif isinstance(c, Equilibrium):
+            if c.phase not in ph_names:
+                raise SpeciationError(f"phase {c.phase!r} is unavailable for this problem")
+            if c.phase in net.inactive_phases:
+                raise SpeciationError(f"phase {c.phase!r} is suppressed; it cannot be used "
+                                      f"as an equilibrium constraint")
+            eqs.append(("phase", ph_names.index(c.phase), c.value))
+            u[j] = -6.0 * LN10 if name != OXYGEN else -30.0 * LN10
         else:
             raise SpeciationError(f"unsupported constraint {c!r} for {name}")
-    if PROTON not in basis:
-        raise SpeciationError("H+ needs a constraint (PH, LogActivity or Molal)")
-    if any(t <= 0 for t in totals):
-        raise SpeciationError("total concentrations must be positive")
-    iu = np.array([ib[n] for n in unknown], dtype=int)
-    nu_u = nu[:, iu]
-    totals_arr = np.array(totals)
-    x = np.log(totals_arr)
+    start_eqs = list(eqs)                        # totals still guide the pre-Newton phase
+    if balance_on is not None:
+        if balance_on not in ib or balance_on == WATER:
+            raise SpeciationError(f"cannot balance charge on {balance_on!r}")
+        r = pos[ib[balance_on]]
+        eqs[r] = ("charge",)
+    for r, j in enumerate(unk):                  # start redox at the value its equation implies
+        if eqs[r][0] == "eh":
+            u[j] = LN10 * (logk_eh + 4.0 * eqs[r][1]) - 4.0 * u[ib[PROTON]]
+    # per-component Newton step limit (ln units): generous for equations linear in u
+    step_cap = np.array([{"mass": 2.3, "charge": 4.6}.get(eqs[r][0], 40.0)
+                         for r in range(len(unk))])
+    if any(e[0] == "couple" for e in eqs):
+        couple_species = next(e[1] for e in eqs if e[0] == "couple")
+        couple_row, couple_logk = net.couple[couple_species][0], ev.logk_couple[couple_species]
+        couple_col = ib[couple_species]
 
-    # ---- redox ------------------------------------------------------------
-    logk_eh = db.logk_eh(temperature_c) if redox is not None else None
-    if isinstance(redox, Eh):
-        pe_fixed = redox.volts * FARADAY / (R * t_k * LN10)
-    elif isinstance(redox, Pe):
-        pe_fixed = redox.value
-    else:
-        pe_fixed = None
-
-    # ---- activity-coefficient bookkeeping --------------------------------
-    solute_basis = [i for i, n in enumerate(names) if n not in (WATER, OXYGEN)]
-    z_b, a0_b, type_b = net.z_basis, net.a0_basis, net.type_basis
-    cl_a0 = net._ion_size("Cl-") if "Cl-" in db else 3.0
+    # ---- activity coefficients -------------------------------------------
+    solute = net.is_solute
+    z_b = net.z_basis
+    a0_b = np.where(net.a0_basis > 0, net.a0_basis, activity.DEFAULT_ION_SIZE)
+    a0_d = np.where(a0_dep > 0, a0_dep, activity.DEFAULT_ION_SIZE)
+    cl_a0 = (db["Cl-"].a0 or 3.0) if "Cl-" in db else 3.0
 
     def log_gammas(ionic: float):
-        lg_b = np.zeros(nb)
-        lg_d = np.zeros(len(dep_names))
+        lg_b, lg_d = np.zeros(nbf), np.zeros(len(dep_names))
         if activity_model == "ideal":
             return lg_b, lg_d
+
         def one(z, a0, typ):
             if z != 0:
+                if activity_model == "davies":
+                    return activity.log_gamma_davies(z, ionic, A)
                 return activity.log_gamma_bdot(z, a0, ionic, A, B, bdot)
-            if typ == -1:
+            if typ == -1 and activity_model == "bdot":
                 return activity.log_gamma_nonpolar(ionic, temperature_c, db.cco2)
             return 0.0
-        for i in solute_basis:
-            lg_b[i] = one(z_b[i], a0_b[i], type_b[i])
+
+        for i in range(nbf):
+            if solute[i]:
+                lg_b[i] = one(z_b[i], a0_b[i], net.type_basis[i])
         for k in range(len(dep_names)):
-            lg_d[k] = one(z_dep[k], a0_dep[k], type_dep[k])
+            lg_d[k] = one(z_dep[k], a0_d[k], type_dep[k])
         if ph_scale == "nbs":
-            f = (activity.log_gamma_chloride_bates_guggenheim(ionic, A)
-                 - activity.log_gamma_bdot(-1.0, cl_a0, ionic, A, B, bdot))
+            if activity_model == "davies":
+                own = activity.log_gamma_davies(-1.0, ionic, A)
+            else:
+                own = activity.log_gamma_bdot(-1.0, cl_a0, ionic, A, B, bdot)
+            f = activity.log_gamma_chloride_bates_guggenheim(ionic, A) - own
             lg_b -= z_b * f
             lg_d -= z_dep * f
         return lg_b, lg_d
 
-    # ---- iterate -----------------------------------------------------------
-    ionic = 0.0
-    sum_m = 0.0
-    log_aw = 0.0
+    def log_a_water(sum_m: float, ionic: float) -> float:
+        if activity_model == "bdot":
+            return activity.log_activity_water_bdot(sum_m, ionic, A, B, bdot)
+        if activity_model == "davies":
+            return activity.log_activity_water_davies(sum_m, ionic, A)
+        return 0.0
+
+    # ---- Newton on the frozen-gamma problem --------------------------------
+    def state(uvec, lg_b_ln, lg_d_ln):
+        m_dep = np.exp(np.clip(nu @ uvec - LN10 * logk_dep - lg_d_ln, -600.0, 600.0))
+        m_b = np.where(solute, np.exp(np.clip(uvec - lg_b_ln, -600.0, 600.0)), 0.0)
+        return m_dep, m_b
+
+    def residual(uvec, lg_b_ln, lg_d_ln, log_aw, want_jac=True):
+        m_dep, m_b = state(uvec, lg_b_ln, lg_d_ln)
+        n = len(unk)
+        res = np.zeros(n)
+        jac = np.zeros((n, n)) if want_jac else None
+        for r, j in enumerate(unk):
+            kind = eqs[r][0]
+            if kind == "mass":
+                # ln(total/T) stays well behaved when polynuclear species explode
+                col = nu[:, j]
+                total_ = eqs[r][1]
+                tot = m_b[j] + col @ m_dep
+                if tot > 0:
+                    res[r] = math.log(tot / total_)
+                    if want_jac:
+                        jac[r] = nu_unk.T @ (col * m_dep) / tot
+                        jac[r, r] += m_b[j] / tot
+                else:                                   # net-negative total (e.g. H+): linear form
+                    scale = m_b[j] + np.abs(col) @ m_dep + total_
+                    res[r] = (tot - total_) / scale
+                    if want_jac:
+                        jac[r] = nu_unk.T @ (col * m_dep) / scale
+                        jac[r, r] += m_b[j] / scale
+            elif kind == "charge":
+                # ln(positive charge / negative charge): zero at balance, no saturation
+                wp_d, wn_d = np.where(z_dep > 0, z_dep, 0.0) * m_dep, np.where(z_dep < 0, -z_dep, 0.0) * m_dep
+                wp_b, wn_b = np.where(z_b > 0, z_b, 0.0) * m_b, np.where(z_b < 0, -z_b, 0.0) * m_b
+                c_pos, c_neg = wp_d.sum() + wp_b.sum(), wn_d.sum() + wn_b.sum()
+                res[r] = math.log(c_pos / c_neg)
+                if want_jac:
+                    d_pos = nu_unk.T @ wp_d + wp_b[unk]
+                    d_neg = nu_unk.T @ wn_d + wn_b[unk]
+                    jac[r] = d_pos / c_pos - d_neg / c_neg
+            elif kind == "ph":
+                const = -eqs[r][1] * LN10 + (lg_b_ln[j] if ph_scale == "mesmer" else 0.0)
+                res[r] = uvec[j] - const
+                if want_jac:
+                    jac[r, r] = 1.0
+            elif kind == "loga":
+                res[r] = uvec[j] - eqs[r][1]
+                if want_jac:
+                    jac[r, r] = 1.0
+            elif kind == "phase":
+                p = eqs[r][1]
+                row = nu_ph[p]
+                res[r] = (row[0] * log_aw * LN10 + row[unk] @ uvec[unk]) / LN10 \
+                    - logk_ph[p] - eqs[r][2]
+                if want_jac:
+                    jac[r] = row[unk] / LN10
+            elif kind == "eh":
+                res[r] = uvec[j] + 4.0 * uvec[ib[PROTON]] - LN10 * (
+                    logk_eh + 4.0 * eqs[r][1] + 2.0 * log_aw)
+                if want_jac:
+                    jac[r, r] += 1.0
+                    jac[r, pos[ib[PROTON]]] += 4.0
+            elif kind == "couple":
+                res[r] = uvec[couple_col] - (couple_row[0] * log_aw * LN10
+                                             + couple_row[unk] @ uvec[unk]
+                                             - LN10 * couple_logk)
+                if want_jac:
+                    jac[r] = -couple_row[unk]
+                    jac[r, pos[couple_col]] += 1.0
+        return res, jac
+
+    def pre_newton(u, lg_b_ln, lg_d_ln, log_aw, rounds=300):
+        """Successive substitution on the mass balances (EQ3NR's pre-Newton-Raphson
+        optimisation): each component corrects only for its own excess, which
+        avoids the near-singular Jacobian of strongly complexed components."""
+        mass = [(r, j, start_eqs[r][1]) for r, j in enumerate(unk) if start_eqs[r][0] == "mass"]
+        if not mass:
+            return u
+        for _ in range(rounds):
+            m_dep, m_b = state(u, lg_b_ln, lg_d_ln)
+            biggest = 0.0
+            step = np.zeros(nbf)
+            for r, j, total_ in mass:
+                tot = m_b[j] + nu[:, j] @ m_dep
+                if tot > 0:
+                    delta = max(-2.3, min(2.3, math.log(total_ / tot)))
+                    step[j] = delta
+                    biggest = max(biggest, abs(delta))
+            u = u + step
+            for r, j in enumerate(unk):
+                if eqs[r][0] == "eh":
+                    u[j] = LN10 * (logk_eh + 4.0 * eqs[r][1] + 2.0 * log_aw) - 4.0 * u[ib[PROTON]]
+            if biggest < 0.02:
+                break
+        return u
+
+    ionic, sum_m, log_aw = 0.0, 0.0, 0.0
     lg_b, lg_d = log_gammas(ionic)
-    log_fo2 = 0.0
-    total_inner = 0
-    converged = False
-
-    def ln_activities(x_vec, lg_b_, log_aw_, log_fo2_):
-        ln_a = np.zeros(nb)
-        ln_a[ib[WATER]] = log_aw_ * LN10
-        if OXYGEN in ib:
-            ln_a[ib[OXYGEN]] = log_fo2_ * LN10
-        ln_a[iu] = x_vec + lg_b_[iu] * LN10
-        for name, v in fixed_log_a.items():
-            ln_a[ib[name]] = v
-        if ph_value is not None:
-            if ph_scale == "mesmer":
-                ln_a[ib[PROTON]] = -ph_value * LN10 + lg_b_[ib[PROTON]] * LN10
-            else:
-                ln_a[ib[PROTON]] = -ph_value * LN10
-        return ln_a
-
+    u = pre_newton(u, lg_b * LN10, lg_d * LN10, log_aw)
+    total_inner, converged = 0, False
     for outer in range(max_outer):
-        lg_b_ln = lg_b * LN10
-        lg_d_ln = lg_d * LN10
-
+        lg_b_ln, lg_d_ln = lg_b * LN10, lg_d * LN10
+        u[0] = log_aw * LN10                     # ln a(H2O) enters every reaction involving water
         for inner in range(max_inner):
             total_inner += 1
-            ln_a = ln_activities(x, lg_b, log_aw, log_fo2)
-            ln_md = np.clip(nu @ ln_a - LN10 * logk_dep - lg_d_ln, -700.0, 700.0)
-            md = np.exp(ln_md)
-            mu = np.exp(x)
-            tot = mu + nu_u.T @ md
-            scale = mu + np.abs(nu_u).T @ md + totals_arr
-            resid = (tot - totals_arr) / scale
-            if np.max(np.abs(resid)) < tol:
+            res, jac = residual(u, lg_b_ln, lg_d_ln, log_aw)
+            norm0 = np.max(np.abs(res))
+            if verbose:
+                worst = int(np.argmax(np.abs(res)))
+                print(f"outer {outer} inner {inner}: |res|={norm0:.3e} worst eq "
+                      f"{names[unk[worst]]} ({eqs[worst][0]})")
+                if verbose and eqs[worst][0] == "mass":
+                    md, mb = state(u, lg_b_ln, lg_d_ln)
+                    col = nu[:, unk[worst]]
+                    top = np.argsort(-np.abs(col * md))[:4]
+                    print("    basis m=%.3e  T=%.3e  top:" % (mb[unk[worst]], eqs[worst][1]),
+                          [(dep_names[i], f"{col[i]:g}", f"{md[i]:.2e}") for i in top])
+            if norm0 < tol:
                 break
-            jac = (np.diag(mu) + (nu_u * md[:, None]).T @ nu_u) / scale[:, None]
-            try:
-                dx = np.linalg.solve(jac, -resid)
-            except np.linalg.LinAlgError as exc:
-                raise SpeciationError("singular Jacobian") from exc
-            big = np.max(np.abs(dx))
-            if big > 2.3:
-                dx *= 2.3 / big
-            # backtrack if the step makes the residual worse
-            norm0 = np.max(np.abs(resid))
-            lam = 1.0
-            for _ in range(12):
-                x_try = x + lam * dx
-                ln_a_t = ln_activities(x_try, lg_b, log_aw, log_fo2)
-                md_t = np.exp(np.clip(nu @ ln_a_t - LN10 * logk_dep - lg_d_ln, -700, 700))
-                mu_t = np.exp(x_try)
-                r_t = (mu_t + nu_u.T @ md_t - totals_arr) / (
-                    mu_t + np.abs(nu_u).T @ md_t + totals_arr)
-                if np.max(np.abs(r_t)) < norm0 or lam < 1e-3:
-                    break
-                lam *= 0.5
-            x = x + lam * dx
+            u = _globalized_step(u, unk, res, jac, step_cap,
+                                 lambda v: residual(v, lg_b_ln, lg_d_ln, log_aw, want_jac=False)[0])
         else:
             raise SpeciationError("inner Newton iteration did not converge")
 
-        # ---- update activity coefficients, water activity, fO2 ---------
-        ln_a = ln_activities(x, lg_b, log_aw, log_fo2)
-        ln_md = np.clip(nu @ ln_a - LN10 * logk_dep - lg_d_ln, -700.0, 700.0)
-        md = np.exp(ln_md)
-        m_basis = np.zeros(nb)
-        m_basis[iu] = np.exp(x)
-        ph_species_m = np.exp(ln_a[ib[PROTON]] - lg_b_ln[ib[PROTON]])
-        if PROTON not in unknown:
-            m_basis[ib[PROTON]] = ph_species_m
-        for name, v in fixed_log_a.items():
-            m_basis[ib[name]] = math.exp(v - lg_b_ln[ib[name]])
-        ionic_new = 0.5 * (np.sum(m_basis * z_b ** 2) + np.sum(md * z_dep ** 2))
-        sum_m_new = np.sum(m_basis[solute_basis]) + np.sum(md)
+        m_dep, m_b = state(u, lg_b_ln, lg_d_ln)
+        ionic_new = 0.5 * (np.sum(m_b * z_b ** 2) + np.sum(m_dep * z_dep ** 2))
+        sum_m_new = np.sum(m_b) + np.sum(m_dep)
         lg_b_new, lg_d_new = log_gammas(ionic_new)
-        if activity_model == "bdot":
-            log_aw_new = activity.log_activity_water_bdot(sum_m_new, ionic_new, A, B, bdot)
-        else:
-            log_aw_new = 0.0
-        fo2_new = log_fo2
-        if redox is not None:
-            if isinstance(redox, LogFO2):
-                fo2_new = redox.value
-            else:
-                log_ah = ln_a[ib[PROTON]] / LN10
-                fo2_new = logk_eh + 4.0 * pe_fixed - 4.0 * log_ah + 2.0 * log_aw_new
+        log_aw_new = log_a_water(sum_m_new, ionic_new)
         delta = max(abs(ionic_new - ionic), np.max(np.abs(lg_b_new - lg_b)),
                     np.max(np.abs(lg_d_new - lg_d)) if len(lg_d) else 0.0,
-                    abs(log_aw_new - log_aw), abs(fo2_new - log_fo2))
-        ionic, sum_m, log_aw = ionic_new, sum_m_new, log_aw_new
-        lg_b, lg_d, log_fo2 = lg_b_new, lg_d_new, fo2_new
+                    abs(log_aw_new - log_aw))
+        ionic, sum_m, log_aw, lg_b, lg_d = ionic_new, sum_m_new, log_aw_new, lg_b_new, lg_d_new
         if delta < 1e-11 and outer > 0:
             converged = True
             break
     if not converged:
         raise SpeciationError("activity-coefficient iteration did not converge")
 
-    # ---- final state ----------------------------------------------------
+    # ---- final state -------------------------------------------------------
     lg_b_ln, lg_d_ln = lg_b * LN10, lg_d * LN10
-    ln_a = ln_activities(x, lg_b, log_aw, log_fo2)
-    md = np.exp(np.clip(nu @ ln_a - LN10 * logk_dep - lg_d_ln, -700.0, 700.0))
-    m_basis = np.zeros(nb)
-    m_basis[iu] = np.exp(x)
-    if PROTON not in unknown:
-        m_basis[ib[PROTON]] = math.exp(ln_a[ib[PROTON]] - lg_b_ln[ib[PROTON]])
-    for name, v in fixed_log_a.items():
-        m_basis[ib[name]] = math.exp(v - lg_b_ln[ib[name]])
-
+    u[0] = log_aw * LN10
+    m_dep, m_b = state(u, lg_b_ln, lg_d_ln)
     states: dict[str, SpeciesState] = {}
-    for i in solute_basis:
-        states[names[i]] = SpeciesState(z_b[i], m_basis[i], lg_b[i], ln_a[i] / LN10)
-    ln_a_dep = np.log(np.maximum(md, 1e-300)) + lg_d_ln
+    totals: dict[str, float] = {}
+    for i in range(1, nbf):
+        if solute[i]:
+            states[names[i]] = SpeciesState(z_b[i], m_b[i], lg_b[i], u[i] / LN10)
+            totals[names[i]] = float(m_b[i] + nu[:, i] @ m_dep)
+    u_dep = nu @ u - LN10 * logk_dep                  # ln activity of dependent species
     for k, n in enumerate(dep_names):
-        states[n] = SpeciesState(z_dep[k], md[k], lg_d[k], ln_a_dep[k] / LN10)
+        states[n] = SpeciesState(z_dep[k], m_dep[k], lg_d[k], u_dep[k] / LN10)
 
-    log_q = (nu_phase @ ln_a) / LN10 - logk_phase
+    log_q = (nu_ph @ u) / LN10 - logk_ph
     saturation, fugacity = {}, {}
-    for n, v in zip(phase_names, log_q):
-        (fugacity if db[n].kind == Kind.GAS else saturation)[n] = float(v)
+    for n, kind, v in zip(ph_names, ph_kind, log_q):
+        (fugacity if kind == Kind.GAS else saturation)[n] = float(v)
 
-    log_ah = ln_a[ib[PROTON]] / LN10
-    m_h = m_basis[ib[PROTON]]
-    if redox is not None:
-        # inverse of  log fO2 = logK_eh + 4 pe - 4 log aH + 2 log aw
+    log_ah = u[ib[PROTON]] / LN10
+    m_h = m_b[ib[PROTON]]
+    if OXYGEN in ib:
+        log_fo2 = u[ib[OXYGEN]] / LN10
         pe = (log_fo2 - logk_eh + 4.0 * log_ah - 2.0 * log_aw) / 4.0
         eh = pe * R * t_k * LN10 / FARADAY
     else:
-        pe = eh = float("nan")
-    cations = float(np.sum(m_basis * z_b * (z_b > 0)) + np.sum(md * z_dep * (z_dep > 0)))
-    anions = float(np.sum(m_basis * z_b * (z_b < 0)) + np.sum(md * z_dep * (z_dep < 0)))
+        log_fo2 = pe = eh = float("nan")
+    cations = float(np.sum(m_b * z_b * (z_b > 0)) + np.sum(m_dep * z_dep * (z_dep > 0)))
+    anions = float(np.sum(m_b * z_b * (z_b < 0)) + np.sum(m_dep * z_dep * (z_dep < 0)))
     phi = -log_aw * LN10 * WATER_MOLES_PER_KG / sum_m if sum_m > 0 else 1.0
     return Speciation(
-        temperature_c=temperature_c, pressure_bar=pressure_bar, ionic_strength=ionic,
-        sum_molality=sum_m, log_a_water=log_aw, osmotic_coefficient=phi,
-        ph=-log_ah if ph_scale != "mesmer" else -math.log10(m_h), ph_scale=ph_scale,
-        pmh=-math.log10(m_h), pe=pe, eh_volts=eh, log_fo2=log_fo2,
-        charge_imbalance=cations + anions, species=states, saturation=saturation,
-        log_fugacity=fugacity, dropped=dropped, iterations=total_inner,
+        temperature_c=temperature_c, pressure_bar=pressure_bar, ionic_strength=float(ionic),
+        sum_molality=float(sum_m), log_a_water=float(log_aw), osmotic_coefficient=float(phi),
+        ph=float(-log_ah if ph_scale != "mesmer" else -math.log10(m_h)), ph_scale=ph_scale,
+        pmh=float(-math.log10(m_h)), pe=float(pe), eh_volts=float(eh), log_fo2=float(log_fo2),
+        charge_imbalance=cations + anions, species=states, totals=totals,
+        saturation=saturation, log_fugacity=fugacity, dropped=ev.dropped,
+        extrapolated=ev.extrapolated, iterations=total_inner,
     )

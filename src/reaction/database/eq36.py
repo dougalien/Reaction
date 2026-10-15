@@ -68,7 +68,7 @@ def _to_si(value: float, unit: str) -> float:
 
 def _parse_header(block: list[str]) -> dict[str, np.ndarray]:
     keys = {
-        "temperatures": "temps", "pressures": "press",
+        "temperature limits": "tlim", "temperatures": "temps", "pressures": "press",
         "debye huckel a": "adh", "debye huckel b": "bdh", "bdot": "bdot",
         "cco2": "cco2", "log k for eh reaction": "eh",
     }
@@ -215,10 +215,12 @@ def load_data0(path: str | Path) -> ThermoDatabase:
             entries.append((blk, _SECTION_KIND[section], section))
 
     temps = header["temps"]
+    t_min, t_max = (float(x) for x in header.get("tlim", [0.0, 300.0]))
     db = ThermoDatabase(
         title=title, source=str(path), temps_c=temps, pressures_bar=header["press"],
         adh=header["adh"], bdh=header["bdh"], bdot=header["bdot"], cco2=header["cco2"],
-        logk_eh=GridLogK(temps, header["eh"]), elements=elements,
+        logk_eh=GridLogK(temps, header["eh"], t_min, t_max), elements=elements,
+        t_limits=(t_min, t_max),
     )
     for blk, kind, sec in entries:
         parsed = _parse_entry(blk, kind, sec, title, str(path), ntypes)
@@ -226,7 +228,7 @@ def load_data0(path: str | Path) -> ThermoDatabase:
             continue
         sp, values = parsed
         if values is not None and len(values) == len(temps):
-            sp.logk = GridLogK(temps, values)
+            sp.logk = GridLogK(temps, values, t_min, t_max)
         if sp.name in db.species:
             if set(sp.reaction) == {sp.name}:
                 # reference-state identity entry (e.g. gas O2(g) = basis O2(g))

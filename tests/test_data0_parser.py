@@ -186,10 +186,14 @@ def test_logk_grid_values_and_missing_data_flag(db):
     co2 = db["CO2(aq)"].logk
     assert co2(25.0) == pytest.approx(-6.3447)
     assert math.isnan(co2.values[-1])                 # 500.0 means "no data"
-    assert co2.t_range == (0.01, 200.0)
+    assert co2(150.0) == pytest.approx(-6.5)          # exact at grid points
+    # EQ3/6 fits one polynomial per part of the grid and evaluates it everywhere,
+    # so values beyond the last valid point are extrapolated; Reaction flags them
+    assert not co2.extrapolated(200.0) and co2.extrapolated(250.0)
+    assert math.isfinite(co2(250.0))
     with pytest.raises(ThermoRangeError):
-        co2(250.0)
-    # interpolation passes through the table and stays between neighbours
+        co2(350.0)                                    # outside the file's 0-300 C limits
+    # interpolation stays between neighbours in the well-sampled low-T part
     assert -6.4 < co2(80.0) < -6.3
 
 

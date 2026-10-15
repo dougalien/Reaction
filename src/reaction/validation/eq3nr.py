@@ -34,8 +34,19 @@ def _scalar(text: str, label: str) -> float | None:
     return float(m.group(1)) if m else None
 
 
-def parse_eq3nr_output(path: str | Path) -> Eq3nrReference:
+def parse_eq3nr_outputs(path: str | Path) -> list[Eq3nrReference]:
+    """One reference per problem ("Reading problem N from the input file")."""
     text = Path(path).read_text(encoding="latin-1")
+    parts = re.split(r"^ Reading problem\s+\d+ from the input file", text, flags=re.M)
+    return [parse_eq3nr_text(part) for part in parts[1:]] or [parse_eq3nr_text(text)]
+
+
+def parse_eq3nr_output(path: str | Path) -> Eq3nrReference:
+    """The first problem of an output file."""
+    return parse_eq3nr_outputs(path)[0]
+
+
+def parse_eq3nr_text(text: str) -> Eq3nrReference:
     ref = Eq3nrReference(
         ionic_strength=_scalar(text, "Ionic strength (I)"),
         sum_molality=_scalar(text, "Sum of molalities"),

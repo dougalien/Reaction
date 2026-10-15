@@ -29,15 +29,71 @@ src/reaction/
     model.py              Species, Provenance, GridLogK, ThermoDatabase
     eq36.py               EQ3/6 data0 importer
   activity.py             B-dot, Davies, Bates-Guggenheim, Drummond, water activity
-  speciation.py           Network (reactions reduced to a basis) + Newton solver
-  validation/eq3nr.py     parser for EQ3NR .3o reference outputs
+  network.py              every species/phase written over a chosen basis
+                          (basis switches, suppression, decoupled components)
+  speciation.py           constraints + Newton solver (speciate)
+  validation/
+    eq3nr.py              parser for EQ3NR .3o reference outputs
+    eq3nr_input.py        reader for EQ3NR .3i inputs (multi-problem files)
+    eq3nr_run.py          runs a .3i through Reaction and compares with its .3o
 tests/                    toy-database + synthetic-data0 tests; EQ3/6 regression tests
 ```
 
 Conventions: reactions use the EQ3/6 dissociation form (species coefficient
 -1), so `log a_i = sum_k c_k log a_k - log K`.  Reactions that mention other
-non-basis species are rewritten recursively until only basis species remain,
-which is also what will make basis switching possible.
+non-basis species are rewritten recursively until only basis species remain.
+
+## How the solver is organised
+
+Unknowns are the ln activities `u_j` of the basis species.  Every unknown gets
+exactly one equation, chosen by the constraint supplied for it:
+
+| constraint | equation |
+|---|---|
+| `Molal`, `MgPerKg`, `MgPerL` | mass balance, written as `ln(total / T) = 0` |
+| `PH`, `LogActivity`, `LogFO2` | fixed activity |
+| `Equilibrium(phase, value)` | log Q/K of a mineral (or log f of a gas) = value |
+| `balance_on="X"` | `ln(positive charge / negative charge) = 0`, replacing X's own equation |
+| `Eh`, `Pe` | linear relation between `u(O2)` and `u(H+)` |
+| `Couple("NO3-")` | redox from a couple whose total is also given |
+
+Newton steps are shortened (never distorted) to at most one decade per
+iteration for mass balances, with a sum-of-squares line search and a
+Levenberg-Marquardt fallback.  A pre-Newton phase of successive substitution
+on the mass balances (EQ3NR does the same) is what makes 40-component fluids
+with strongly complexed pairs converge; plain Newton fails on them because the
+Jacobian rows of two components in one complex are nearly identical.  The
+residuals are logarithmic on purpose: linear ones saturate at 1 when a
+polynuclear species (Al13O4(OH)24 7+) explodes from a bad starting guess.
+
+## EQ3NR behaviours worth knowing (all verified against reference outputs)
+
+* **Suppression follows the reaction text.**  Suppressing a species removes
+  every species whose database reaction mentions it: suppress `NH3(aq)` and
+  `NO2-`, `NH4+`, `HNO2(aq)` vanish; suppress the master organic species
+  `Acetic_acid(aq)` and all organics vanish.  Suppressed *phases* are different:
+  their saturation states are still reported, they just cannot be used as
+  equilibrium constraints.
+* **Basis switch** (`NH3(aq)` -> `NO3-`): the switched-out species is defined
+  through its replacement's reaction, so species written through `NO3-` (such as
+  `CaNO3+`) stay as they are while species written through `NH3(aq)` are
+  dropped once it is suppressed.
+* **Decoupling**: giving an auxiliary species (`O2(aq)`, `Fe+++`, `NO2-`) its own
+  total makes it an independent component, no longer tied to the default redox
+  state.  Species that mention it stay written through it.
+* **Balancing on a species** replaces that species' constraint: with `H+` the
+  input pH is only a starting guess and the final pH is a result.
+* **NBS pH scale**: `log gamma(Cl-)` is set by the Bates-Guggenheim equation and
+  every ion is shifted by `-z * (BG - own)` of that; neutral species are
+  untouched.
+* **Water activity** is quasi-consistent with the activity model (B-dot form
+  derived in the EQ3/6 theory manual; the Davies form follows from Gibbs-Duhem
+  with the 0.2 coefficient EQ3/6 uses).
+* **logK between grid temperatures**: one exact polynomial through the valid
+  points of the 0-100 C part of the grid, another through those of the
+  100-300 C part (EQPT).  A lone 25 C value becomes a constant.  Outside the
+  span of valid points the polynomial is still evaluated, as in EQ3/6;
+  `Speciation.extrapolated` lists the species that rely on that.
 
 ## Data policy
 
@@ -60,15 +116,21 @@ which is also what will make basis switching possible.
 
 Oracle: the EQ3/6 v8.0a test library (Windows package, with executables).
 
-| library | what | cases |
+| library | what | status |
 |---|---|---|
-| `3tlib_cmp` | EQ3NR speciation, data0.cmp, B-dot | 41 inputs with reference outputs |
+| `3tlib_cmp` | EQ3NR speciation, data0.cmp, B-dot/Davies | **all 41 inputs (43 problems) reproduced** |
 | `3tlib_hmw`, `3tlib_fmt`, `3tlib_ymp`, `3tlib_ypf` | Pitzer and other databases | later |
 | `6tlib_*` | EQ6 reaction paths, kinetics, mixing | oracle for M3/M4 |
 
-Status: `swmaj` (seawater major ions, 25 C) matches EQ3NR for every printed
-species (log molality, log gamma, log activity to 2e-4), 35+ solid saturation
-indices (5e-4) and gas fugacities.  Run with:
+For `3tlib_cmp`, 1,625 species (log molality, log gamma), 2,600 solid
+saturation indices, gas fugacities and the bulk properties (ionic strength,
+water activity, osmotic coefficient, pH) agree with the stored EQ3NR output to
+5.0e-5, which is the rounding of the printed values.  Features the cases cover:
+charge balancing on H+, Na+ and Cl-; mg/L and mg/kg.sol; equilibrium with
+minerals and gases; a special basis switch; redox from Eh, log fO2 and a
+couple; decoupled components; suppression; Davies; 9.5, 10, 25.5, 70 and
+250 C; multi-problem files.  The ion-exchange cases are compared on their
+aqueous part only (exchangers are computed after the aqueous speciation).
 
 ```
 set REACTION_EQ36_DIR=...\Eq3_6v8.0a
@@ -77,19 +139,20 @@ python -m pytest
 ```
 
 Known, understood differences from EQ3/6:
-* Eh to pe: EQ3/6 uses a legacy Faraday constant (about 23062.3 cal/V/eq);
-  Reaction uses CODATA, so pe differs by 6e-5 relative.  Regression tests fix
-  log fO2 at EQ3NR's value to compare everything else exactly.
+* Eh to pe: EQ3/6 uses R = 1.98726 cal/mol/K and F = 23062.3 cal/V/eq;
+  Reaction uses CODATA.  The validation harness converts Eh with EQ3/6's
+  constants so the inputs match; Reaction itself keeps the modern values (pe
+  differs by 6e-5 relative if you pass Eh directly).
 * mg/kg.sol conversion follows EQ3NR (default TDS = 0 means mg per kg water).
 
 ## Roadmap
 
 * **M1 (done)**: data0 import; B-dot speciation with NBS pH scale; redox via
   Eh/pe/fO2; saturation indices and gas fugacities.
-* **M1.5**: run all 41 `3tlib_cmp` cases automatically.  Needs a `.3i` input
-  reader, charge balancing on a species, mg/L and alkalinity units, mineral/gas
-  equilibrium constraints ("hetero. equil."), basis switching, species
-  suppression, Davies model, and a check at T other than 25 C (3 cases at 250 C).
+* **M1.5 (done)**: charge balance, mg/L, equilibrium constraints, basis
+  switching, decoupling, suppression, Davies, `.3i` reader and the all-cases
+  regression above.  Not covered by the library and still missing: alkalinity,
+  log-activity combinations (pHCl...), ion exchange, solid solutions.
 * **M2**: temperature and pressure.  Water properties (IAPWS), dielectric
   constant, Debye-Hueckel A and B at T,P, HKF for aqueous species and
   Maier-Kelley/Berman for minerals, so logK(T,P) reaches about 400 C and 1 kbar
