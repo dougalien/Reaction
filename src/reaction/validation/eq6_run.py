@@ -130,10 +130,11 @@ class Eq6Report:
 
 # Tolerances (absolute, relative).  The CSV prints five significant figures, reaction
 # progress included, so amounts of a mineral that has only just begun to precipitate carry
-# an error of about 1e-3 * xi from the rounding of xi alone.
+# an error of about 1e-3 * xi from the rounding of xi alone.  The solvent mass is printed with three
+# decimals (1.000 kg for 1.0004), hence its absolute 5e-4.
 TOL = {
     "pH": (3e-4, 0.0), "pmH": (3e-4, 0.0), "log fO2": (5e-3, 5e-4), "aw": (2e-4, 0.0),
-    "T": (5e-3, 0.0), "H2O(kg)": (0.0, 3e-4), "I": (0.0, 2e-3),
+    "T": (5e-3, 0.0), "H2O(kg)": (5e-4, 3e-4), "I": (0.0, 2e-3),
     "element": (1e-15, 2e-3), "mineral": (1e-10, 3e-3), "SI": (2e-3, 0.0), "log m": (2e-3, 5e-4),
 }
 

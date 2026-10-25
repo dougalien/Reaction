@@ -162,8 +162,10 @@ boundaries) and `pyrsw` (17 of 935) now run through a 40-unit jump in log fO2 bu
 changes got there: a sign-split logarithmic mass balance for components held in no mineral (fixed the
 titration cases; using it for mineral-bound components broke `micro`, so it is not applied there), and the
 solver now raises an error instead of returning a state that is still supersaturated in a mineral it failed
-to add, which makes the step subdivision follow the redox front. Still open: `dedolo` (alias minerals with
-identical data, such as Dolomite and Dolomite-ord), `microft` (flow-through in the general path class), and
+to add, which makes the step subdivision follow the redox front. `dedolo` (alias minerals with identical
+formulas, such as Dolomite and Dolomite-ord) runs since the active set swaps a mineral whose saturation
+condition depends on the assemblage's instead of adding it.  Still open: `microft` (flow-through in the general
+path class), and
 the cases that need special basis switches, solid solutions, ion exchangers or kinetics.
 
 The solver, paths and EQ6 harness were committed in `3af9559`, the app in `a3076e0` and pressure paths in
