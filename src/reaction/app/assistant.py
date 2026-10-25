@@ -348,6 +348,7 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
     ch.update(_kinetic_options(low))
     ch.update(_brine_options(low))
     ch.update(_uncertainty_options(low))
+    ch.update(_sorption_options(low))
     if re.search(r"\bsolid[- ]solutions?\b", low):
         ch["solid_solutions"] = not re.search(r"\b(no|without|turn off|switch off|disable)\b[^.]*\bsolid[- ]solution", low)
     elif re.search(r"\bpure (?:minerals|endmembers|phases) only\b|\bonly pure minerals\b", low):
@@ -369,6 +370,7 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
             found.append(more.groups())
             rest = rest[more.end():]
     found = [f for f in found if not re.fullmatch(_FLUID_WORDS, f[2].lower())]   # "with 10 kg of seawater" is mixing
+    found = [f for f in found if not re.fullmatch(_HFO_WORDS, f[2].lower())]     # "with 1 g ferrihydrite" sorbs
     if found:
         ch["reactants"] = "; ".join(f"{amount} {unit} {name}" for amount, unit, name in found)
         held = re.search(rf"\bat\s*{_NUM}{_DEG}", low)
@@ -433,6 +435,10 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
                          "davies": "Davies activity coefficients"}[ch["activity_model"]])
         if "solid_solutions" in ch:
             bits.append("solid solutions can form" if ch["solid_solutions"] else "pure minerals only")
+        if "exchange_meq" in ch:
+            bits.append(f"{ch['exchange_meq']:g} meq of exchange sites" if ch["exchange_meq"] else "no exchanger")
+        if "hfo_g" in ch:
+            bits.append(f"{ch['hfo_g']:g} g of ferric oxide surface" if ch["hfo_g"] else "no ferric oxide surface")
         if "isotopes" in ch:
             bits.append("isotopes on" if ch["isotopes"] else "isotopes off")
         if "isotope_inputs" in ch:
@@ -510,6 +516,30 @@ _ISO_KEY = r"(?:d|δ|delta\s*)(?:18\s*o|13\s*c|34\s*s)|87\s*sr\s*/\s*86\s*sr|\bs
 _ISO_VALUE = re.compile(
     rf"(?P<before>(?:[a-z][\w,()+\-]*\s+){{0,3}}?)(?P<key>{_ISO_KEY})(?:\s+of\s+(?:the\s+)?(?P<after>[a-z][a-z ]*?))?"
     r"\s*(?:=|:|is|to|at|of)?\s*(?P<value>[-+−]?\d*\.?\d+)\s*(?:‰|permil|per mil|ppm|mg/kg)?", re.I)
+
+
+_HFO_WORDS = r"(?:hfo|ferrihydrite|(?:hydrous )?ferric (?:oxide|oxyhydroxide|hydroxide)|iron oxyhydroxide)"
+
+
+def _sorption_options(low: str) -> dict:
+    """Exchange sites and ferric oxide surface: "with 50 meq of exchange sites", "a cation exchange capacity of
+    100 meq", "with 2 g of ferrihydrite", "no exchanger", "without the ferric oxide"."""
+    out: dict = {}
+    if re.search(r"\b(?:no|without|remove(?: the)?)\s+(?:the\s+)?(?:exchange(?:r| sites)?|cation exchange|cec)\b", low):
+        out["exchange_meq"] = 0.0
+    else:
+        m = re.search(r"(\d*\.?\d+)\s*(?:meq|mmol)\b[^.,;]*?\b(?:exchange|exchanger|cec)\b", low) or \
+            re.search(r"\b(?:cation exchange capacity|cec|exchange capacity)\s*(?:of|is|=|:)?\s*(\d*\.?\d+)\s*(?:meq|mmol)?",
+                      low)
+        if m:
+            out["exchange_meq"] = float(m.group(1))
+    if re.search(rf"\b(?:no|without|remove(?: the)?)\s+(?:the\s+)?{_HFO_WORDS}", low):
+        out["hfo_g"] = 0.0
+    else:
+        m = re.search(rf"(\d*\.?\d+)\s*(?:g|grams?)\s+(?:of\s+)?{_HFO_WORDS}", low)
+        if m:
+            out["hfo_g"] = float(m.group(1))
+    return out
 
 
 def _isotope_options(text: str, low: str, card) -> dict:

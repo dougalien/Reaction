@@ -144,9 +144,24 @@ composition-dependent and need checking against the papers); defaults for fluids
 illustrative and named in a note; aqueous O is all at the water's δ18O; carbonate ion is taken as
 bicarbonate; HCO3- (to 290 C) and CO (to 330 C) are extrapolated above their range with a note.
 
-Next: P7c part two (D/H), or the roadmap's next item.
+P7d sorption (done): `sorption.py` and `data/sorption.tsv` (PHREEQC's phreeqc.dat EXCHANGE_SPECIES and
+SURFACE_SPECIES, USGS public domain). Card `exchange_meq` (meq of sites per kg water; chat "with 50 meq of
+exchange sites", "cation exchange capacity of 100 meq") and `hfo_g` (g of hydrous ferric oxide; chat "with 1 g
+of ferrihydrite"). Both are solved inside the Newton system (`_Solve.sorbents`): the exchanger adds one unknown
+(ln a X-, equivalent fractions add to one; species take their cation's activity coefficient, as PHREEQC's
+-gamma), the surface adds ln n(SOH) for strong and weak sites and y = F psi / RT with the Gouy-Chapman charge
+relation (no diffuse-layer composition, PHREEQC's default). The exchanger starts loaded from the fluid without
+changing it ("equilibrate with solution"); the HFO starts bare and reacts with the fluid at the first point.
+Checked against PHREEQC 3.7.3 (phreeqpy wheel, llnl.dat plus phreeqc.dat surface species) for seawater at
+25 C: exchanger fractions within 5%, pH with 1 g HFO 7.231 against 7.218, potential 34.9 against 36.3 mV,
+sorbed Ca, Mg, carbonate within 5%, sulfate within 10%. Results window: Sorbed tab, surface potential
+property, story sentence. Judgment calls: 25 C constants at all temperatures (van 't Hoff only where
+phreeqc.dat gives an enthalpy); borate and silicate surface species use B(OH)3 and SiO2(aq); following the
+vapour leaves the sorbents with the fluid followed.
 
-348 tests pass with the data folder present. The data folder needs `OBIGT/Berman/` (run
+Next: P7e 1D reactive transport; H isotopes when D/H factors are checked.
+
+353 tests pass with the data folder present. The data folder needs `OBIGT/Berman/` (run
 `scripts/fetch_references.ps1` again); without it the old minerals are used and every run says so.
 
 ## First things to do, in this order
@@ -174,7 +189,7 @@ Next: P7c part two (D/H), or the roadmap's next item.
    - *Solver core*: keep extending the Newton plus active-set approach, or move to Gibbs-energy minimization
      (cleaner for phase appearance and solid solutions). Decide before the basalt work.
 5. Later: ~~kinetics~~ (done in P6; aragonite to calcite needs aragonite's rate, not in the PK table),
-   ~~solid solutions~~ (P7b), isotopes (O, C, S, Sr done in P7c; H still to do).
+   ~~solid solutions~~ (P7b), isotopes (O, C, S, Sr done in P7c; H still to do), ~~sorption~~ (P7d).
 
 ## Known technical gaps
 

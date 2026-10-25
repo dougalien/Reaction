@@ -115,6 +115,10 @@ class Scenario:
     # {"fluid": {"d18O": -5.0}, "basalt glass": {"Sr": 120.0, "87Sr/86Sr": 0.7030}}; the rest are defaults
     isotopes: bool = False
     isotope_inputs: dict = field(default_factory=dict)
+    # sorption (see sorption.py), per kg of the starting water: cation exchange sites (meq, Gaines-Thomas) that
+    # start in equilibrium with the fluid, and hydrous ferric oxide (g) with Dzombak and Morel surface sites
+    exchange_meq: float = 0.0
+    hfo_g: float = 0.0
 
     # ---- editing --------------------------------------------------------------------------
     def to_dict(self) -> dict[str, Any]:
@@ -296,6 +300,10 @@ class Scenario:
             out.append(f"the number of uncertainty runs must be between 0 (none) and {MAX_UNCERTAINTY_RUNS}")
         elif 0 < self.uncertainty_runs < 5:
             out.append("uncertainty bands need at least 5 runs (20 or more for a stable range)")
+        if not 0.0 <= self.exchange_meq <= 100000.0:
+            out.append("the exchange capacity must be between 0 and 100000 meq per kg of water")
+        if not 0.0 <= self.hfo_g <= 1000.0:
+            out.append("the hydrous ferric oxide must be between 0 and 1000 g per kg of water")
         if self.follow_phase not in FOLLOW_PHASES:
             out.append(f"follow_phase must be one of {', '.join(FOLLOW_PHASES)}")
         if self.mode not in MODES:
@@ -359,6 +367,11 @@ class Scenario:
             text = text.replace(f" ({self._how()}", f", following {what} ({self._how()}")
         if self.isotopes:
             text = text.replace(f" ({self._how()}", f", with isotopes ({self._how()}")
+        if self.exchange_meq > 0:
+            text = text.replace(f" ({self._how()}", f", with {self.exchange_meq:g} meq of exchange sites ({self._how()}")
+        if self.hfo_g > 0:
+            text = text.replace(f" ({self._how()}", f", with {self.hfo_g:g} g of ferric oxyhydroxide surface "
+                                                   f"({self._how()}")
         if self.uncertainty_runs:
             text = text.replace(f" ({self._how()}", f", with a log K uncertainty range from {self.uncertainty_runs} "
                                                    f"runs ({self._how()}")
@@ -456,7 +469,7 @@ def _coerce(key: str, value: Any) -> Any:
             return None
         return float(value)
     if key in ("t_start_c", "t_end_c", "p_start_bar", "p_end_bar", "fluid_t_c", "mix_ratio", "duration",
-               "surface_area_cm2_per_g", "evaporate"):
+               "surface_area_cm2_per_g", "evaporate", "exchange_meq", "hfo_g"):
         return float(value)
     if key == "duration_unit":
         low = str(value).strip().lower()
@@ -633,6 +646,10 @@ FIELD_HELP = {
     "follow_phase": "where a saline fluid splits into brine and vapour: whole (default) follows the whole "
                     "fluid; brine lets the vapour boil off at each step; vapour follows the vapour and leaves "
                     "the brine behind",
+    "exchange_meq": "cation exchange capacity in meq per kg of water (0 = none); the exchanger starts in "
+                    "equilibrium with the fluid (Gaines-Thomas, PHREEQC constants)",
+    "hfo_g": "grams of hydrous ferric oxide per kg of water (0 = none): surface complexation on its strong and "
+             "weak sites (Dzombak and Morel 1990)",
     "isotopes": "false (default); true: d18O, d13C, d34S and 87Sr/86Sr of the fluid and minerals along the run",
     "isotope_inputs": "starting isotope values, e.g. {\"fluid\": {\"d18O\": -5}, \"basalt glass\": {\"Sr\": 120, "
                       "\"87Sr/86Sr\": 0.703}}; d values in permil (VSMOW, VPDB, VCDT), Sr in mg/kg of fluid or ppm "

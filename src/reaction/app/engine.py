@@ -33,6 +33,7 @@ from ..network import PROTON, WATER
 from ..path import PathPoint, ReactionPath, Reactant, _composition_row, mineral_reactant
 from ..phasesep import phase_state, salinity_from_chloride
 from ..solidsolution import table as solid_solution_table
+from ..sorption import Sorption, exchanger_loading
 from ..speciation import PH, Couple, Eh, LogFO2, Molal, Pe, Speciation, speciate
 from ..thermo import validity
 from ..thermo.eosdb import DEFAULT_MASTERS, load_eos_database
@@ -47,7 +48,7 @@ Progress = Callable[[float, str], None]
 TRACE = 1e-12          # mol per kg of water of a component only a reactant brings in
 BAND_PERCENTILES = (5.0, 95.0)            # the shaded range: the middle 90% of the uncertainty runs
 BAND_SEED = 20261025                      # fixed, so the same card gives the same range
-AMOUNT_GROUPS = ("species", "elements", "minerals", "gas")      # a missing key there means none
+AMOUNT_GROUPS = ("species", "elements", "minerals", "gas", "sorbed")      # a missing key there means none
 AXES = {"temperature_c": ("Temperature", "°C"), "pressure_bar": ("Pressure", "bar")}
 
 
@@ -178,6 +179,12 @@ class Engine:
             _phase_split(run, points)
             notes.extend(phase_notes(run, points, MODE_LABELS[mode] if len(runs) > 1 else "",
                                      sc.follow_phase))
+        if sc.exchange_meq > 0 or sc.hfo_g > 0:
+            notes.append("Sorption uses PHREEQC's constants (phreeqc.dat): Gaines-Thomas exchange, the exchange species "
+                         "taking their cation's activity coefficient, and the Dzombak and Morel (1990) diffuse-layer model "
+                         "for hydrous ferric oxide (89 g/mol Fe, 600 m2/g, 0.2 weak and 0.005 strong sites per Fe). "
+                         "The constants are for 25 °C; exchange constants with an enthalpy follow van 't Hoff, the rest "
+                         "are held at their 25 °C values.")
         if sc.solid_solutions:
             notes.append("Solid solutions mix ideally on their sites (the EQ3/6 models). Real carbonates and "
                          "feldspars unmix at low temperature, so there the minor endmember is overstated.")
@@ -283,11 +290,23 @@ class Engine:
         hold = [b for b in basis if db.species[b].kind != Kind.BASIS]     # CH4, held apart
         blocked = {b.lower() for b in sc.blocked_minerals}
         mixes = [ss for ss in solid_solution_table() if ss.name not in blocked] if sc.solid_solutions else []
+        sorb = Sorption(exchange_eq=sc.exchange_meq / 1000.0, hfo_g=sc.hfo_g)
         system = System(db, [b for b in basis if b not in hold], activity_model=sc.activity_model,
-                        gas_phase=sc.gas_phase, hold_apart=hold, solid_solutions=mixes)
+                        gas_phase=sc.gas_phase, hold_apart=hold, solid_solutions=mixes,
+                        sorption=sorb if sorb.active else None)
         bulk0 = dict(sp0.component_totals)
         for b in basis:
             bulk0.setdefault(b, TRACE)                   # a trace, so the solution has a start
+        if sorb.exchange_eq > 0:
+            # the exchanger starts loaded with the fluid's cations in equilibrium with it (the fluid unchanged)
+            t0 = sp0.temperature_c
+            model = system.model(t0, sp0.pressure_bar)
+            have = dict(zip(sp0.basis_names, sp0.ln_activities))
+            u = np.array([have.get(b, -50.0) for b in model.names])
+            gam = {n: st.log_activity * math.log(10.0) - math.log(st.molality)
+                   for n, st in sp0.species.items() if st.molality > 0}
+            for comp, moles in exchanger_loading(model, u, sorb.exchange_eq, t0, gam).items():
+                bulk0[comp] = bulk0.get(comp, 0.0) + moles
         return sp0, fluid_notes, added, mix, system, bulk0
 
     def _reactant_names(self, sc: Scenario) -> dict[str, str]:
@@ -796,7 +815,8 @@ class Engine:
                 "log_a": {n: spec.species[n].log_activity for n in spec.basis_names
                           if n in spec.species and n not in (WATER, PROTON)}, "elements": elements,
                 "minerals": minerals, "gas": gas, "saturation": dict(spec.saturation),
-                "warnings": list(spec.warnings)}
+                "warnings": list(spec.warnings), "sorbed": dict(state.sorbed),
+                "surface_potential_mV": state.surface_potential_mv}
 
 
 def reliability_notes(points: list[tuple[float, float]], rels: list[validity.Reliability],
@@ -849,7 +869,11 @@ def _pack(rows: list[dict | None]) -> dict:
             "log_aw": [_sig(r["log_aw"]) if r else None for r in rows],
             **{k: [_sig(r.get(k)) if r else None for r in rows] for k in ("log_fO2", "Eh")
                if any(r and math.isfinite(r.get(k, math.nan)) for r in rows)},   # only with redox
+            **({"surface_potential_mV": [_sig(r.get("surface_potential_mV")) if r else None for r in rows]}
+               if any(r and r.get("surface_potential_mV") is not None for r in rows) else {}),
         },
+        "sorbed": column(lambda r, k: r.get("sorbed", {}).get(k, 0.0),
+                         sorted({k for r in good for k, v in r.get("sorbed", {}).items() if v > 1e-15})),
         "species": column(lambda r, k: r["species"].get(k, 0.0), species_keys),
         "log_a": column(lambda r, k: r.get("log_a", {}).get(k), sorted({k for r in good for k in r.get("log_a", {})})),
         "elements": column(lambda r, k: r["elements"].get(k, 0.0), element_keys),
@@ -1032,8 +1056,18 @@ def _catalog(db, runs: dict[str, dict], sc: Scenario) -> dict:
                 isotope[k] = {"label": "87Sr/86Sr of the fluid", "unit": "ratio"}
             else:
                 isotope[k] = {"label": f"δ{what[1:]} {shown}", "unit": f"‰ {isotopes.STANDARDS[what]}"}
+    sorbed = {}
+    for run in runs.values():
+        for k in run.get("sorbed", {}):
+            if k.startswith("Hfo_"):
+                site = "strong" if k.startswith("Hfo_s") else "weak"
+                sorbed[k] = {"label": f"{k[5:]} on ferric oxide ({site} sites)", "unit": "mol"}
+            else:
+                ion = re.sub(r"X\d*$", "", k)
+                sorbed[k] = {"label": f"{ion} on exchange sites ({k})", "unit": "mol"}
     return {"species": species, "elements": elements, "minerals": minerals, "gas": gases,
-            "kinetic": kinetic, "composition": composition, "phases": phases, "isotopes": isotope}
+            "kinetic": kinetic, "composition": composition, "phases": phases, "isotopes": isotope,
+            "sorbed": sorbed}
 
 
 def _mw(db, name: str) -> float | None:
