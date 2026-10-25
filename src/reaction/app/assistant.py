@@ -293,7 +293,8 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
     elif re.search(r"\bstatic\b|\bclosed\b|\bbatch\b", low):
         ch["mode"] = "static"
     out.mode_mentioned = "mode" in ch
-    for key, p in PRESETS.items():
+    plotting = re.match(r"\s*(?:plot|show|display|hide|remove|drop)\b", low)   # names in a plot request
+    for key, p in ([] if plotting else PRESETS.items()):
         if key in low or p.label.lower() in low or (key == "vent_fluid" and re.search(r"\bvent\b|black smoker", low)) \
                 or (key == "formation_brine" and re.search(r"\bbrine\b", low)) or (key == "rainwater" and re.search(r"\brain\b", low)):
             ch["fluid"] = key

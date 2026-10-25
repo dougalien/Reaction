@@ -31,6 +31,7 @@ from ..equilibrium import System
 from ..kinetics import basalt_glass, rate_law
 from ..network import PROTON, WATER
 from ..path import PathPoint, ReactionPath, Reactant, mineral_reactant
+from ..phasesep import phase_state, salinity_from_chloride
 from ..solidsolution import table as solid_solution_table
 from ..speciation import PH, Couple, Eh, LogFO2, Molal, Pe, Speciation, speciate
 from ..thermo import validity
@@ -162,6 +163,9 @@ class Engine:
         elif top > 1.0:
             notes.append(f"Ionic strength reaches {top:.1f} mol/kg. The {sc.activity_model.replace('bdot', 'B-dot')} "
                          f"equation is unreliable above about 1 mol/kg; choose Pitzer on the card for brines.")
+        for mode, run in runs.items():
+            _phase_split(run, points)
+            notes.extend(phase_notes(run, points, MODE_LABELS[mode] if len(runs) > 1 else ""))
         if sc.solid_solutions:
             notes.append("Solid solutions mix ideally on their sites (the EQ3/6 models). Real carbonates and "
                          "feldspars unmix at low temperature, so there the minor endmember is overstated.")
@@ -618,7 +622,8 @@ class Engine:
                 minerals[r.mineral] = minerals.get(r.mineral, 0.0) + max(left, 0.0)
             rates[f"rate:{r.name}"] = point.rates.get(r.name, 0.0)
             rates[f"left:{r.name}"] = 100.0 * max(left, 0.0) / r.amount
-        return {"kinetic": rates, "composition": composition, "pH": spec.ph, "ionic_strength": spec.ionic_strength, "water_kg": state.water_kg,
+        phases = {"salinity": 100.0 * salinity_from_chloride(spec.component_totals.get("Cl-", 0.0))}
+        return {"kinetic": rates, "composition": composition, "phases": phases, "pH": spec.ph, "ionic_strength": spec.ionic_strength, "water_kg": state.water_kg,
                 "log_fO2": spec.log_fo2, "Eh": spec.eh_volts,
                 "log_aw": spec.log_a_water, "species": species,
                 "log_a": {n: spec.species[n].log_activity for n in spec.basis_names
@@ -684,6 +689,7 @@ def _pack(rows: list[dict | None]) -> dict:
         "minerals": column(lambda r, k: r["minerals"].get(k, 0.0), mineral_keys),
         "gas": column(lambda r, k: r.get("gas", {}).get(k, 0.0), gas_keys),
         "kinetic": column(lambda r, k: r.get("kinetic", {}).get(k), sorted({k for r in good for k in r.get("kinetic", {})})),
+        "phases": column(lambda r, k: r.get("phases", {}).get(k), ["salinity"]),
         "composition": column(lambda r, k: r.get("composition", {}).get(k),
                               sorted({k for r in good for k in r.get("composition", {})})),
         "saturation": column(lambda r, k: r["saturation"].get(k), sat_keys),
@@ -700,6 +706,63 @@ def _sample_in_worker(data_dir: str, card: dict, modes: list[str], j: int) -> di
     if _WORKER is None or str(_WORKER.data_dir) != data_dir:
         _WORKER = Engine(data_dir)
     return _WORKER._sample(Scenario.from_dict(card), modes, j)
+
+
+def _phase_split(run: dict, points: list[tuple[float, float]]) -> None:
+    """Brine and vapour along the path from the fluid's salinity (NaCl-H2O): the phase state of every
+    point, and where the fluid splits, the vapour share and the salinity of each phase.  A point the
+    chemistry could not solve takes the salinity of the nearest point that was solved, so the split shows
+    even where the aqueous model gives up near the critical point."""
+    sal = run["phases"]["salinity"]
+    known = [i for i, v in enumerate(sal) if v is not None]
+    state, share, brine, vapour = [], [], [], []
+    for i, (t, p) in enumerate(points):
+        if not known:
+            state.append(None)
+            share.append(None), brine.append(None), vapour.append(None)
+            continue
+        x = sal[min(known, key=lambda k: abs(k - i))] / 100.0
+        ps = phase_state(t, p, x)
+        state.append(ps.kind)
+        share.append(_sig(100.0 * ps.vapour_mass) if ps.separated else None)
+        brine.append(_sig(100.0 * ps.x_liq) if ps.separated else None)
+        vapour.append(_sig(100.0 * ps.x_vap) if ps.separated else None)
+    run["phase_state"] = state
+    if any(v is not None for v in share):
+        run["phases"].update(vapour_share=share, brine_salinity=brine, vapour_salinity=vapour)
+
+
+def phase_notes(run: dict, points: list[tuple[float, float]], mode: str = "") -> list[str]:
+    """Where the fluid splits into brine and vapour (NaCl-H2O, Driesner and Heinrich 2007), or meets
+    halite, and where the path leaves the table."""
+    state = run.get("phase_state", [])
+    where = f" ({mode.lower()})" if mode else ""
+    out = []
+    split = [i for i, s in enumerate(state) if s == "liquid + vapour"]
+    if split:
+        ph = run["phases"]
+        i0 = split[0]
+        top = max(split, key=lambda i: ph["vapour_share"][i] or 0.0)
+        t, p = points[i0]
+        x0 = next(v for v in ph["salinity"] if v is not None)
+        out.append(f"Phase separation{where}: by its NaCl-equivalent salinity ({x0:.1f} wt%) the fluid "
+                   f"splits into brine and vapour from about {t:.0f} °C and {p:.0f} bar (Driesner and Heinrich 2007). "
+                   f"At most {ph['vapour_share'][top]:.0f}% of its mass is vapour with "
+                   f"{ph['vapour_salinity'][top]:.2g} wt% NaCl, against {ph['brine_salinity'][top]:.3g} wt% in the brine. "
+                   f"The chemistry shown is that of the whole fluid; the Brine and vapour tab has the split.")
+    halite = [i for i, s in enumerate(state) if s in ("vapour + halite", "liquid + halite")]
+    if halite:
+        t, p = points[halite[0]]
+        out.append(f"By its salinity the fluid would be saturated with halite{where} from about {t:.0f} °C and "
+                   f"{p:.0f} bar (NaCl-H2O alone; the calculation's own halite saturation index is the one to trust).")
+    outside = [i for i, s in enumerate(state) if s == "outside"]
+    if outside and len(outside) < len(state):
+        out.append("Phase separation is checked only from 10 to 490 bar (the range of the NaCl-H2O table); "
+                   "part of this path is outside it.")
+    elif outside and any(t > 300 for t, _ in points):
+        out.append("Phase separation is checked only from 10 to 490 bar (the range of the NaCl-H2O table), so it "
+                   "is not checked on this path.")
+    return out
 
 
 def _bands(run: dict, samples: list[dict]) -> dict:
@@ -759,8 +822,12 @@ def _catalog(db, runs: dict[str, dict], sc: Scenario) -> dict:
         for k in run.get("composition", {}):
             ss, member = k.split(":", 1)
             composition[k] = {"label": f"{pretty_mineral(member)} in {ss}", "unit": "mole fraction"}
+    phases = {"salinity": {"label": "Salinity of the whole fluid", "unit": "wt% NaCl"},
+              "vapour_share": {"label": "Vapour share of the fluid", "unit": "% by mass"},
+              "brine_salinity": {"label": "Brine salinity", "unit": "wt% NaCl"},
+              "vapour_salinity": {"label": "Vapour salinity", "unit": "wt% NaCl"}}
     return {"species": species, "elements": elements, "minerals": minerals, "gas": gases,
-            "kinetic": kinetic, "composition": composition}
+            "kinetic": kinetic, "composition": composition, "phases": phases}
 
 
 def _mw(db, name: str) -> float | None:

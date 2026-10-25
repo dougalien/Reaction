@@ -107,11 +107,19 @@ actinolite and quartz. The EQ6 heatsw cases still cannot be compared: they form 
 Judgment calls: ideal mixing everywhere (overstates mixing in carbonates and feldspars at low T); blocked
 minerals are left out of the mixtures too; magnesite is blocked by default, so it is not in the carbonate.
 
-Next: P5b phase separation from the Driesner-Heinrich lookup tables (below), then P7c isotopes.
-P5b may become possible from the CC BY lookup tables of Oguntola on Zenodo (record 20394023,
-computed from Driesner and Heinrich), if they hold the coexisting phase compositions.
+P5b phase separation (first part, done): `data/nacl_h2o_phases.tsv` holds the coexisting brine and vapour
+of NaCl-H2O on a 5 C by 20 bar grid (1 to 996 C, 10 to 490 bar), with halite saturation, extracted from
+Oguntola's CC BY 4.0 lookup table (Zenodo record 20394023, from Driesner and Heinrich 2007). `phasesep.py`
+gives the phase state of a fluid of given NaCl-equivalent salinity (from its chloride). Every run reports
+where the fluid splits, the vapour share (lever rule) and both salinities (Brine and vapour tab, story,
+notes), also at points where the aqueous chemistry fails near the critical point. Seawater at 250 bar
+splits from about 390 C. Not yet: the chemistry still follows the whole fluid; following the brine or the
+vapour (partitioning of every solute and gas) is the next step, then paths below the boiling curve.
+Judgment calls: NaCl-equivalent from Cl; bilinear interpolation, nearest corner at field edges.
 
-336 tests pass with the data folder present. The data folder needs `OBIGT/Berman/` (run
+Next: P5b part two (follow the brine or the vapour), then P7c isotopes.
+
+340 tests pass with the data folder present. The data folder needs `OBIGT/Berman/` (run
 `scripts/fetch_references.ps1` again); without it the old minerals are used and every run says so.
 
 ## First things to do, in this order

@@ -17,3 +17,4 @@ cache/
 
 # saved runs and chat session of the local app
 workspace/
+*.vtk

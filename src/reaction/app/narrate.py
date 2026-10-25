@@ -197,6 +197,27 @@ def _gas_clause(result: dict, run: dict, mode: str) -> str:
     return f"A gas phase {verb} {_when(result, i)}: {amount}; by moles {what}."
 
 
+def _split_clause(result: dict, run: dict) -> str:
+    """Boiling or condensation of the fluid into brine and vapour (NaCl-H2O)."""
+    state = run.get("phase_state") or []
+    split = [i for i, s in enumerate(state) if s == "liquid + vapour"]
+    if not split:
+        return ""
+    ph = run["phases"]
+    i0, i1 = split[0], split[-1]
+    text = (f"The fluid splits into brine and vapour {_when(result, i0)}: there "
+            f"{ph['vapour_share'][i0]:.0f}% of its mass is vapour with {ph['vapour_salinity'][i0]:.2g} wt% NaCl, "
+            f"the brine has {ph['brine_salinity'][i0]:.3g} wt%")
+    if i1 > i0:
+        text += (f"; at {point_text(result, i1)} the vapour is {ph['vapour_share'][i1]:.0f}% and the brine "
+                 f"{ph['brine_salinity'][i1]:.3g} wt%")
+    if i1 < len(state) - 1 and state[i1 + 1] == "vapour + halite":
+        text += "; beyond that the brine dries out to vapour and halite"
+    elif i1 < len(state) - 1 and state[i1 + 1] == "one phase":
+        text += f"; it is one fluid again from {point_text(result, i1 + 1)}"
+    return text + "."
+
+
 def story(result: dict) -> list[str]:
     sc = result["scenario"]
     blocked = {b.lower() for b in sc["blocked_minerals"]}
@@ -231,6 +252,9 @@ def story(result: dict) -> list[str]:
         gas = _gas_clause(result, run, key)
         if gas:
             sentence += gas
+        split = _split_clause(result, run)
+        if split:
+            sentence = sentence.rstrip() + " " + split
         paras.append(sentence.strip())
 
     if len(modes) == 2:
