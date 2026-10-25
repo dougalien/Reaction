@@ -131,91 +131,86 @@ class _Solve:
         self.unk = [j for j in range(1, nb) if j not in fixed]
         self.pos = {j: r for r, j in enumerate(self.unk)}
         self.rows = [j for j in range(nb) if j not in fixed]
+        self.nu_r = model.nu[:, self.rows]                   # species x balance rows, and its signs
+        self.nu_pos, self.nu_neg = np.maximum(self.nu_r, 0.0), np.minimum(self.nu_r, 0.0)
+        self.nu_u = model.nu[:, self.unk]
 
     # ---- residual and Jacobian of the combined system --------------------------------------
     def residual(self, x, assemblage, u_base, lg_b_ln, lg_d_ln, log_aw, want_jac=True):
+        """Every balance at once (matrix products over all components); the rows then pick the
+        form that suits them.  This is the inner loop of every line search."""
         m = self.m
         unk, nu_cnt = self.unk, len(self.unk)
         u = u_base.copy()
         u[unk] = x[:nu_cnt]
         u[0] = log_aw * LN10
         w = math.exp(x[nu_cnt])
-        n = x[nu_cnt + 1:]
-        nu, nu_ph = m.nu, m.nu_ph
+        n = np.asarray(x[nu_cnt + 1:], dtype=float)
+        nu_ph = m.nu_ph
         m_dep, m_b = m.state(u, lg_b_ln, lg_d_ln)
-        nu_u = nu[:, unk]
+        rows = self.rows
+        ph = nu_ph[assemblage][:, rows] if assemblage else np.zeros((0, len(rows)))   # minerals x rows
+        mb_r = m_b[rows]
+        tot = mb_r + m_dep @ self.nu_r
+        if rows and rows[0] == 0:
+            tot[0] = WATER_MOLES_PER_KG + m_dep @ self.nu_r[:, 0]
+        aq = w * tot
+        b = self.B[rows]
+        mineral = n @ ph
+        involved = (np.abs(ph) > 1e-12).any(axis=0)
+        p_aq = w * (mb_r + m_dep @ self.nu_pos)
+        n_aq = -w * (m_dep @ self.nu_neg)
+        rows_arr = np.array(rows)
+        log_ok = (rows_arr != 0) & ~involved
+        mode1 = log_ok & (b >= 0.0) & (n_aq + b > 0.0)
+        mode2 = log_ok & ~mode1 & (b < 0.0) & (n_aq > 0.0)
+        linear = ~(mode1 | mode2)
+        scale = np.abs(aq) + np.abs(b) + np.abs(n) @ np.abs(ph)
+        scale = np.where(scale > 0, scale, 1.0)
         size = nu_cnt + 1 + len(assemblage)
-        res = np.zeros(len(self.rows) + len(assemblage))
-        jac = np.zeros((len(res), size)) if want_jac else None
-        for r, j in enumerate(self.rows):
+        res = np.zeros(len(rows) + len(assemblage))
+        den1 = np.where(mode1, n_aq + b, 1.0)
+        den2 = np.where(mode2, p_aq - b, 1.0)
+        nr = len(rows)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            res[:nr] = np.where(mode1, np.log(np.where(mode1, p_aq, 1.0) / den1),
+                                np.where(mode2, np.log(den2 / np.where(mode2, n_aq, 1.0)),
+                                         (aq + mineral - b) / scale))
+        for r, j in enumerate(rows):
             if j in self.buffer_rows:                    # gas fugacity replaces this balance
                 p, target = self.buffer_rows[j]
-                row = nu_ph[p]
-                res[r] = row @ u - LN10 * (m.logk_ph[p] + target)
-                if want_jac:
-                    jac[r, :nu_cnt] = row[unk]
-                continue
-            if j == 0:
-                tot = WATER_MOLES_PER_KG + nu[:, 0] @ m_dep
-            else:
-                tot = m_b[j] + nu[:, j] @ m_dep
-            dtot = (nu[:, j] * m_dep) @ nu_u
+                res[r] = nu_ph[p] @ u - LN10 * (m.logk_ph[p] + target)
+        base = nr
+        if assemblage:                                   # mineral saturation, log Q/K = 0
+            res[base:] = nu_ph[assemblage] @ u - LN10 * m.logk_ph[assemblage]
+        if not want_jac:
+            return res, None
+
+        jac = np.zeros((len(res), size))
+        weighted = m_dep[:, None] * self.nu_u                # d m_dep / d u, species x unknowns
+        own = np.zeros((nr, nu_cnt))                     # d m_b[j] / d u_j on the diagonal
+        for r, j in enumerate(rows):
             if j != 0 and j in self.pos:
-                dtot[self.pos[j]] += m_b[j]
-            mineral = sum(nu_ph[a, j] * n[k] for k, a in enumerate(assemblage))
-            aq = w * tot
-            b = self.B[j]
-            involved = any(abs(nu_ph[a, j]) > 1e-12 for a in assemblage)
-            if j != 0 and not involved:
-                # Balance written as ln(sources / sinks) = 0: the aqueous terms are split by sign
-                # and the bulk amount c = b joins the smaller side.  Far from the root this is
-                # linear in u (a redox couple moves by tens of log units per unit of reaction
-                # progress); near it, it is the usual mass balance.  Components held in a
-                # mineral keep the linear form: the logarithm is singular as the mineral takes
-                # up the last of the component.
-                col = nu[:, j]
-                terms = col * m_dep
-                plus, minus = terms * (col > 0), terms * (col < 0)
-                p_aq = w * (m_b[j] + float(plus.sum()))
-                n_aq = -w * float(minus.sum())
-                c = b
-                if c >= 0.0 and n_aq + c > 0.0:
-                    den = n_aq + c
-                    res[r] = math.log(p_aq / den)
-                    mode = 1
-                elif c < 0.0 and n_aq > 0.0:
-                    den = p_aq - c
-                    res[r] = math.log(den / n_aq)
-                    mode = 2
-                else:
-                    mode = 0
-                if mode:
-                    if want_jac:
-                        dp = w * (plus @ nu_u)
-                        dn = -w * (minus @ nu_u)
-                        if j in self.pos:
-                            dp[self.pos[j]] += w * m_b[j]
-                        if mode == 1:
-                            jac[r, :nu_cnt] = dp / p_aq - dn / den
-                            jac[r, nu_cnt] = 1.0 - n_aq / den
-                        else:
-                            jac[r, :nu_cnt] = dp / den - dn / n_aq
-                            jac[r, nu_cnt] = p_aq / den - 1.0
-                    continue
-            scale = abs(aq) + abs(b) + sum(abs(nu_ph[a, j] * n[k]) for k, a in enumerate(assemblage))
-            scale = scale if scale > 0 else 1.0
-            res[r] = (aq + mineral - b) / scale
-            if want_jac:
-                jac[r, :nu_cnt] = w * dtot / scale
-                jac[r, nu_cnt] = aq / scale
-                for k, a in enumerate(assemblage):
-                    jac[r, nu_cnt + 1 + k] = nu_ph[a, j] / scale
-        base = len(self.rows)
-        for k, a in enumerate(assemblage):               # mineral saturation, log Q/K = 0
-            row = nu_ph[a]
-            res[base + k] = row @ u - LN10 * m.logk_ph[a]
-            if want_jac:
-                jac[base + k, :nu_cnt] = row[unk]
+                own[r, self.pos[j]] = m_b[j]
+        dtot = self.nu_r.T @ weighted + own
+        dp = w * (self.nu_pos.T @ weighted + own)
+        dn = -w * (self.nu_neg.T @ weighted)
+        lin = linear[:, None]
+        jac[:nr, :nu_cnt] = np.where(
+            mode1[:, None], dp / np.where(mode1, p_aq, 1.0)[:, None] - dn / den1[:, None],
+            np.where(mode2[:, None], dp / den2[:, None] - dn / np.where(mode2, n_aq, 1.0)[:, None],
+                     w * dtot / scale[:, None]))
+        jac[:nr, nu_cnt] = np.where(mode1, 1.0 - n_aq / den1,
+                                    np.where(mode2, p_aq / den2 - 1.0, aq / scale))
+        if assemblage:
+            jac[:nr, nu_cnt + 1:] = np.where(lin, ph.T / scale[:, None], 0.0)
+        for r, j in enumerate(rows):
+            if j in self.buffer_rows:
+                p, _ = self.buffer_rows[j]
+                jac[r, :] = 0.0
+                jac[r, :nu_cnt] = nu_ph[p][unk]
+        if assemblage:
+            jac[base:, :nu_cnt] = nu_ph[assemblage][:, unk]
         return res, jac
 
     # ---- solve for one assemblage ----------------------------------------------------------------

@@ -208,8 +208,12 @@ class WaterError(ValueError):
     pass
 
 
+@lru_cache(maxsize=8192)
 def density(t_k: float, p_bar: float, liquid: bool = False) -> float:
     """Density (kg/m3) of the stable fluid at T (K) and P (bar).
+
+    Cached: every reaction that involves water asks for it at the same (T, P), and the root
+    finding on the 56-term Helmholtz energy was most of the run time of a path.
 
     On the saturation curve the liquid is returned.  With ``liquid=True`` the
     liquid branch is used below the critical temperature even when P is a little
@@ -254,6 +258,7 @@ def _molar(x_kj_per_kg: float) -> float:
     return x_kj_per_kg * MOLAR_MASS
 
 
+@lru_cache(maxsize=8192)
 def _state(t_k: float, p_bar: float, liquid: bool):
     rho = density(t_k, p_bar, liquid)
     delta, tau = rho / RHO_CRIT, T_CRIT / t_k
