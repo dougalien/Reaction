@@ -29,6 +29,8 @@ REACTANT_UNITS = {"g": ("g", 1.0), "gram": ("g", 1.0), "grams": ("g", 1.0), "mg"
                   "kg": ("g", 1e3), "mol": ("mol", 1.0), "mole": ("mol", 1.0), "moles": ("mol", 1.0),
                   "mmol": ("mol", 1e-3), "umol": ("mol", 1e-6)}
 MAX_REACTANTS = 6
+MAX_UNCERTAINTY_RUNS = 200
+DEFAULT_UNCERTAINTY_RUNS = 20
 TIME_UNITS = {"seconds": 1.0, "minutes": 60.0, "hours": 3600.0, "days": 86400.0,
               "years": 365.25 * 86400.0}
 TIME_WORDS = {"s": "seconds", "sec": "seconds", "second": "seconds", "min": "minutes",
@@ -94,6 +96,9 @@ class Scenario:
     duration: float = 1.0
     duration_unit: str = "years"
     surface_area_cm2_per_g: float = 100.0
+    # uncertainty bands: this many extra runs, each with every log K shifted by its own random draw
+    # (one standard deviation from the reliability check, see thermo.validity.logk_sigma); 0 = none
+    uncertainty_runs: int = 0
 
     # ---- editing --------------------------------------------------------------------------
     def to_dict(self) -> dict[str, Any]:
@@ -271,6 +276,10 @@ class Scenario:
             out.append("the evaporation factor must be between 1 (none) and 10000")
         elif self.evaporating and self.kinetics:
             out.append("evaporation and kinetics cannot be combined yet; turn one of them off")
+        if not (0 <= self.uncertainty_runs <= MAX_UNCERTAINTY_RUNS):
+            out.append(f"the number of uncertainty runs must be between 0 (none) and {MAX_UNCERTAINTY_RUNS}")
+        elif 0 < self.uncertainty_runs < 5:
+            out.append("uncertainty bands need at least 5 runs (20 or more for a stable range)")
         if self.mode not in MODES:
             out.append(f"mode must be one of {', '.join(MODES)}")
         if self.activity_model not in ACTIVITY_MODELS:
@@ -325,6 +334,9 @@ class Scenario:
         if self.evaporating:
             text = text.replace(f" ({self._how()}", f", evaporated to {self.evaporate:g} times its concentration "
                                                    f"({self._how()}")
+        if self.uncertainty_runs:
+            text = text.replace(f" ({self._how()}", f", with a log K uncertainty range from {self.uncertainty_runs} "
+                                                   f"runs ({self._how()}")
         if self.mixing:
             other = fluid_label(self.mix_with).lower()
             hot = f" at {self.mix_t_c:g} °C" if self.mix_t_c is not None else ""
@@ -455,7 +467,11 @@ def _coerce(key: str, value: Any) -> Any:
         if hit is None:
             raise ValueError(f"'{text}' is not an ion I know")
         return hit[0]
-    if key == "steps":
+    if key in ("steps", "uncertainty_runs"):
+        if key == "uncertainty_runs" and isinstance(value, str) and value.strip().lower() in ("", "off", "none", "no"):
+            return 0
+        if key == "uncertainty_runs" and value is True:
+            return DEFAULT_UNCERTAINTY_RUNS
         return int(round(float(value)))
     if key == "blocked_minerals":
         if isinstance(value, str):
@@ -563,6 +579,9 @@ FIELD_HELP = {
                  "what is there at the start",
     "kinetics": "false (default): reactants are added steadily and react completely; true: minerals and "
                 "basalt glass react at measured rates over the duration (time becomes the axis)",
+    "uncertainty_runs": "0 (default) for a single run; otherwise how many extra runs (5 to 200, 20 is a good "
+                        "start) with every log K shifted at random by its uncertainty, giving a shaded range "
+                        "on the plots",
     "duration": "how long a kinetic run lasts (number, in duration_unit)",
     "duration_unit": "seconds, minutes, hours, days or years",
     "surface_area_cm2_per_g": "reactive surface of the reactants, cm2 per gram (default 100, about "

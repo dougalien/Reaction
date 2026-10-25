@@ -59,10 +59,18 @@ class System:
         self.hold_apart = tuple(hold_apart)
         self.activity_model, self.ph_scale = activity_model, ph_scale
         self._models: dict[tuple, AqueousModel] = {}
+        self._offsets = None
 
     @property
     def basis(self) -> list[str]:
         return self.net.basis
+
+    def perturb(self, dep: np.ndarray | None = None, phase: np.ndarray | None = None, sigma=None) -> None:
+        """Shift every log K by its own standard-normal draw times ``sigma(T, P)`` (log units), for a
+        Monte Carlo estimate of how the log K uncertainty carries through; no arguments undo it.
+        ``dep`` and ``phase`` follow ``net.dep_names`` and ``net.phase_names``."""
+        self._offsets = None if dep is None else (np.asarray(dep, float), np.asarray(phase, float), sigma)
+        self._models.clear()
 
     def model(self, temperature_c: float, pressure_bar: float | None = None) -> AqueousModel:
         if pressure_bar is None:
@@ -71,8 +79,14 @@ class System:
         if key not in self._models:
             if len(self._models) > 400:
                 self._models.clear()
-            self._models[key] = AqueousModel(self.db, self.net, temperature_c, pressure_bar,
-                                             self.activity_model, self.ph_scale)
+            model = AqueousModel(self.db, self.net, temperature_c, pressure_bar,
+                                 self.activity_model, self.ph_scale)
+            if self._offsets is not None:
+                dep, phase, sigma = self._offsets
+                s = sigma(temperature_c, pressure_bar)
+                model.logk_dep = model.logk_dep + s * dep[model.dep_index]
+                model.logk_ph = model.logk_ph + s * phase[model.ev.phase_index]
+            self._models[key] = model
         return self._models[key]
 
 
@@ -689,7 +703,9 @@ def equilibrate(system: System, temperature_c: float, bulk: dict[str, float], *,
             raise EquilibriumError(f"could not add the supersaturated mineral(s) {stuck}")
         if gas is not None and gas_on is None and gas_blocked and \
                 gas.fractions(last["u"]).sum() > 1.0 + 1e-6:
-            raise EquilibriumError("could not add the gas phase that the dissolved gases call for")
+            x = gas.fractions(last["u"])
+            raise EquilibriumError(f"could not add the gas phase that the dissolved gases call for "
+                                   f"(mostly {gas.names[int(np.argmax(x))]})")
         break
     else:
         raise EquilibriumError("no stable phase assemblage found")

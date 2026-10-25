@@ -10,13 +10,19 @@ the fluid goes on; the run reports everything left behind so far.
 from __future__ import annotations
 
 import datetime as _dt
+import json
 import math
+import multiprocessing
+import os
 import re
 import threading
 import time
 import uuid
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Callable
+
+import numpy as np
 
 from ..constants import WATER_MOLES_PER_KG
 from ..database import load_data0
@@ -36,6 +42,9 @@ from .scenario import ALWAYS_EXCLUDED, MODE_LABELS, Scenario
 Progress = Callable[[float, str], None]
 
 TRACE = 1e-12          # mol per kg of water of a component only a reactant brings in
+BAND_PERCENTILES = (5.0, 95.0)            # the shaded range: the middle 90% of the uncertainty runs
+BAND_SEED = 20261025                      # fixed, so the same card gives the same range
+AMOUNT_GROUPS = ("species", "elements", "minerals", "gas")      # a missing key there means none
 AXES = {"temperature_c": ("Temperature", "°C"), "pressure_bar": ("Pressure", "bar")}
 
 
@@ -68,6 +77,8 @@ class Engine:
         self._load_lock = threading.Lock()
         self.run_lock = threading.Lock()
         self._advice: dict[tuple, list[str]] = {}
+        self._prepared = None                    # (card, _prepare's result) of the last uncertainty run
+        self._pool, self._pool_size = None, 0
 
     # ---- data -----------------------------------------------------------------------------------
     @property
@@ -123,48 +134,20 @@ class Engine:
         started = time.time()
         db = self.db
         fluid = sc.fluid_spec()
-        progress(0.0, f"Speciating {fluid.label.lower()}")
-        sp0, fluid_notes = self.starting_fluid(sc)
-        basis = [b for b in sp0.basis_names if b not in (WATER, PROTON)]
-        added = self._reactant_names(sc)
-        for name in added.values():                      # components the fluid does not carry yet
-            elements = (rocks.elements_per_gram(rocks.ROCKS[name[5:]])[0] if name.startswith("rock:")
-                        else db.species[name].elements)
-            for el in elements:
-                if name.startswith("rock:") and (el == "Fe3" or DEFAULT_MASTERS.get(el) is None):
-                    continue                             # ferric iron goes with Fe; Ti is left out
-                master = DEFAULT_MASTERS.get(el)
-                if el in ("H", "O"):
-                    continue
-                if master is None:
-                    raise ValueError(f"{name} contains {el}, which this calculator cannot track yet")
-                if master not in basis:
-                    basis.append(master)
-            if (sc.hold_methane_apart and name in ("CH4(g)", "CH4") and "CH4" not in basis
-                    and "O2(g)" in basis):
-                basis.append("CH4")                      # methane added to a fluid without any
-        mix = None
-        if sc.mixing:
-            progress(0.0, f"Speciating {preset(sc.mix_with).label.lower()}")
-            mix, mix_notes = self.starting_fluid(Scenario(fluid=sc.mix_with, activity_model=sc.activity_model))
-            fluid_notes += [f"Second fluid: {n}" for n in mix_notes]
-            basis += [b for b in mix.basis_names if b not in basis and b not in (WATER, PROTON)]
-        hold = [b for b in basis if db.species[b].kind != Kind.BASIS]     # CH4, held apart
-        system = System(db, [b for b in basis if b not in hold], activity_model=sc.activity_model,
-                        gas_phase=sc.gas_phase, hold_apart=hold)
-        bulk0 = dict(sp0.component_totals)
-        for b in basis:
-            bulk0.setdefault(b, TRACE)                   # a trace, so the solution has a start
+        sp0, fluid_notes, added, mix, system, bulk0 = self._prepare(sc, progress)
         points = sc.points()
         modes = ["static", "flow_through"] if sc.mode == "both" else [sc.mode]
         rels = self.reliability(points)
 
         notes: list[str] = list(fluid_notes)
         runs: dict[str, dict] = {}
+        share = 1.0 / (1 + sc.uncertainty_runs)          # of the progress bar, for the main run
         for k, mode in enumerate(modes):
             def tick(i, n, k=k):
-                progress((k + i / n) / len(modes), f"{MODE_LABELS[modes[k]]}: {i} of {n} points")
+                progress(share * (k + i / n) / len(modes), f"{MODE_LABELS[modes[k]]}: {i} of {n} points")
             runs[mode] = self._march(system, bulk0, points, sc, mode == "flow_through", tick, notes, mix)
+        if sc.uncertainty_runs:
+            notes.extend(self._uncertainty(sc, modes, runs, lambda f, m: progress(share + (1.0 - share) * f, m)))
 
         for run in runs.values():
             notes.extend(run.pop("warnings"))
@@ -247,6 +230,43 @@ class Engine:
             "notes": seen,
             "elapsed_s": round(time.time() - started, 1),
         }
+
+    def _prepare(self, sc: Scenario, progress: Progress):
+        """The starting fluid, the reactants' names, the second fluid, the system and its bulk."""
+        db = self.db
+        progress(0.0, f"Speciating {sc.fluid_spec().label.lower()}")
+        sp0, fluid_notes = self.starting_fluid(sc)
+        basis = [b for b in sp0.basis_names if b not in (WATER, PROTON)]
+        added = self._reactant_names(sc)
+        for name in added.values():                      # components the fluid does not carry yet
+            elements = (rocks.elements_per_gram(rocks.ROCKS[name[5:]])[0] if name.startswith("rock:")
+                        else db.species[name].elements)
+            for el in elements:
+                if name.startswith("rock:") and (el == "Fe3" or DEFAULT_MASTERS.get(el) is None):
+                    continue                             # ferric iron goes with Fe; Ti is left out
+                master = DEFAULT_MASTERS.get(el)
+                if el in ("H", "O"):
+                    continue
+                if master is None:
+                    raise ValueError(f"{name} contains {el}, which this calculator cannot track yet")
+                if master not in basis:
+                    basis.append(master)
+            if (sc.hold_methane_apart and name in ("CH4(g)", "CH4") and "CH4" not in basis
+                    and "O2(g)" in basis):
+                basis.append("CH4")                      # methane added to a fluid without any
+        mix = None
+        if sc.mixing:
+            progress(0.0, f"Speciating {preset(sc.mix_with).label.lower()}")
+            mix, mix_notes = self.starting_fluid(Scenario(fluid=sc.mix_with, activity_model=sc.activity_model))
+            fluid_notes += [f"Second fluid: {n}" for n in mix_notes]
+            basis += [b for b in mix.basis_names if b not in basis and b not in (WATER, PROTON)]
+        hold = [b for b in basis if db.species[b].kind != Kind.BASIS]     # CH4, held apart
+        system = System(db, [b for b in basis if b not in hold], activity_model=sc.activity_model,
+                        gas_phase=sc.gas_phase, hold_apart=hold)
+        bulk0 = dict(sp0.component_totals)
+        for b in basis:
+            bulk0.setdefault(b, TRACE)                   # a trace, so the solution has a start
+        return sp0, fluid_notes, added, mix, system, bulk0
 
     def _reactant_names(self, sc: Scenario) -> dict[str, str]:
         """The database name of each reactant on the card (matched without regard to case)."""
@@ -448,6 +468,116 @@ class Engine:
         kinetic = [r for r in reactants if r.kinetic]
         return _pack([None if pt is None else self._record(db, pt, kinetic) for pt in solved])
 
+    def _uncertainty(self, sc: Scenario, modes: list[str], runs: dict[str, dict], progress: Progress
+                     ) -> list[str]:
+        """Run the card ``sc.uncertainty_runs`` more times with perturbed log K (see ``_sample``), on
+        all but one processor, and attach the spread of the results to ``runs`` as ``bands``.  Returns
+        notes on the range and on minerals the uncertainty adds or removes."""
+        n = sc.uncertainty_runs
+        samples: dict[str, list[dict]] = {m: [] for m in modes}
+        sigmas: list[float] = []
+
+        def take(out):
+            for mode, packed in out["runs"].items():
+                if packed is not None:
+                    samples[mode].append(packed)
+            sigmas.extend(out["sigma"])
+
+        workers = min(n, max((os.cpu_count() or 1) - 1, 1))
+        pool = self._sample_pool(workers) if workers > 1 else None
+        if pool is None:
+            for j in range(n):
+                progress(j / n, f"Uncertainty run {j + 1} of {n}")
+                take(self._sample(sc, modes, j))
+        else:
+            card = sc.to_dict()
+            futures = [pool.submit(_sample_in_worker, str(self.data_dir), card, modes, j) for j in range(n)]
+            for done, fut in enumerate(as_completed(futures), start=1):
+                progress(done / n, f"Uncertainty runs: {done} of {n} done")
+                take(fut.result())
+        notes = []
+        for mode, run in runs.items():
+            got = samples[mode]
+            run["bands"] = _bands(run, got)
+            run["band_runs"] = len(got)
+            if not got:
+                continue
+            where = f" ({MODE_LABELS[mode].lower()})" if len(runs) > 1 else ""
+
+            def formed(r, name):
+                return any(v and v > 1e-6 for v in r["minerals"].get(name, ()))
+
+            central = [m for m in run["minerals"] if formed(run, m)]
+            extra = sorted({m for r in got for m in r["minerals"] if m not in central and formed(r, m)})
+            some = [(m, sum(formed(r, m) for r in got)) for m in central]
+            if extra:
+                notes.append(f"Within the log K uncertainty{where}, these minerals also form in some runs: " +
+                             ", ".join(f"{pretty_mineral(m)} ({sum(formed(r, m) for r in got)} of {len(got)})"
+                                       for m in extra) + ".")
+            shaky = [f"{pretty_mineral(m)} ({k} of {len(got)})" for m, k in some if k < len(got)]
+            if shaky:
+                notes.append(f"Within the log K uncertainty{where}, these minerals do not form in every run: "
+                             + ", ".join(shaky) + ".")
+        lost = sum(n - len(v) for v in samples.values())
+        sig = sorted(sigmas)
+        notes.append(f"Shaded ranges: the middle 90% of {n} runs with every log K shifted at random by "
+                     f"{sig[0]:.2f} to {sig[-1]:.2f} log units (one standard deviation, larger where water "
+                     f"ionization is reproduced less well)." if sig else "")
+        if lost:
+            notes.append(f"{lost} of the uncertainty runs did not converge and are left out of the range.")
+        return [x for x in notes if x]
+
+    def _sample(self, sc: Scenario, modes: list[str], j: int) -> dict:
+        """Uncertainty run ``j`` of a card: every log K (aqueous species, minerals, gases) shifted by its
+        own standard-normal draw times ``validity.logk_sigma`` at each point.  A draw is kept along the
+        whole path, as a database error would be, and depends only on ``j``, so a card always gives
+        the same range.  Returns {"runs": {mode: packed run, or None if it failed}, "sigma": [...]}."""
+        key = json.dumps(sc.to_dict(), sort_keys=True)
+        if self._prepared is None or self._prepared[0] != key:
+            self._prepared = (key, self._prepare(sc, lambda f, m: None))
+        _, _, _, mix, system, bulk0 = self._prepared[1]
+        db, net, points = self.db, system.net, sc.points()
+        cache: dict[tuple, float] = {}
+
+        def sigma(t_c, p_bar):
+            k = (round(t_c, 6), round(p_bar, 6))
+            if k not in cache:
+                cache[k] = validity.logk_sigma(db, t_c, p_bar)
+            return cache[k]
+
+        rng = np.random.default_rng([BAND_SEED, j])
+        dep = rng.standard_normal(len(net.dep_names))
+        # polymorphs (same formula: calcite and aragonite, quartz and its relatives) share one draw: their
+        # differences are known far better than their absolute values
+        _, group = np.unique(np.round(net.nu_phase, 6), axis=0, return_inverse=True)
+        phase = rng.standard_normal(int(group.max()) + 1)[group.ravel()]
+        if "H2O(g)" in net.phase_names:          # steam against liquid water: the steam tables, exact
+            phase[net.phase_names.index("H2O(g)")] = 0.0
+        system.perturb(dep, phase, sigma)
+        out: dict[str, dict | None] = {}
+        try:
+            for mode in modes:
+                try:
+                    out[mode] = self._march(system, bulk0, points, sc, mode == "flow_through",
+                                            lambda i, total: None, [], mix)
+                except Exception:                        # a draw the solver cannot follow: left out
+                    out[mode] = None
+        finally:
+            system.perturb()
+        return {"runs": out, "sigma": list(cache.values())}
+
+    def _sample_pool(self, workers: int):
+        """Worker processes for uncertainty runs, started once (spawned: each loads the data itself)."""
+        if self._pool is None or self._pool_size != workers:
+            if self._pool is not None:
+                self._pool.shutdown(wait=False, cancel_futures=True)
+            try:
+                self._pool = ProcessPoolExecutor(workers, mp_context=multiprocessing.get_context("spawn"))
+                self._pool_size = workers
+            except (OSError, NotImplementedError, ValueError):
+                self._pool = None
+        return self._pool
+
     def _record(self, db, point: PathPoint, kinetic: list | None = None) -> dict:
         state = point.state
         spec = state.speciation
@@ -545,6 +675,45 @@ def _pack(rows: list[dict | None]) -> dict:
         "saturation": column(lambda r, k: r["saturation"].get(k), sat_keys),
         "warnings": sorted({w for r in good for w in r["warnings"]}),
     }
+
+
+_WORKER: "Engine | None" = None
+
+
+def _sample_in_worker(data_dir: str, card: dict, modes: list[str], j: int) -> dict:
+    """One uncertainty run in a worker process, with that process's own engine."""
+    global _WORKER
+    if _WORKER is None or str(_WORKER.data_dir) != data_dir:
+        _WORKER = Engine(data_dir)
+    return _WORKER._sample(Scenario.from_dict(card), modes, j)
+
+
+def _bands(run: dict, samples: list[dict]) -> dict:
+    """{group: {key: [low, high]}}: per point, the BAND_PERCENTILES of the samples, widened to take in
+    the run's own value, for every line the run has."""
+    out: dict[str, dict] = {}
+    if len(samples) < 3:
+        return out
+    for group, lines in run.items():
+        if not isinstance(lines, dict) or group == "bands":
+            continue
+        fill = 0.0 if group in AMOUNT_GROUPS else None
+        here = out.setdefault(group, {})
+        for key, line in lines.items():
+            cols = [s.get(group, {}).get(key) for s in samples]
+            lo, hi = [], []
+            for i, v in enumerate(line):
+                vals = [c[i] if c is not None else fill for c in cols]
+                vals = [x for x in vals if x is not None]
+                if v is None or len(vals) < 3:
+                    lo.append(None)
+                    hi.append(None)
+                    continue
+                a, b = np.percentile(vals, BAND_PERCENTILES)
+                lo.append(_sig(min(float(a), v)))
+                hi.append(_sig(max(float(b), v)))
+            here[key] = [lo, hi]
+    return out
 
 
 def _catalog(db, runs: dict[str, dict], sc: Scenario) -> dict:

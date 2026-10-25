@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 
 from . import analysis, config
 from .fluids import CUSTOM, PRESETS
-from .scenario import FIELD_HELP, Scenario
+from .scenario import DEFAULT_UNCERTAINTY_RUNS, FIELD_HELP, Scenario
 
 SCHEMA = {
     "type": "object",
@@ -342,6 +342,7 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
     ch.update(_gas_options(low))
     ch.update(_kinetic_options(low))
     ch.update(_brine_options(low))
+    ch.update(_uncertainty_options(low))
     held = re.search(rf"\bat\s*{_NUM}{_DEG}", low)
     if ch.get("evaporate", 1.0) > 1.0 and held and "t_end_c" in ch and "t_start_c" not in ch \
             and float(held.group(1)) == ch["t_end_c"]:
@@ -416,6 +417,9 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
         if "activity_model" in ch:
             bits.append({"pitzer": "Pitzer activity coefficients", "bdot": "B-dot activity coefficients",
                          "davies": "Davies activity coefficients"}[ch["activity_model"]])
+        if "uncertainty_runs" in ch:
+            bits.append(f"a log K uncertainty range from {ch['uncertainty_runs']} runs" if ch["uncertainty_runs"]
+                        else "no uncertainty range")
         if "surface_area_cm2_per_g" in ch:
             bits.append(f"surface area {ch['surface_area_cm2_per_g']:g} cm2/g")
         if "ph" in ch and ch["ph"] is not None and "analysis" not in ch:
@@ -449,9 +453,9 @@ def _kinetic_options(low: str) -> dict:
         out["kinetics"] = True
         out["duration"] = float(m.group(1)) * k
         out["duration_unit"] = name
-    if re.search(r"kinetic(s|ally)?|measured rates?|rate laws?", low):
-        out["kinetics"] = not re.search(r"(no|without|turn off|switch off)\s+kinetics", low)
-    elif re.search(r"(instantly|instantaneous(ly)?|all at once)", low):
+    if re.search(r"\bkinetic(s|ally)?\b|\bmeasured rates?\b|\brate laws?\b", low):
+        out["kinetics"] = not re.search(r"\b(no|without|turn off|switch off)\s+kinetics\b", low)
+    elif re.search(r"\b(instantly|instantaneous(ly)?|all at once)\b", low):
         out["kinetics"] = False
     m = re.search(r"(?:surface area|area)\s*(?:of\s+)?(?:to\s+)?(\d*\.?\d+)\s*(cm2|cm\^2|m2|m\^2)\s*(?:/|per)\s*g", low)
     if m:
@@ -475,6 +479,16 @@ def _brine_options(low: str) -> dict:
         elif re.search(r"\bno evaporation\b|\bwithout evaporat", low):
             out["evaporate"] = 1.0
     return out
+
+
+def _uncertainty_options(low: str) -> dict:
+    """Uncertainty bands: "with uncertainty", "error bands from 50 runs", "no uncertainty"."""
+    if not re.search(r"\b(uncertaint\w*|error (?:bands?|bars?)|confidence|monte carlo)\b", low):
+        return {}
+    if re.search(r"\b(no|without|turn off|drop|remove)\b[^.]*\b(uncertaint|error (?:band|bar)|monte carlo)", low):
+        return {"uncertainty_runs": 0}
+    m = re.search(r"(\d+)\s*(?:runs|samples|draws|realizations|realisations|times)\b", low)
+    return {"uncertainty_runs": int(m.group(1)) if m else DEFAULT_UNCERTAINTY_RUNS}
 
 
 def _gas_options(low: str) -> dict:
