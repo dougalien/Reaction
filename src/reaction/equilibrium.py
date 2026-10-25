@@ -1,4 +1,4 @@
-"""Closed-system equilibrium: an aqueous solution plus pure minerals.
+"""Closed-system equilibrium: an aqueous solution plus pure minerals, a gas phase and solid solutions.
 
 The system is defined by the *bulk* moles of its components (the basis species,
 including H2O for the solvent and O2(g) for the oxidation state).  The solver finds the
@@ -9,7 +9,9 @@ mineral in the stable assemblage, so that
     log Q/K(p) = 0                            for every mineral p present
 
 A joint Newton iteration solves these for a given assemblage; an active-set loop adds
-the most supersaturated mineral and drops minerals whose amount goes negative.
+the most supersaturated mineral and drops minerals whose amount goes negative.  The gas phase and
+solid solutions are mixtures: each adds its total moles as an unknown and the condition that its
+mole fractions, which follow from the activities, add up to one.
 Components held at fixed activity (``fixed``) or tied to a gas fugacity (``buffers``)
 are open to an external reservoir and not conserved.
 """
@@ -39,7 +41,7 @@ class System:
     def __init__(self, db: ThermoDatabase, basis: list[str], *,
                  switches: dict[str, str] | None = None, suppress=(), suppress_phases=(),
                  activity_model: str = "bdot", ph_scale: str = "nbs", gas_phase: bool = False,
-                 hold_apart=()):
+                 hold_apart=(), solid_solutions=()):
         basis = [WATER, PROTON] + [b for b in basis if b not in (WATER, PROTON)]
         # a species in the basis that is not a strict basis species (CH4 from a speciation that held it
         # apart) is a component of its own
@@ -56,6 +58,7 @@ class System:
             _tie_gas_to(self.net, db, d)
         self.db = db
         self.gas_phase = gas_phase
+        self.solid_solutions = tuple(solid_solutions)        # solidsolution.SolidSolution entries
         self.hold_apart = tuple(hold_apart)
         self.activity_model, self.ph_scale = activity_model, ph_scale
         self._models: dict[tuple, AqueousModel] = {}
@@ -118,6 +121,15 @@ class EquilibriumState:
     open_components: tuple[str, ...] = ()
     gas: dict[str, float] = field(default_factory=dict)      # moles of each gas in the gas phase
     _u: np.ndarray = field(default=None, repr=False)
+    # moles of each endmember of each solid solution present: {"plagioclase": {"anorthite": ...}}
+    solid_solutions: dict[str, dict[str, float]] = field(default_factory=dict)
+
+    @property
+    def solids(self) -> dict[str, float]:
+        """Moles of every solid: the pure minerals and each solid solution as a whole."""
+        out = dict(self.minerals)
+        out.update({k: sum(v.values()) for k, v in self.solid_solutions.items()})
+        return out
 
     @property
     def temperature_c(self) -> float:
@@ -212,6 +224,7 @@ class _Gas:
         self.names = names
         self.formulas = [gas_eos.formula_of(n) for n in names]
         self.nu = np.array(rows).reshape(-1, nb)
+        self.comp = self.expo = self.nu       # components per mole of each gas; d ln x / d u
         self.logk = np.array(logk)
         self.t_k = model.temperature_c + 273.15
         self.p = float(model.pressure_bar)
@@ -231,6 +244,25 @@ class _Gas:
         return change
 
 
+class _SolidMix:
+    """An ideal solid solution as a mixture: x_i = (Q_i/K_i)^(1/sites) for its endmembers ``idx``
+    (phases of the model); it exists when the x_i add up to one."""
+
+    def __init__(self, model: AqueousModel, ss, idx: list[int]):
+        self.name, self.sites, self.idx = ss.name, ss.sites, list(idx)
+        self.names = [model.ph_names[i] for i in idx]
+        self.comp = model.nu_ph[idx]
+        self.expo = self.comp / ss.sites
+        self.logk = model.logk_ph[idx] / ss.sites
+        self.log_phi = None
+
+    def fractions(self, u: np.ndarray) -> np.ndarray:
+        return np.exp(np.clip(self.expo @ u - LN10 * self.logk, -600.0, 50.0))
+
+    def update_phi(self, u: np.ndarray) -> float:
+        return 0.0
+
+
 class _Solve:
     """Joint Newton solution for a fixed mineral assemblage (and the gas phase, if present)."""
 
@@ -248,17 +280,19 @@ class _Solve:
         self.nu_u = model.nu[:, self.unk]
 
     # ---- residual and Jacobian of the combined system --------------------------------------
-    def residual(self, x, assemblage, u_base, lg_b_ln, lg_d_ln, log_aw, want_jac=True, gas=False):
+    def residual(self, x, assemblage, u_base, lg_b_ln, lg_d_ln, log_aw, want_jac=True, mixes=()):
         """Every balance at once (matrix products over all components); the rows then pick the
-        form that suits them.  This is the inner loop of every line search.  With ``gas`` the last
-        unknown is the moles of gas and the last equation says its mole fractions add up to one."""
+        form that suits them.  This is the inner loop of every line search.  For each of ``mixes``
+        (the gas phase, solid solutions) the unknowns end with its total moles and the equations
+        with the condition that its mole fractions add up to one."""
         m = self.m
         unk, nu_cnt = self.unk, len(self.unk)
         u = u_base.copy()
         u[unk] = x[:nu_cnt]
         u[0] = log_aw * LN10
         w = math.exp(x[nu_cnt])
-        n_end = len(x) - (1 if gas else 0)
+        nm = len(mixes)
+        n_end = len(x) - nm
         n = np.asarray(x[nu_cnt + 1:n_end], dtype=float)
         nu_ph = m.nu_ph
         m_dep, m_b = m.state(u, lg_b_ln, lg_d_ln)
@@ -272,13 +306,15 @@ class _Solve:
         b = self.B[rows]
         mineral = n @ ph
         involved = (np.abs(ph) > 1e-12).any(axis=0)
-        if gas:
-            g_amt = float(x[-1])
-            y = self.gas.fractions(u)
-            g_nu = self.gas.nu[:, rows]
-            per_mole = y @ g_nu                              # components per mole of gas
-            mineral = mineral + g_amt * per_mole
-            involved = involved | (np.abs(g_nu) > 1e-12).any(axis=0)
+        parts = []
+        for k, mx in enumerate(mixes):
+            amt = float(x[n_end + k])
+            y = mx.fractions(u)
+            c_r = mx.comp[:, rows]
+            per_mole = y @ c_r                               # components per mole of the mixture
+            mineral = mineral + amt * per_mole
+            involved = involved | (np.abs(c_r) > 1e-12).any(axis=0)
+            parts.append((amt, y, c_r, per_mole))
         p_aq = w * (mb_r + m_dep @ self.nu_pos)
         n_aq = -w * (m_dep @ self.nu_neg)
         rows_arr = np.array(rows)
@@ -287,11 +323,11 @@ class _Solve:
         mode2 = log_ok & ~mode1 & (b < 0.0) & (n_aq > 0.0)
         linear = ~(mode1 | mode2)
         scale = np.abs(aq) + np.abs(b) + np.abs(n) @ np.abs(ph)
-        if gas:
-            scale = scale + abs(g_amt) * (y @ np.abs(g_nu))
+        for amt, y, c_r, _ in parts:
+            scale = scale + abs(amt) * (y @ np.abs(c_r))
         scale = np.where(scale > 0, scale, 1.0)
-        size = nu_cnt + 1 + len(assemblage) + (1 if gas else 0)
-        res = np.zeros(len(rows) + len(assemblage) + (1 if gas else 0))
+        size = nu_cnt + 1 + len(assemblage) + nm
+        res = np.zeros(len(rows) + len(assemblage) + nm)
         den1 = np.where(mode1, n_aq + b, 1.0)
         den2 = np.where(mode2, p_aq - b, 1.0)
         nr = len(rows)
@@ -307,8 +343,8 @@ class _Solve:
         na = len(assemblage)
         if assemblage:                                   # mineral saturation, log Q/K = 0
             res[base:base + na] = nu_ph[assemblage] @ u - LN10 * m.logk_ph[assemblage]
-        if gas:
-            res[-1] = y.sum() - 1.0
+        for k, (_, y, _, _) in enumerate(parts):
+            res[nr + na + k] = y.sum() - 1.0
         if not want_jac:
             return res, None
 
@@ -330,12 +366,12 @@ class _Solve:
                                     np.where(mode2, p_aq / den2 - 1.0, aq / scale))
         if assemblage:
             jac[:nr, nu_cnt + 1:nu_cnt + 1 + na] = np.where(lin, ph.T / scale[:, None], 0.0)
-        if gas:
-            g_unk = self.gas.nu[:, unk]
-            d_gas = g_amt * (g_nu.T @ (y[:, None] * g_unk))          # rows x unknowns
-            jac[:nr, :nu_cnt] += np.where(lin, d_gas / scale[:, None], 0.0)
-            jac[:nr, -1] = np.where(linear, per_mole / scale, 0.0)
-            jac[-1, :nu_cnt] = y @ g_unk
+        for k, (mx, (amt, y, c_r, per_mole)) in enumerate(zip(mixes, parts)):
+            e_unk = mx.expo[:, unk]
+            d_mix = amt * (c_r.T @ (y[:, None] * e_unk))             # rows x unknowns
+            jac[:nr, :nu_cnt] += np.where(lin, d_mix / scale[:, None], 0.0)
+            jac[:nr, nu_cnt + 1 + na + k] = np.where(linear, per_mole / scale, 0.0)
+            jac[nr + na + k, :nu_cnt] = y @ e_unk
         for r, j in enumerate(rows):
             if j in self.buffer_rows:
                 p, _ = self.buffer_rows[j]
@@ -347,15 +383,15 @@ class _Solve:
 
     # ---- solve for one assemblage ----------------------------------------------------------------
     def solve(self, assemblage, u, ln_w, n, ionic0, tol=1e-10, max_newton=80, max_outer=60,
-              gas_moles=None):
+              mixes=(), amounts=()):
         m = self.m
         unk, nu_cnt = self.unk, len(self.unk)
-        gas = gas_moles is not None
+        mixes = tuple(mixes)
         u = u.copy()
         for j, v in self.fixed.items():
             u[j] = v
-        x = np.concatenate([u[unk], [ln_w], n] + ([[gas_moles]] if gas else []))
-        cap = np.concatenate([np.full(nu_cnt, 2.3), [0.5], np.full(len(assemblage) + gas, np.inf)])
+        x = np.concatenate([u[unk], [ln_w], n, np.asarray(amounts, dtype=float)])
+        cap = np.concatenate([np.full(nu_cnt, 2.3), [0.5], np.full(len(assemblage) + len(mixes), np.inf)])
         everything = np.arange(len(x))
         ionic = ionic0
         lg_b, lg_d = m.log_gammas(ionic)
@@ -369,13 +405,13 @@ class _Solve:
             lg_b_ln, lg_d_ln = lg_b * LN10, lg_d * LN10
             for inner in range(max_newton):
                 iterations += 1
-                res, jac = self.residual(x, assemblage, u, lg_b_ln, lg_d_ln, log_aw, gas=gas)
+                res, jac = self.residual(x, assemblage, u, lg_b_ln, lg_d_ln, log_aw, mixes=mixes)
                 if np.max(np.abs(res)) < tol:
                     break
                 x = _globalized_step(
                     x, everything, res, jac, cap,
                     lambda v: self.residual(v, assemblage, u, lg_b_ln, lg_d_ln, log_aw,
-                                            want_jac=False, gas=gas)[0])
+                                            want_jac=False, mixes=mixes)[0])
             else:
                 raise EquilibriumError("Newton iteration did not converge")
             u_now = u.copy()
@@ -387,8 +423,8 @@ class _Solve:
             delta = max(abs(ionic_new - ionic), float(np.max(np.abs(lg_b_new - lg_b))),
                         float(np.max(np.abs(lg_d_new - lg_d))) if len(lg_d) else 0.0,
                         abs(log_aw_new - log_aw))
-            if gas:
-                delta = max(delta, self.gas.update_phi(u_now))
+            for mx in mixes:
+                delta = max(delta, mx.update_phi(u_now))
             if m.pitzer is not None:
                 # Pitzer coefficients feed back strongly on concentrated brines: under-relax the update
                 # when it stops shrinking
@@ -409,10 +445,12 @@ class _Solve:
         u_out = u.copy()
         u_out[unk] = x[:nu_cnt]
         u_out[0] = log_aw * LN10              # the water activity the solution was solved with
-        n_end = len(x) - (1 if gas else 0)
+        n_end = len(x) - len(mixes)
+        gas = self.gas if self.gas in mixes else None
         return dict(u=u_out, ln_w=float(x[nu_cnt]), n=np.array(x[nu_cnt + 1:n_end]), ionic=ionic,
                     sum_m=sum_m, log_aw=log_aw, lg_b=lg_b, lg_d=lg_d, iterations=iterations,
-                    gas=float(x[-1]) if gas else None, log_phi=self.gas.log_phi.copy() if gas else None)
+                    mix=[float(v) for v in x[n_end:]],
+                    log_phi=gas.log_phi.copy() if gas is not None else None)
 
 
 def _dependence(nu_ph: np.ndarray, assemblage: list[int], phase: int,
@@ -547,21 +585,30 @@ def equilibrate(system: System, temperature_c: float, bulk: dict[str, float], *,
     if gas is not None and not len(gas.names):
         gas = None
     problem = _Solve(model, B, fixed_idx, buffer_rows, gas)
+    ss_mixes = []                             # solid solutions with two or more endmembers available
+    for ss in system.solid_solutions:
+        idx = [phase_index[e] for e in ss.endmembers if e in phase_index and phase_index[e] in allowed_set]
+        if len(idx) >= 2:
+            ss_mixes.append(_SolidMix(model, ss, idx))
     # minerals given starting amounts (a reactant that has just been converted) win ties against
     # earlier minerals with the same saturation condition
     hinted = [a for a in assemblage if model.ph_names[a] in (amounts or {})]
     assemblage = _independent(model.nu_ph, hinted + [a for a in assemblage if a not in hinted],
                               problem.unk)
 
-    # warm start
-    gas_on = None
+    # warm start; ``on`` holds the mixtures present (gas phase, solid solutions) and their moles
+    on: dict = {}
     if isinstance(guess, EquilibriumState):
         u0 = np.array(guess.speciation.ln_activities, dtype=float)
         ln_w0 = math.log(guess.water_kg)
         n_prev = dict(guess.minerals)
         ionic0 = guess.speciation.ionic_strength
         if guess.gas and gas is not None:
-            gas_on = sum(guess.gas.values())
+            on[gas] = sum(guess.gas.values())
+        for mx in ss_mixes:
+            if guess.solid_solutions.get(mx.name):
+                on[mx] = sum(guess.solid_solutions[mx.name].values())
+                assemblage = [a for a in assemblage if a not in mx.idx]
     elif isinstance(guess, Speciation):
         u0 = np.array(guess.ln_activities, dtype=float)
         ln_w0 = math.log(B[0] / WATER_MOLES_PER_KG)
@@ -607,29 +654,46 @@ def equilibrate(system: System, temperature_c: float, bulk: dict[str, float], *,
     u_cur, ln_w_cur, ionic_cur = u0, ln_w0, ionic0
     last = None
     total_iter = 0
-    gas_tried: set = set()
-    gas_blocked = False
+    mix_tried: set = set()
+    mix_blocked: set = set()                  # mixtures that would not solve, or kept vanishing
+    mix_swaps: dict = {}                      # solid solution -> (assemblage before it, amounts, minerals to try out)
     for attempt in range(max_attempts):
-        key = frozenset(assemblage) | ({"gas"} if gas_on is not None else set())
+        key = frozenset(assemblage) | {"mix:" + getattr(mx, "name", "gas") for mx in on}
         if key in solved:
             last = solved[key]
             assemblage = last["assemblage"]
         else:
             try:
                 last = problem.solve(assemblage, u_cur, ln_w_cur, initial_n(assemblage), ionic_cur,
-                                     tol=tol, gas_moles=gas_on)
+                                     tol=tol, mixes=list(on), amounts=list(on.values()))
             except (SpeciationError, np.linalg.LinAlgError) as exc:
                 # across a redox jump the last state can be a poor start: try once from the
                 # bulk composition itself before giving up on this assemblage
                 try:
                     cold = _initial_u(model, B, fixed_idx)
                     last = problem.solve(assemblage, cold, math.log(B[0] / WATER_MOLES_PER_KG),
-                                         initial_n(assemblage), 0.0, tol=tol, gas_moles=gas_on)
+                                         initial_n(assemblage), 0.0, tol=tol, mixes=list(on),
+                                         amounts=list(on.values()))
                 except (SpeciationError, np.linalg.LinAlgError):
-                    if gas_on is not None and key not in gas_tried:   # the gas phase would not solve
-                        gas_tried.add(key)
-                        gas_on = None
-                        gas_blocked = True
+                    if on and ("solve", key) not in mix_tried:   # the newest mixture would not solve
+                        mix_tried.add(("solve", key))
+                        newest = list(on)[-1]
+                        if isinstance(newest, _SolidMix):
+                            # too many phases for the components: it may replace the mineral most like
+                            # its main endmember, as a pure mineral would (a few tries, then give up)
+                            if newest not in mix_swaps:
+                                main = newest.idx[int(np.argmax(newest.fractions(u_cur)))]
+                                mix_swaps[newest] = (list(assemblage), dict(n_prev), [
+                                    a for a, _ in _most_alike(model.nu_ph, assemblage, main, problem.unk)])
+                            before, n_before, options = mix_swaps[newest]
+                            if options:
+                                out = options.pop(0)
+                                assemblage = [a for a in before if a != out]
+                                n_prev = {k: v for k, v in n_before.items() if k != model.ph_names[out]}
+                                continue
+                            assemblage, n_prev = list(before), dict(n_before)
+                        del on[newest]
+                        mix_blocked.add(newest)
                         continue
                     if not assemblage:
                         raise EquilibriumError(f"aqueous solution alone failed: {exc}") from exc
@@ -653,25 +717,42 @@ def equilibrate(system: System, temperature_c: float, bulk: dict[str, float], *,
         u_cur, ln_w_cur, ionic_cur = last["u"], last["ln_w"], last["ionic"]
         n = last["n"]
         n_prev = {model.ph_names[a]: float(n[k]) for k, a in enumerate(assemblage)}
-        if gas_on is not None:
-            gas_on = last["gas"]
-            if gas_on < -n_floor:                     # the gas phase has dissolved
-                gas_on = None
-                continue
+        for mx, amt in zip(list(on), last["mix"]):
+            on[mx] = amt
+        gone = [mx for mx, amt in on.items() if amt < -n_floor]
+        if gone:                                      # a gas phase or solid solution has dissolved
+            for mx in gone:
+                del on[mx]
+                if ("gone", mx) in mix_tried:     # it came back and went again: leave it out
+                    mix_blocked.add(mx)
+                mix_tried.add(("gone", mx))
+            continue
         negative = [k for k in range(len(assemblage)) if n[k] < -n_floor]
         if negative:
             worst = min(negative, key=lambda k: n[k])
             n_prev.pop(model.ph_names[assemblage[worst]])
             assemblage = [a for k, a in enumerate(assemblage) if k != worst]
             continue
-        if gas is not None and gas_on is None and not gas_blocked:
+        if gas is not None and gas not in on and gas not in mix_blocked:
             gas.update_phi(last["u"])
             if gas.fractions(last["u"]).sum() > 1.0 + 1e-9:     # bubbles form
-                gas_on = 1e-6 * scale_b
+                on[gas] = 1e-6 * scale_b
                 continue
+        ss_over = [(float(mx.fractions(last["u"]).sum()), k) for k, mx in enumerate(ss_mixes)
+                   if mx not in on and mx not in mix_blocked]
+        ss_over = [c for c in ss_over if c[0] > 1.0 + 1e-9]
+        if ss_over:                                   # a solid solution is supersaturated: it takes over
+            mx = ss_mixes[max(ss_over)[1]]            # its endmembers, with their moles
+            moved = sum(max(n_prev.get(model.ph_names[a], 0.0), 0.0) for a in assemblage if a in mx.idx)
+            for nm in mx.names:
+                n_prev.pop(nm, None)
+            assemblage = [a for a in assemblage if a not in mx.idx]
+            on[mx] = moved if moved > n_floor else 1e-6 * scale_b
+            continue
+        members = {a for mx in on if isinstance(mx, _SolidMix) for a in mx.idx}
         si = (model.nu_ph @ last["u"]) / LN10 - model.logk_ph
         candidates = [(si[a] / formula_size[a], a) for a in allowed
-                      if a not in assemblage and a not in blocked and si[a] > 1e-7]
+                      if a not in assemblage and a not in blocked and a not in members and si[a] > 1e-7]
         untried = [c for c in candidates if c[1] not in tried.setdefault(key, set())]
         if candidates and not untried:
             raise EquilibriumError("the phase assemblage cycles: no consistent set of minerals found")
@@ -701,7 +782,7 @@ def equilibrate(system: System, temperature_c: float, bulk: dict[str, float], *,
                  and si[a] > 1e-6]
         if stuck:                                     # never return a state that is supersaturated
             raise EquilibriumError(f"could not add the supersaturated mineral(s) {stuck}")
-        if gas is not None and gas_on is None and gas_blocked and \
+        if gas is not None and gas not in on and gas in mix_blocked and \
                 gas.fractions(last["u"]).sum() > 1.0 + 1e-6:
             x = gas.fractions(last["u"])
             raise EquilibriumError(f"could not add the gas phase that the dissolved gases call for "
@@ -715,10 +796,15 @@ def equilibrate(system: System, temperature_c: float, bulk: dict[str, float], *,
     n = last["n"]
     present = {model.ph_names[a]: float(n[k]) for k, a in enumerate(assemblage)}
     open_names = tuple(names[j] for j in list(fixed_idx) + list(buffer_rows))
-    gas_moles = {}
-    if gas_on is not None and last.get("gas") is not None:
-        gas.log_phi = last["log_phi"]
-        x = gas.fractions(last["u"])
-        gas_moles = {nm: float(last["gas"] * xi) for nm, xi in zip(gas.names, x) if xi > 1e-12}
+    gas_moles, solid = {}, {}
+    for mx, amt in on.items():
+        if mx is gas:
+            gas.log_phi = last["log_phi"]
+        x = mx.fractions(last["u"])
+        moles = {nm: float(amt * xi) for nm, xi in zip(mx.names, x) if xi > 1e-12}
+        if mx is gas:
+            gas_moles = moles
+        else:
+            solid[mx.name] = moles
     return EquilibriumState(spec, math.exp(last["ln_w"]), present, dict(bulk), total_iter,
-                            open_names, gas=gas_moles, _u=last["u"])
+                            open_names, gas=gas_moles, _u=last["u"], solid_solutions=solid)

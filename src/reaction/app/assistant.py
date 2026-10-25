@@ -343,6 +343,10 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
     ch.update(_kinetic_options(low))
     ch.update(_brine_options(low))
     ch.update(_uncertainty_options(low))
+    if re.search(r"\bsolid[- ]solutions?\b", low):
+        ch["solid_solutions"] = not re.search(r"\b(no|without|turn off|switch off|disable)\b[^.]*\bsolid[- ]solution", low)
+    elif re.search(r"\bpure (?:minerals|endmembers|phases) only\b|\bonly pure minerals\b", low):
+        ch["solid_solutions"] = False
     held = re.search(rf"\bat\s*{_NUM}{_DEG}", low)
     if ch.get("evaporate", 1.0) > 1.0 and held and "t_end_c" in ch and "t_start_c" not in ch \
             and float(held.group(1)) == ch["t_end_c"]:
@@ -417,6 +421,8 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
         if "activity_model" in ch:
             bits.append({"pitzer": "Pitzer activity coefficients", "bdot": "B-dot activity coefficients",
                          "davies": "Davies activity coefficients"}[ch["activity_model"]])
+        if "solid_solutions" in ch:
+            bits.append("solid solutions can form" if ch["solid_solutions"] else "pure minerals only")
         if "uncertainty_runs" in ch:
             bits.append(f"a log K uncertainty range from {ch['uncertainty_runs']} runs" if ch["uncertainty_runs"]
                         else "no uncertainty range")

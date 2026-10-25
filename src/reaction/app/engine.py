@@ -31,6 +31,7 @@ from ..equilibrium import System
 from ..kinetics import basalt_glass, rate_law
 from ..network import PROTON, WATER
 from ..path import PathPoint, ReactionPath, Reactant, mineral_reactant
+from ..solidsolution import table as solid_solution_table
 from ..speciation import PH, Couple, Eh, LogFO2, Molal, Pe, Speciation, speciate
 from ..thermo import validity
 from ..thermo.eosdb import DEFAULT_MASTERS, load_eos_database
@@ -161,6 +162,9 @@ class Engine:
         elif top > 1.0:
             notes.append(f"Ionic strength reaches {top:.1f} mol/kg. The {sc.activity_model.replace('bdot', 'B-dot')} "
                          f"equation is unreliable above about 1 mol/kg; choose Pitzer on the card for brines.")
+        if sc.solid_solutions:
+            notes.append("Solid solutions mix ideally on their sites (the EQ3/6 models). Real carbonates and "
+                         "feldspars unmix at low temperature, so there the minor endmember is overstated.")
         notes = [n for n in notes if not n.startswith("water density")]       # covered by reliability
         notes.extend(reliability_notes(points, rels, sc.varies))
         start_elements: dict[str, float] = {}
@@ -261,8 +265,10 @@ class Engine:
             fluid_notes += [f"Second fluid: {n}" for n in mix_notes]
             basis += [b for b in mix.basis_names if b not in basis and b not in (WATER, PROTON)]
         hold = [b for b in basis if db.species[b].kind != Kind.BASIS]     # CH4, held apart
+        blocked = {b.lower() for b in sc.blocked_minerals}
+        mixes = [ss for ss in solid_solution_table() if ss.name not in blocked] if sc.solid_solutions else []
         system = System(db, [b for b in basis if b not in hold], activity_model=sc.activity_model,
-                        gas_phase=sc.gas_phase, hold_apart=hold)
+                        gas_phase=sc.gas_phase, hold_apart=hold, solid_solutions=mixes)
         bulk0 = dict(sp0.component_totals)
         for b in basis:
             bulk0.setdefault(b, TRACE)                   # a trace, so the solution has a start
@@ -599,6 +605,12 @@ class Engine:
             minerals[name] = minerals.get(name, 0.0) + moles
         for name, moles in state.gas.items():
             gas[name] = gas.get(name, 0.0) + moles
+        composition = {}                                 # mole fraction of each endmember
+        for name, members in state.solid_solutions.items():
+            total = sum(members.values())
+            minerals[name] = minerals.get(name, 0.0) + total
+            for member, moles in members.items():
+                composition[f"{name}:{member}"] = moles / total if total > 0 else 0.0
         rates = {}                                       # kinetic reactants: rate and share still there
         for r in kinetic or ():
             left = r.amount - point.reacted.get(r.name, 0.0)
@@ -606,7 +618,7 @@ class Engine:
                 minerals[r.mineral] = minerals.get(r.mineral, 0.0) + max(left, 0.0)
             rates[f"rate:{r.name}"] = point.rates.get(r.name, 0.0)
             rates[f"left:{r.name}"] = 100.0 * max(left, 0.0) / r.amount
-        return {"kinetic": rates, "pH": spec.ph, "ionic_strength": spec.ionic_strength, "water_kg": state.water_kg,
+        return {"kinetic": rates, "composition": composition, "pH": spec.ph, "ionic_strength": spec.ionic_strength, "water_kg": state.water_kg,
                 "log_fO2": spec.log_fo2, "Eh": spec.eh_volts,
                 "log_aw": spec.log_a_water, "species": species,
                 "log_a": {n: spec.species[n].log_activity for n in spec.basis_names
@@ -672,6 +684,8 @@ def _pack(rows: list[dict | None]) -> dict:
         "minerals": column(lambda r, k: r["minerals"].get(k, 0.0), mineral_keys),
         "gas": column(lambda r, k: r.get("gas", {}).get(k, 0.0), gas_keys),
         "kinetic": column(lambda r, k: r.get("kinetic", {}).get(k), sorted({k for r in good for k in r.get("kinetic", {})})),
+        "composition": column(lambda r, k: r.get("composition", {}).get(k),
+                              sorted({k for r in good for k in r.get("composition", {})})),
         "saturation": column(lambda r, k: r["saturation"].get(k), sat_keys),
         "warnings": sorted({w for r in good for w in r["warnings"]}),
     }
@@ -740,8 +754,13 @@ def _catalog(db, runs: dict[str, dict], sc: Scenario) -> dict:
             shown = pretty_mineral(name) if name in db.species else name
             kinetic[k] = {"label": f"{shown} rate" if what == "rate" else f"{shown} left",
                           "unit": ("mol/s" if name in db.species else "g/s") if what == "rate" else "% of start"}
+    composition = {}
+    for run in runs.values():
+        for k in run.get("composition", {}):
+            ss, member = k.split(":", 1)
+            composition[k] = {"label": f"{pretty_mineral(member)} in {ss}", "unit": "mole fraction"}
     return {"species": species, "elements": elements, "minerals": minerals, "gas": gases,
-            "kinetic": kinetic}
+            "kinetic": kinetic, "composition": composition}
 
 
 def _mw(db, name: str) -> float | None:

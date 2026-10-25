@@ -125,8 +125,27 @@ def _mineral_clauses(result: dict, run: dict, blocked: set[str]) -> list[str]:
             clause += ")" if peak <= end * 1.05 else f", up to {_amount(peak)} on the way)"
         else:
             clause += f" (up to {_amount(peak)} per kg of original water, gone by the end)"
+        mix = _composition_text(run, name, end > APPEARS)
+        if mix:
+            clause += f", {mix}"
         found.append((i, clause))
     return [c for _, c in sorted(found)]
+
+
+def _composition_text(run: dict, name: str, at_end: bool) -> str:
+    """'mostly anorthite (62%) at the end' for a solid solution; empty for a pure mineral."""
+    parts = {k.split(":", 1)[1]: v for k, v in run.get("composition", {}).items() if k.split(":", 1)[0] == name}
+    if not parts:
+        return ""
+    series = next(iter(parts.values()))
+    idx = [i for i, v in enumerate(series) if v is not None]
+    if not at_end:                            # where there was most of it
+        amounts = run["minerals"][name]
+        idx = [max(idx, key=lambda i: amounts[i] or 0.0)]
+    i = idx[-1]
+    shares = sorted(((v[i] or 0.0, k) for k, v in parts.items()), reverse=True)
+    text = ", ".join(f"{pretty_mineral(k).lower()} {100 * x:.0f}%" for x, k in shares if x >= 0.005)
+    return f"{text} {'at the end' if at_end else 'at its largest'}"
 
 
 def _kinetic_clause(result: dict, run: dict) -> str:

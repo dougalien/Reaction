@@ -1,0 +1,15 @@
+# Solid solutions with ideal mixing on sites: a(endmember) = x^sites (EQ3/6 type 1).  Endmember names are the
+# database's; endmembers missing at a temperature are left out.  Sources: the LLNL EQ3/6 data0 file
+# (public), except where noted; the site counts are those of the formulas.
+name	sites	endmembers	source
+carbonate	1	calcite;magnesite;rhodochrosite;siderite;smithsonite;strontianite	data0 Carbonate-Calcite
+plagioclase	1	albite,high;anorthite	data0 Plagioclase
+alkali feldspar	1	albite,high;K-feldspar,high	data0 Sanidine-ss
+chlorite	5	clinochlore;daphnite	data0 Chlorite-ss
+epidote-clinozoisite	1	clinozoisite;epidote	data0 Epidote-ss
+garnet	2	grossular;andradite	data0 Garnet-ss
+orthopyroxene	1	enstatite;ferrosilite	data0 Orthopyroxene
+biotite	3	phlogopite;annite	data0 Biotite
+olivine	2	forsterite;fayalite	Fe-Mg on the two octahedral sites (not in data0)
+clinopyroxene	1	diopside;hedenbergite	Fe-Mg on the M1 site (not in data0)
+actinolite	5	tremolite;ferro-actinolite	Fe-Mg on the five octahedral sites (not in data0)

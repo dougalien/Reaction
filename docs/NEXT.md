@@ -95,10 +95,23 @@ line; hover shows the range, the CSV gets 5% and 95% columns, and the notes list
 disappear within the uncertainty. Judgment calls: independent draws for every species and mineral (no
 covariance from shared data is known to us); 0.1 log units as the base sigma.
 
-Next: P7b solid solutions. P5b may become possible from the CC BY lookup tables of Oguntola on Zenodo (record 20394023,
+P7b solid solutions (done): card switch `solid_solutions` (off by default; "with solid solutions" in the
+chat). Eleven ideal site-mixing models in `data/solid_solutions.tsv` (data0's carbonate, plagioclase, alkali
+feldspar, chlorite, epidote, garnet, orthopyroxene, biotite, plus olivine, clinopyroxene and actinolite).
+In the solver a solid solution is a mixture like the gas phase: its total moles are an unknown and its
+condition is sum x_i = 1 with x_i = (Q_i/K_i)^(1/sites); when it is supersaturated it takes over its pure
+endmembers, and if the assemblage then has too many phases it replaces the mineral most like its main
+endmember. Results get the mixtures under Mineral amounts and a Solid solutions tab of mole fractions.
+Seawater-basalt at 350 C now gives albite, chlorite (about 25% daphnite), epidote (about 90% Fe epidote),
+actinolite and quartz. The EQ6 heatsw cases still cannot be compared: they form saponite, which OBIGT lacks.
+Judgment calls: ideal mixing everywhere (overstates mixing in carbonates and feldspars at low T); blocked
+minerals are left out of the mixtures too; magnesite is blocked by default, so it is not in the carbonate.
+
+Next: P5b phase separation from the Driesner-Heinrich lookup tables (below), then P7c isotopes.
+P5b may become possible from the CC BY lookup tables of Oguntola on Zenodo (record 20394023,
 computed from Driesner and Heinrich), if they hold the coexisting phase compositions.
 
-329 tests pass with the data folder present. The data folder needs `OBIGT/Berman/` (run
+336 tests pass with the data folder present. The data folder needs `OBIGT/Berman/` (run
 `scripts/fetch_references.ps1` again); without it the old minerals are used and every run says so.
 
 ## First things to do, in this order
