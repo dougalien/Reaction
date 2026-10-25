@@ -58,7 +58,9 @@ def _axes(result: dict):
 
 
 def _added(result: dict, i: int) -> str:
-    axis = result["axes"]["reacted"]
+    axis = result["axes"]["mixed" if "mixed" in result["varies"] else "reacted"]
+    if axis["key"] == "mixed":
+        return f"{axis['values'][i]:.3g} kg of {axis['label'].lower().removesuffix(' added')} per kg"
     unit = axis["unit"].replace("per kg water", "per kg of water")
     return f"{axis['values'][i]:.3g} {unit} added"
 
@@ -66,7 +68,7 @@ def _added(result: dict, i: int) -> str:
 def point_text(result: dict, i: int) -> str:
     """Where on the path point ``i`` is, mentioning only what varies."""
     temps, pressures, varies = _axes(result)
-    if "reacted" in varies:
+    if "reacted" in varies or "mixed" in varies:
         where = [_added(result, i)]
         if "temperature_c" in varies:
             where.append(f"{temps[i]:.0f} °C")
@@ -84,7 +86,7 @@ def _when(result: dict, i: int) -> str:
     temps, pressures, varies = _axes(result)
     if i == 0:
         return "from the start"
-    if "reacted" in varies:
+    if "reacted" in varies or "mixed" in varies:
         return f"from about {point_text(result, i)}"
     if "temperature_c" in varies and "pressure_bar" in varies:
         return f"from about {temps[i]:.0f} °C ({pressures[i]:.0f} bar)"

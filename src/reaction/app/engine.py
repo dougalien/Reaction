@@ -21,11 +21,12 @@ from ..database import load_data0
 from ..database.model import Kind
 from ..equilibrium import System
 from ..network import PROTON, WATER
-from ..path import PathPoint, ReactionPath, mineral_reactant
+from ..path import PathPoint, ReactionPath, Reactant, mineral_reactant
 from ..speciation import PH, Molal, Speciation, speciate
 from ..thermo import validity
 from ..thermo.eosdb import DEFAULT_MASTERS, load_eos_database
 from . import analysis, config
+from .fluids import preset
 from .names import pretty_mineral, pretty_species
 from .scenario import ALWAYS_EXCLUDED, MODE_LABELS, Scenario
 
@@ -90,12 +91,11 @@ class Engine:
         """Warnings about a card's path that do not stop a run, cached per path."""
         if sc.problems():
             return []
-        key = (sc.t_start_c, sc.t_end_c, sc.p_start_bar, sc.p_end_bar)
+        key = (sc.t_start_c, sc.t_end_c, sc.p_start_bar, sc.p_end_bar, sc.mix_with, sc.mix_ratio, sc.mix_t_c)
         if key not in self._advice:
             if len(self._advice) > 64:
                 self._advice.clear()
-            pts = [(sc.t_start_c + (sc.t_end_c - sc.t_start_c) * i / 40,
-                    sc.p_start_bar + (sc.p_end_bar - sc.p_start_bar) * i / 40) for i in range(41)]
+            pts = [sc.tp(i / 40) for i in range(41)]
             self._advice[key] = reliability_notes(pts, self.reliability(pts), sc.varies)
         return self._advice[key]
 
@@ -121,6 +121,12 @@ class Engine:
                     raise ValueError(f"{name} contains {el}, which this calculator cannot track yet")
                 if master not in basis:
                     basis.append(master)
+        mix = None
+        if sc.mixing:
+            progress(0.0, f"Speciating {preset(sc.mix_with).label.lower()}")
+            mix, mix_notes = self.starting_fluid(Scenario(fluid=sc.mix_with, activity_model=sc.activity_model))
+            fluid_notes += [f"Second fluid: {n}" for n in mix_notes]
+            basis += [b for b in mix.basis_names if b not in basis and b not in (WATER, PROTON)]
         system = System(db, basis, activity_model=sc.activity_model)
         bulk0 = dict(sp0.component_totals)
         for b in basis:
@@ -134,7 +140,7 @@ class Engine:
         for k, mode in enumerate(modes):
             def tick(i, n, k=k):
                 progress((k + i / n) / len(modes), f"{MODE_LABELS[modes[k]]}: {i} of {n} points")
-            runs[mode] = self._march(system, bulk0, points, sc, mode == "flow_through", tick, notes)
+            runs[mode] = self._march(system, bulk0, points, sc, mode == "flow_through", tick, notes, mix)
 
         for run in runs.values():
             notes.extend(run.pop("warnings"))
@@ -152,6 +158,8 @@ class Engine:
         if blocked_unknown:
             notes.append("Not in the database, so ignored: " + ", ".join(blocked_unknown))
         notes.extend(fluid.caveats)
+        if sc.mixing:
+            notes.extend(c for c in preset(sc.mix_with).caveats if c not in fluid.caveats)
         seen: list[str] = []
         for n in notes:
             if n not in seen:
@@ -164,6 +172,10 @@ class Engine:
         varies = sc.varies
         if sc.reactants:
             extra = self._reaction_axes(sc, added, len(points))
+            axes.update(extra)
+            varies = list(extra) + varies
+        if sc.mixing:
+            extra = self._mixing_axes(sc, len(points))
             axes.update(extra)
             varies = list(extra) + varies
         return {
@@ -224,6 +236,15 @@ class Engine:
             out.append(mineral_reactant(system, name, moles, rates=(moles / max(steps - 1, 1), 0.0, 0.0)))
         return out
 
+    def _mixing_axes(self, sc: Scenario, steps: int) -> dict:
+        """Second fluid added (kg of its water per kg of the first's) and its fraction of the mixture."""
+        kg = [sc.mix_ratio * i / max(steps - 1, 1) for i in range(steps)]
+        other = preset(sc.mix_with).label.lower()
+        return {"mixed": {"key": "mixed", "label": f"{other.capitalize()} added", "unit": "kg per kg",
+                          "values": [_sig(k) for k in kg]},
+                "mix_fraction": {"key": "mix_fraction", "label": f"Fraction of {other}", "unit": "by mass",
+                                 "values": [_sig(k / (1.0 + k)) for k in kg]}}
+
     def _reaction_axes(self, sc: Scenario, names: dict[str, str], steps: int) -> dict:
         """Reactant added (g per kg of starting water) and the water/rock mass ratio at each step; for
         reactants given only in moles (a titration), the millimoles added."""
@@ -281,20 +302,23 @@ class Engine:
 
     # ---- the march along the path ---------------------------------------------------------------
     def _march(self, system: System, bulk0: dict, points: list[tuple[float, float]], sc: Scenario,
-               flow_through: bool, tick, notes: list[str]) -> dict:
+               flow_through: bool, tick, notes: list[str], mix: Speciation | None = None) -> dict:
         """The library's reaction path, with reaction progress counting the steps of the card: the same
         closed-system and flow-through rules as every other path (see ``path.py``)."""
         db = self.db
         n = len(points)
         last = max(n - 1, 1)
-        (t0, p0), (t1, p1) = points[0], points[-1]
         blocked = {b.lower() for b in sc.blocked_minerals} | set(ALWAYS_EXCLUDED)
         suppress = [name for name, kind in zip(system.net.phase_names, system.net.phase_kind)
                     if kind == Kind.MINERAL and name.lower() in blocked]
         reactants = self._reactants(system, sc, self._reactant_names(sc), n)
+        if mix is not None:          # the second fluid, per kg of its water, as one more reactant
+            composition = {k: v for k, v in mix.component_totals.items() if k in system.basis}
+            reactants.append(Reactant(f"mix:{sc.mix_with}", composition, sc.mix_ratio,
+                                      (sc.mix_ratio / last, 0.0, 0.0)))
         path = ReactionPath(system, bulk0, reactants=reactants,
-                            temperature=lambda xi: t0 + (t1 - t0) * xi / last,
-                            pressure=lambda xi: p0 + (p1 - p0) * xi / last,
+                            temperature=lambda xi: sc.tp(xi / last)[0],
+                            pressure=lambda xi: sc.tp(xi / last)[1],
                             suppress_minerals=suppress, flow_through=flow_through)
 
         def failed(xi, exc):

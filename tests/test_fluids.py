@@ -120,3 +120,16 @@ def test_reactants_from_text_and_from_the_chat():
     card.p_start_bar = card.p_end_bar = 1.0
     assert not card.problems()                        # nothing else varies, but the reactant does
     assert "adding 10 g albite" in card.describe()
+
+
+def test_mixing_on_the_card_and_in_the_chat():
+    card = Scenario(fluid="vent_fluid", t_start_c=350.0, mix_with="seawater", mix_ratio=10.0, mix_t_c=2.0,
+                    p_start_bar=250.0, p_end_bar=250.0, steps=11)
+    assert not card.problems() and card.varies == ["temperature_c"]
+    assert card.points()[-1][0] == pytest.approx(370.0 / 11)
+    assert "mixed with up to 10 kg of seawater at 2 °C" in card.describe()
+    assert Scenario(mix_with="custom").problems()
+    got = interpret_rules("mix vent fluid at 350 C with up to 10 kg of seawater at 2 C, 250 bar", Scenario())
+    assert got.scenario_changes == {"pressure_bar": 250.0, "fluid": "vent_fluid", "mix_with": "seawater",
+                                    "mix_ratio": 10.0, "mix_t_c": 2.0, "t_start_c": 350.0}
+    assert interpret_rules("no mixing", Scenario()).scenario_changes == {"mix_with": ""}
