@@ -98,6 +98,7 @@ class Interpretation:
     question: str = ""
     source: str = "rules"                  # "model" or "rules"
     mode_mentioned: bool = False
+    column_view: str = ""                  # a column run's view: "outlet", "start", "profile" or ""
 
 
 class Ollama:
@@ -168,6 +169,10 @@ def interpret(text: str, card: Scenario, plotted: list[str], history: list[dict]
     if got.x_axis == "unchanged":
         got.x_axis = rules.x_axis
     got.mode_mentioned = rules.mode_mentioned
+    got.column_view = rules.column_view
+    for key in ("kind", "cells", "pore_volumes", "column_m", "dispersivity_m", "pore_fluid"):
+        if key in rules.scenario_changes:
+            got.scenario_changes[key] = rules.scenario_changes[key]
     plot_request = bool(rules.show or rules.hide)
     got.run = rules.run if plot_request else (got.run or rules.run)
     got.show = got.show or rules.show
@@ -239,7 +244,7 @@ _MORE_REACTANT = re.compile(
     r"\s*(?:,\s*(?:and\s+)?|\s+and\s+|\s*\+\s*)(\d*\.?\d+)\s*(g|grams?|mg|kg|mol|moles?|mmol)\s+(?:of\s+)?"
     r"([A-Za-z][\w()+\-]*(?:,(?:ordered|disordered|low|high|alpha|beta|maximum)|\s+glass|\s+gas)?)", re.I)
 _REACTANT = re.compile(
-    r"\b(?:react(?:ing)?|add(?:ing)?|dissolv(?:e|ing)|titrat(?:e|ing)(?:\s+\w+)?\s+with|with)\s+"
+    r"\b(?:react(?:ing)?|add(?:ing)?|dissolv(?:e|ing)|titrat(?:e|ing)(?:\s+\w+)?\s+with|with|column\s+of)\s+"
     r"(?:up\s+to\s+)?(\d*\.?\d+)\s*(g|grams?|mg|kg|mol|moles?|mmol)\s+(?:of\s+)?"
     r"([A-Za-z][\w()+\-]*(?:,(?:ordered|disordered|low|high|alpha|beta|maximum)|\s+glass|\s+gas)?)", re.I)
 
@@ -298,6 +303,9 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
     named = re.sub(r"\b(?:follow(?:ing)?|leav(?:e|ing)) the brine\b|\bbrine (?:stays|is left) behind\b|"
                    r"\bbrine salinity\b", " ", low)
     named = re.sub(rf"(?:{_ISO_KEY})\s+of\s+(?:the\s+)?\w+", " ", named)      # "d34S of the seawater 21"
+    column = {} if plotting else _column_options(low)
+    if "pore_fluid" in column:                        # "a column filled with rainwater" names the pore fluid
+        named = re.sub(_PORE_FLUID, " ", named)
     for key, p in ([] if plotting else PRESETS.items()):
         if key in named or p.label.lower() in named or (key == "vent_fluid" and re.search(r"\bvent\b|black smoker", named)) \
                 or (key == "formation_brine" and re.search(r"\bbrine\b", named)) or (key == "rainwater" and re.search(r"\brain\b", named)):
@@ -356,6 +364,10 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
     follow = _follow_phase(low)
     if follow:
         ch["follow_phase"] = follow
+    ch.update(column)
+    if ch.get("kind") == "transport" and "mode" in ch and not re.search(r"\bstatic\b", low):
+        ch.pop("mode")                                 # "flow through a column" is not the flow-through mode
+    out.column_view = _column_view(low)
     if not plotting:
         ch.update(_isotope_options(text, low, card))
     held = re.search(rf"\bat\s*{_NUM}{_DEG}", low)
@@ -380,7 +392,9 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
         ch["reactants"] = []
     out.run = bool(RUN_WORDS.search(low)) and not re.search(r"\b(don't|do not|dont)\s+run\b", low)
 
-    # plot requests: "plot A instead of B", "show A", "hide B", "remove B"
+    # plot requests: "plot A instead of B", "show A", "hide B", "remove B"; a column run's view words are not names
+    text = re.sub(r"\s+(?:along the column|at the outlet|in the profile|(?:against|versus|vs\.?) distance|"
+                  r"(?:in |for )?the column at the (?:start|end)|(?:in )?the breakthrough(?: curve)?)\b", "", text, flags=re.I)
     m = re.search(r"(?:plot|show|display|use|add)\s+(.+?)\s+(?:instead of|rather than|in place of)\s+(.+)", text, re.I)
     if m:
         out.show, out.hide = [_clean(m.group(1))], [_clean(m.group(2))]
@@ -417,7 +431,9 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
             bits.append(f"mixing in up to {ch.get('mix_ratio', card.mix_ratio):g} kg of "
                         f"{ch['mix_with'].replace('_', ' ')} per kg"
                         + (f" at {ch['mix_t_c']:g} C" if "mix_t_c" in ch else ""))
-        if ch.get("reactants"):
+        if ch.get("reactants") and ch.get("kind", card.kind) == "transport":
+            bits.append(ch["reactants"].replace(";", ",") + " per kg of pore water in each cell")
+        elif ch.get("reactants"):
             verb = "reacting with " if ch.get("kinetics", card.kinetics) else "adding "
             bits.append(verb + ch["reactants"].replace(";", ","))
         elif "reactants" in ch:
@@ -451,6 +467,23 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
         if "uncertainty_runs" in ch:
             bits.append(f"a log K uncertainty range from {ch['uncertainty_runs']} runs" if ch["uncertainty_runs"]
                         else "no uncertainty range")
+        if ch.get("kind") == "transport":
+            bits.append("a column run" + "".join(
+                f", {label}" for key, label in (("column_m", f"{ch.get('column_m', 0):g} m long"),
+                                                ("cells", f"{ch.get('cells', 0)} cells"),
+                                                ("pore_volumes", f"{ch.get('pore_volumes', 0):g} pore volumes"),
+                                                ("dispersivity_m", f"dispersivity {ch.get('dispersivity_m', 0):g} m"))
+                if key in ch))
+        elif ch.get("kind") == "path":
+            bits.append("a single-fluid path (no column)")
+        else:
+            for key, label in (("column_m", "column {:g} m long"), ("cells", "{} cells"),
+                               ("pore_volumes", "{:g} pore volumes"), ("dispersivity_m", "dispersivity {:g} m")):
+                if key in ch:
+                    bits.append(label.format(ch[key]))
+        if "pore_fluid" in ch:
+            bits.append(f"the column first filled with {ch['pore_fluid'].replace('_', ' ')}" if ch["pore_fluid"]
+                        else "the column first filled with the same fluid")
         if "surface_area_cm2_per_g" in ch:
             bits.append(f"surface area {ch['surface_area_cm2_per_g']:g} cm2/g")
         if "ph" in ch and ch["ph"] is not None and "analysis" not in ch:
@@ -519,6 +552,56 @@ _ISO_VALUE = re.compile(
 
 
 _HFO_WORDS = r"(?:hfo|ferrihydrite|(?:hydrous )?ferric (?:oxide|oxyhydroxide|hydroxide)|iron oxyhydroxide)"
+
+
+_PORE_FLUID = r"\b(?:filled|saturated) with\s+(?:the\s+)?([a-z ]+?)(?=[,.;]|\s+(?:and|at|with|from|for|in)\b|$)|" \
+              r"\bpore (?:fluid|water) (?:is |of )?(?:the\s+)?([a-z ]+?)(?=[,.;]|\s+(?:and|at|with|from|for|in)\b|$)"
+_LENGTH = {"m": 1.0, "cm": 0.01, "mm": 0.001, "km": 1000.0}
+
+
+def _column_options(low: str) -> dict:
+    """A column run: "seawater through a 2 m column of basalt", "reactive transport", "30 cells",
+    "3 pore volumes", "dispersivity 5 cm", "a column filled with rainwater"; "no column" goes back to a path."""
+    out: dict = {}
+    if re.search(r"\b(?:no|without(?: a)?|not a)\s+column\b|\bsingle[- ]fluid path\b|\bback to a path\b", low):
+        out["kind"] = "path"
+        return out
+    if re.search(r"\bcolumn\b|\breactive[- ]transport\b|\b1-?d transport\b|\btransport (?:run|model)\b", low):
+        out["kind"] = "transport"
+    m = re.search(r"(\d+)\s*cells?\b", low)
+    if m:
+        out["cells"] = int(m.group(1))
+    m = re.search(r"(\d*\.?\d+)\s*pore[- ]volumes?\b", low)
+    if m:
+        out["pore_volumes"] = float(m.group(1))
+    m = re.search(r"(\d*\.?\d+)\s*(km|cm|mm|m)(?:\s+long)?\s+column\b", low) or \
+        re.search(r"\bcolumn\s+(?:of\s+|is\s+)?(\d*\.?\d+)\s*(km|cm|mm|m)\b(?!\s*of\b)", low) or \
+        re.search(r"\bcolumn\s+(\d*\.?\d+)\s*(km|cm|mm|m)\s+long\b", low)
+    if m:
+        out["column_m"] = float(m.group(1)) * _LENGTH[m.group(2)]
+    m = re.search(r"\bdispersivity\s*(?:of|is|=|:)?\s*(\d*\.?\d+)\s*(km|cm|mm|m)\b", low)
+    if m:
+        out["dispersivity_m"] = float(m.group(1)) * _LENGTH[m.group(2)]
+    elif re.search(r"\bno dispersion\b|\bsharp fronts?\b", low):
+        out["dispersivity_m"] = 0.0
+    m = re.search(_PORE_FLUID, low)
+    if m:
+        words = (m.group(1) or m.group(2) or "").strip()
+        key = _fluid_key(words) if re.search(r"sea ?water|vent|smoker|brine|rain", words) else None
+        if key or re.fullmatch(r"(?:the )?same(?: fluid)?", words):
+            out["pore_fluid"] = key or ""
+    return out
+
+
+def _column_view(low: str) -> str:
+    """Which part of a column run to look at: the outlet, or the column at the start or the end."""
+    if re.search(r"\b(?:breakthrough|at the outlet|outlet fluid|what comes out)\b", low):
+        return "outlet"
+    if re.search(r"\b(?:column|profile) at the start\b|\bstarting column\b|\bbefore the flow\b", low):
+        return "start"
+    if re.search(r"\b(?:along the column|column at the end|profile|against distance|versus distance|vs\.? distance)\b", low):
+        return "profile"
+    return ""
 
 
 def _sorption_options(low: str) -> dict:

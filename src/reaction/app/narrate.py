@@ -6,7 +6,9 @@ import re
 from .names import pretty_mineral
 
 ELEMENT_WORDS = {"Mg": "magnesium", "Ca": "calcium", "S": "sulfur", "C": "carbon", "K": "potassium",
-                 "Na": "sodium", "Cl": "chlorine", "Si": "silicon", "Fe": "iron"}
+                 "Na": "sodium", "Cl": "chlorine", "Si": "silicon", "Fe": "iron", "Al": "aluminium",
+                 "Mn": "manganese", "P": "phosphorus", "Br": "bromine", "Sr": "strontium", "B": "boron",
+                 "N": "nitrogen", "F": "fluorine", "Ba": "barium", "Li": "lithium", "Zn": "zinc", "Cu": "copper"}
 APPEARS = 1e-6          # mol per kg of original water: below this a mineral is not "present"
 
 
@@ -280,7 +282,104 @@ def _isotope_clause(run: dict) -> str:
     return "Isotopes: " + "; ".join(bits) + "."
 
 
+def _span(axis: list, cells: list[int], unit: str, digits: int) -> str:
+    """The stretches of the column that ``cells`` cover, e.g. "0.05 to 0.25 and 0.65 m"."""
+    runs: list[list[int]] = []
+    for i in cells:
+        if runs and i == runs[-1][-1] + 1:
+            runs[-1].append(i)
+        else:
+            runs.append([i])
+    parts = [f"{axis[r[0]]:.{digits}f}" if len(r) == 1 else f"{axis[r[0]]:.{digits}f} to {axis[r[-1]]:.{digits}f}"
+             for r in runs]
+    return (", ".join(parts[:-1]) + " and " + parts[-1] if len(parts) > 1 else parts[0]) + f" {unit}"
+
+
+def _pv(v: float) -> str:
+    v = round(v, 2)
+    return f"{v:g} pore volume" + ("" if v == 1 else "s")
+
+
+def _per_kg(mol: float) -> str:
+    return "almost none" if mol < 1e-6 else f"{_amount(mol)}/kg"
+
+
+def _column_story(result: dict) -> list[str]:
+    """A column run: what comes out at the outlet, and where the minerals sit along the column."""
+    modes = result["modes"]
+    out, start, end = modes["outlet"], modes["start"], modes["profile"]
+    pv = out["axes"]["pore_volumes"]["values"]
+    ph = out["properties"]["pH"]
+    i0, i1 = _first_valid(ph), _last_valid(ph)
+    paras = [f"{result['summary'][0].upper()}{result['summary'][1:]}. At the outlet the pH goes from {ph[i0]:.1f} "
+             f"to {ph[i1]:.1f} after {_pv(pv[i1])}."]
+
+    moves = []
+    for el, line in out["elements"].items():
+        vals = [v for v in line if v is not None]
+        if not vals:
+            continue
+        a, b, top = line[_first_valid(line)], line[_last_valid(line)], max(vals)
+        if top < 1e-6:
+            continue
+        name = ELEMENT_WORDS.get(el, el)
+        if top > 1.1 * max(a, b) and top - max(a, b) > 1e-6:
+            k = line.index(top)
+            moves.append((top - min(a, b), f"{name} peaks at {_per_kg(top)} after {_pv(pv[k])}, "
+                                           f"above both its starting and its final level"))
+        elif abs(b - a) > 0.1 * max(a, b):
+            half = (a + b) / 2.0
+            k = _first(line, (lambda v: v >= half) if b > a else (lambda v: v <= half))
+            verb = "rises" if b > a else "falls"
+            moves.append((abs(b - a), f"{name} {verb} from {_per_kg(a)} to {_per_kg(b)}, halfway "
+                                      f"after {_pv(pv[k])}"))
+    if moves:
+        moves.sort(key=lambda m: -m[0])
+        text = "; ".join(m[1] for m in moves[:6])
+        paras.append("At the outlet " + text + ".")
+
+    dist = end["axes"]["distance"]["values"]
+    temps = end["axes"].get("temperature_c", {}).get("values")
+    zones, gone = [], []
+    names = sorted(set(start["minerals"]) | set(end["minerals"]))
+    peak = {m: max((v or 0.0 for run in (start, end) for v in run["minerals"].get(m, [])), default=0.0) for m in names}
+    major = 0.01 * max(peak.values(), default=0.0)          # minerals below 1% of the largest are left out
+    for m in names:
+        if peak[m] < major:
+            continue
+        s_line = start["minerals"].get(m, [0.0] * len(dist))
+        e_line = end["minerals"].get(m, [0.0] * len(dist))
+        here = [i for i, v in enumerate(e_line) if v is not None and v > APPEARS]
+        before = [i for i, v in enumerate(s_line) if v is not None and v > APPEARS]
+        label = pretty_mineral(m)
+        label = label[0].lower() + label[1:] if label[1:2].islower() else label
+        if here:
+            where = _span(dist, here, "m", 2)
+            if temps:
+                where += f", {_span(temps, here, '°C', 0)}"
+            zones.append((here[0], f"{label} ({where})"))
+        lost = [i for i in before if i not in here]
+        if lost:
+            gone.append(f"{label} ({_span(dist, lost, 'm', 2)})")
+    if zones:
+        zones.sort()
+        paras.append("Along the column at the end: " + "; ".join(z[1] for z in zones[:12]) + "."
+                     + (" Gone since the start: " + "; ".join(gone) + "." if gone else ""))
+    elif gone:
+        paras.append("Gone from the column since the start: " + "; ".join(gone) + ".")
+    sorb = _sorption_clause(result, out)
+    if sorb:
+        paras.append("At the outlet, at the end: " + sorb[0].lower() + sorb[1:])
+    levels = end.get("reliability", {}).get("levels", [])
+    if any(level != "good" for level in levels):
+        paras.append("Part of the column lies where the thermodynamics of charged species is less certain: see "
+                     "Assumptions and limits, and the coloured strip under the plot.")
+    return paras
+
+
 def story(result: dict) -> list[str]:
+    if result["scenario"].get("kind") == "transport":
+        return _column_story(result)
     sc = result["scenario"]
     blocked = {b.lower() for b in sc["blocked_minerals"]}
     modes = result["modes"]

@@ -32,10 +32,23 @@
         <button class="ghost" id="reset" title="Back to the default card">Reset</button>
       </div>
       <label class="f">Title<input id="f-title" type="text" placeholder="optional"></label>
-      <div class="grid2" style="margin-top:8px">
-        <label class="f">Fluid<select id="f-fluid"></select></label>
-        <label class="f">Steps<input id="f-steps" type="number" min="2" max="200" step="1"></label>
+      <div style="margin-top:8px">
+        <div class="seg" id="kindseg" role="group" aria-label="Kind of run">
+          <button data-kind="path">One fluid along a path</button><button data-kind="transport">Flow through a column</button>
+        </div>
       </div>
+      <div class="grid2" style="margin-top:8px">
+        <label class="f"><span id="fluid-label">Fluid</span><select id="f-fluid"></select></label>
+        <label class="f path-only">Steps<input id="f-steps" type="number" min="2" max="200" step="1"></label>
+        <label class="f col-only" title="What fills the column before the flow starts">Column first filled with<select id="f-pore_fluid"></select></label>
+      </div>
+      <div class="grid2 col-only" style="margin-top:8px">
+        <label class="f" title="Number of cells the column is divided into (2 to 100)">Cells<input id="f-cells" type="number" min="2" max="100" step="1"></label>
+        <label class="f" title="How many column volumes of fluid flow through">Pore volumes<input id="f-pore_volumes" type="number" min="0" max="100" step="any"></label>
+        <label class="f">Column length (m)<input id="f-column_m" type="number" min="0" step="any"></label>
+        <label class="f" title="Spreads the fronts: D = dispersivity x velocity. 0 gives sharp fronts">Dispersivity (m)<input id="f-dispersivity_m" type="number" min="0" step="any"></label>
+      </div>
+      <div class="hint col-only" style="margin-top:4px">The fluid above flows in at the inlet; minerals and sorbed matter stay in their cell, and every cell is at equilibrium at its own temperature and pressure (PHREEQC's TRANSPORT scheme).</div>
       <div id="fluid-desc" class="hint" style="margin-top:4px"></div>
       <div id="custom" style="display:none;margin-top:8px">
         <label class="f">Analysis <span class="hint">one solute per line: name, amount, unit if not the default</span>
@@ -55,12 +68,12 @@
         <div class="hint" style="margin-top:4px">Per kg means per kg of solution; mg/L is read at 1 kg/L. Auto balance adjusts the main ion of the side that is short. Redox: Fe(III), sulfide, H2 or O2 in the analysis set it; otherwise choose air, a log fO2, Eh or pe.</div>
       </div>
       <details id="fluid-read" style="margin-top:6px"><summary id="fluid-sum" class="small"></summary><div id="fluid-table"></div></details>
-      <div class="small muted" style="margin:10px 0 4px">Path: a straight line from start to end</div>
+      <div class="small muted" style="margin:10px 0 4px" id="path-label">Path: a straight line from start to end</div>
       <div class="grid2">
-        <label class="f">Temperature start (&deg;C)<input id="f-t_start_c" type="number" min="0" max="600" step="any"></label>
-        <label class="f">Temperature end (&deg;C)<input id="f-t_end_c" type="number" min="0" max="600" step="any"></label>
-        <label class="f">Pressure start (bar)<input id="f-p_start_bar" type="number" min="1" max="5000" step="any"></label>
-        <label class="f">Pressure end (bar)<input id="f-p_end_bar" type="number" min="1" max="5000" step="any"></label>
+        <label class="f"><span class="tp-label" data-path="Temperature start" data-col="Temperature at the inlet">Temperature start</span> (&deg;C)<input id="f-t_start_c" type="number" min="0" max="600" step="any"></label>
+        <label class="f"><span class="tp-label" data-path="Temperature end" data-col="Temperature at the outlet">Temperature end</span> (&deg;C)<input id="f-t_end_c" type="number" min="0" max="600" step="any"></label>
+        <label class="f"><span class="tp-label" data-path="Pressure start" data-col="Pressure at the inlet">Pressure start</span> (bar)<input id="f-p_start_bar" type="number" min="1" max="5000" step="any"></label>
+        <label class="f"><span class="tp-label" data-path="Pressure end" data-col="Pressure at the outlet">Pressure end</span> (bar)<input id="f-p_end_bar" type="number" min="1" max="5000" step="any"></label>
       </div>
       <div class="hint" style="margin-top:4px">Equal start and end hold that variable fixed. Equilibrium constants are computed at every point, so any temperature and pressure works (up to 600 &deg;C and 5000 bar).</div>
       <label class="f" style="margin-top:8px">Activity model<select id="f-activity_model"><option value="bdot">B-dot</option><option value="davies">Davies</option><option value="pitzer">Pitzer (brines)</option></select></label>
@@ -75,14 +88,14 @@
         <label class="f" title="A gas phase (CO2, CH4, steam, H2, H2S ...) forms when the dissolved gases' fugacities add up to the pressure">Gas phase<select id="f-gas_phase"><option value="true">Can form</option><option value="false">Suppressed</option></select></label>
         <label class="f" title="Below about 150 C methane and sulfate do not react on human time scales; held apart, each keeps its own total">Methane and sulfate<select id="f-methane_sulfate"><option value="apart">Held apart</option><option value="react">Can react</option></select></label>
       </div>
-      <div style="margin-top:10px">
+      <div style="margin-top:10px" class="path-only">
         <div class="small muted" style="margin-bottom:4px">Mode</div>
         <div class="seg" id="modeseg" role="group" aria-label="Mode">
           <button data-mode="static">Static</button><button data-mode="flow_through">Flow-through</button><button data-mode="both">Both</button>
         </div>
         <div class="hint" style="margin-top:4px">Static: minerals stay and can redissolve. Flow-through: each step's minerals are left behind.</div>
       </div>
-      <div class="grid2" style="margin-top:10px">
+      <div class="grid2 path-only" style="margin-top:10px">
         <label class="f">Mix in a second fluid<select id="f-mix_with"></select></label>
         <label class="f">Up to (kg per kg)<input id="f-mix_ratio" type="number" min="0" max="1000" step="any"></label>
         <label class="f">Its temperature (&deg;C)<input id="f-mix_t_c" type="number" min="0" max="600" step="any" placeholder="follow the path"></label>

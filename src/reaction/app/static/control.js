@@ -27,6 +27,16 @@ function render(s) {
     : "(added steadily, all of it by the last step, per kg of water)";
   for (const k of ["p_start_bar", "p_end_bar", "t_start_c", "t_end_c", "steps"]) setIfIdle($("f-" + k), c[k]);
   document.querySelectorAll("#modeseg button").forEach((b) => b.classList.toggle("on", b.dataset.mode === c.mode));
+  const col = c.kind === "transport";
+  document.querySelectorAll("#kindseg button").forEach((b) => b.classList.toggle("on", b.dataset.kind === (c.kind || "path")));
+  document.querySelectorAll(".path-only").forEach((el) => { el.style.display = col ? "none" : ""; });
+  document.querySelectorAll(".col-only").forEach((el) => { el.style.display = col ? "" : "none"; });
+  document.querySelectorAll(".tp-label").forEach((el) => { el.textContent = col ? el.dataset.col : el.dataset.path; });
+  $("path-label").textContent = col ? "Column: from the inlet to the outlet" : "Path: a straight line from start to end";
+  $("fluid-label").textContent = col ? "Fluid flowing in" : "Fluid";
+  $("mix-hint").style.display = col ? "none" : "";
+  for (const k of ["cells", "pore_volumes", "column_m", "dispersivity_m"]) setIfIdle($("f-" + k), c[k]);
+  if (col) $("reactant-hint").textContent = "(in every cell, per kg of pore water, brought to equilibrium with the pore fluid before the flow)";
 
   const reactants = $("reactants");
   reactants.replaceChildren(...c.reactants.map((r, i) => h("span", { class: "chip on static" },
@@ -86,6 +96,11 @@ function renderFluid(s) {
       ...fluids.filter((f) => f.key !== "custom").map((f) => h("option", { value: f.key }, f.label)));
   }
   $("f-mix_with").value = c.mix_with;
+  if ($("f-pore_fluid").options.length !== fluids.length) {
+    $("f-pore_fluid").replaceChildren(h("option", { value: "" }, "The same fluid"),
+      ...fluids.filter((f) => f.key !== "custom").map((f) => h("option", { value: f.key }, f.label)));
+  }
+  $("f-pore_fluid").value = c.pore_fluid || "";
   for (const k of ["mix_ratio", "mix_t_c"]) {
     $("f-" + k).disabled = !c.mix_with;
     setIfIdle($("f-" + k), c[k] === null ? "" : c[k]);
@@ -164,6 +179,10 @@ for (const k of ["duration", "duration_unit", "surface_area_cm2_per_g", "evapora
   $("f-" + k).addEventListener("change", (ev) => edit(k, ev.target.value));
 }
 document.querySelectorAll("#modeseg button").forEach((b) => b.addEventListener("click", () => edit("mode", b.dataset.mode)));
+document.querySelectorAll("#kindseg button").forEach((b) => b.addEventListener("click", () => edit("kind", b.dataset.kind)));
+for (const k of ["cells", "pore_volumes", "column_m", "dispersivity_m", "pore_fluid"]) {
+  $("f-" + k).addEventListener("change", (ev) => edit(k, ev.target.value));
+}
 $("add-blocked").addEventListener("keydown", (ev) => {
   if (ev.key !== "Enter") return;
   const v = ev.target.value.trim().toLowerCase();

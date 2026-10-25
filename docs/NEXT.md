@@ -159,9 +159,31 @@ property, story sentence. Judgment calls: 25 C constants at all temperatures (va
 phreeqc.dat gives an enthalpy); borate and silicate surface species use B(OH)3 and SiO2(aq); following the
 vapour leaves the sorbents with the fluid followed.
 
-Next: P7e 1D reactive transport; H isotopes when D/H factors are checked.
+P7e 1D reactive transport (done): `transport.py` (class `Column`) and the card's `kind = "transport"` with
+`cells`, `column_m`, `dispersivity_m`, `pore_volumes` and `pore_fluid` (empty: the column starts filled with the
+fluid that flows in). The card's temperature and pressure run from the inlet (start values) to the outlet (end
+values), so a column can sit on a thermal gradient; each cell is solved at its own T and P. The scheme is
+PHREEQC's TRANSPORT at Courant number one: each shift moves every cell's solution (water and solutes, from
+`moles_in_solution`) one cell on; minerals, gas and sorbed matter stay; dispersion mixes neighbours by
+alpha/dx per shift, in ceil(3 f) mixes of at most 1/3, half before and half after the shift, with the cells
+re-equilibrated after every mix (doing all the mixing in one go before reacting put the Ca front of example 11
+0.24 mmol off; the split brings it within 0.003). Constant-concentration inlet, zero-gradient outlet; the column
+tracks what leaves at each end (`out`, `back`), and a tracer balances exactly. Checked against PHREEQC 3.7.3
+TRANSPORT (example 11 chemistry, 20 and 40 cells): Na, K, Ca, Br, Cl at the outlet within 0.006 mmol/kg at every
+shift. Reactants go into every cell (per kg of pore water) and are brought to equilibrium with the pore fluid
+before the flow (basalt glass is replaced by what it alters to); no kinetics, evaporation, mixing, phase
+following, isotopes or uncertainty bands in a column yet (the card says so). Results: three "modes" with axes of
+their own, `outlet` (against pore volumes), `start` and `profile` (the column at the start and at the end,
+against distance and temperature); the results window overlays only modes on the same axes. Chat: "seawater
+through a 2 m column of 100 g basalt glass", "30 cells", "3 pore volumes", "dispersivity 5 cm", "a column
+filled with rainwater", "no column"; "along the column", "at the outlet" pick the view. The story gives the
+outlet's breakthroughs (halfway points and peaks) and the mineral zones along the column. A 20-cell, 2 pore
+volume seawater-basalt column takes about 10 s. Judgment calls: one equilibration per mix (as PHREEQC);
+a cell that fails keeps its last state with its matter counted; at most 40,000 equilibrium solves per run.
 
-353 tests pass with the data folder present. The data folder needs `OBIGT/Berman/` (run
+Next: H isotopes when D/H factors are checked; kinetics in the column (a velocity gives each shift a time).
+
+358 tests pass with the data folder present. The data folder needs `OBIGT/Berman/` (run
 `scripts/fetch_references.ps1` again); without it the old minerals are used and every run says so.
 
 ## First things to do, in this order
@@ -189,7 +211,7 @@ Next: P7e 1D reactive transport; H isotopes when D/H factors are checked.
    - *Solver core*: keep extending the Newton plus active-set approach, or move to Gibbs-energy minimization
      (cleaner for phase appearance and solid solutions). Decide before the basalt work.
 5. Later: ~~kinetics~~ (done in P6; aragonite to calcite needs aragonite's rate, not in the PK table),
-   ~~solid solutions~~ (P7b), isotopes (O, C, S, Sr done in P7c; H still to do), ~~sorption~~ (P7d).
+   ~~solid solutions~~ (P7b), isotopes (O, C, S, Sr done in P7c; H still to do), ~~sorption~~ (P7d), ~~1D transport~~ (P7e).
 
 ## Known technical gaps
 

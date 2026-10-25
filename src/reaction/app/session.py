@@ -228,6 +228,12 @@ class Session:
             notes.append("There is no result to plot yet.")
         if got.axis in ("log", "linear"):
             patch["log"] = got.axis == "log"
+        if got.column_view and result is not None:
+            part = result["modes"].get(got.column_view)
+            if part is None:
+                notes.append("That view is for a column run; this result is not one.")
+            else:
+                patch.update(modes=[got.column_view], x=part["varies"][0])
         if patch and result is not None:
             self.view = apply_patch(self.view, patch, result)
         reply = got.reply or ("Done." if (patch or got.scenario_changes) else "")
@@ -239,7 +245,7 @@ class Session:
         if run_now and problems_now:
             reply = (reply + " I can't run that yet: " + "; ".join(problems_now) + ".").strip()
             run_now = False
-        elif run_now and not self.mode_confirmed:
+        elif run_now and not self.mode_confirmed and not self.card.transport:
             got.question = "Static, flow-through, or both?"
             run_now = False
             self.pending_run = True
@@ -250,7 +256,7 @@ class Session:
                 self.pending_x = x_req                  # applies to the result of the run about to start
             elif result is None:
                 notes.append("There is no result to plot yet.")
-            elif x_req in result.get("varies", []):
+            elif x_req in _varies(result, self.view):
                 self.view = apply_patch(self.view, {"x": x_req}, result)
                 reply = reply or f"Plotting against {name}."
             else:
@@ -431,7 +437,7 @@ class Session:
                 self._result_cache[result["id"]] = result
                 self.current = result["id"]
                 self.view = default_view(result)
-                if self.pending_x in result.get("varies", []):
+                if self.pending_x in _varies(result, self.view):
                     self.view["x"] = self.pending_x
                 elif self.pending_x:
                     asked = "pressure" if self.pending_x == "pressure_bar" else "temperature"
@@ -462,3 +468,9 @@ def _couples(species: list[str]) -> list[str]:
     """Redox species of an analysis that can set its redox state (their partner is there too)."""
     return [s for s in species if s in analysis.REDOX
             and (analysis.REDOX[s] is None or analysis.REDOX[s] in species)]
+
+
+def _varies(result: dict, view: dict) -> list[str]:
+    """What can be the horizontal axis of the view: a column run's modes have axes of their own."""
+    modes = [m for m in view.get("modes", []) if m in result["modes"]] or list(result["modes"])
+    return result["modes"][modes[0]].get("varies", result.get("varies", []))

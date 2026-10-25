@@ -21,6 +21,8 @@ from .analysis import DEFAULT_UNIT
 from .fluids import CUSTOM, CUSTOM_LABEL, PRESETS, REDOX_CHOICES, FluidPreset, label as fluid_label
 
 MODES = ("static", "flow_through", "both")
+KINDS = ("path", "transport")
+MAX_COLUMN_SOLVES = 40000             # cells x shifts x (1 + dispersion mixes) in one column run
 MODE_LABELS = {"static": "Static", "flow_through": "Flow-through", "both": "Both"}
 ACTIVITY_MODELS = ("bdot", "davies", "pitzer")
 FLUID_FIELDS = ("analysis", "units", "ph", "fluid_t_c", "charge_balance", "redox",
@@ -119,6 +121,15 @@ class Scenario:
     # start in equilibrium with the fluid, and hydrous ferric oxide (g) with Dzombak and Morel surface sites
     exchange_meq: float = 0.0
     hfo_g: float = 0.0
+    # a column (kind = "transport", see transport.py): the card's fluid flows into ``cells`` cells filled with
+    # ``pore_fluid`` (empty: the same fluid) and, in each, the reactants per kg of pore water brought to
+    # equilibrium first; temperature and pressure run from the start values at the inlet to the end values at
+    # the outlet.  ``pore_volumes`` of fluid pass through; ``dispersivity_m`` spreads the fronts.
+    cells: int = 20
+    column_m: float = 1.0
+    dispersivity_m: float = 0.05
+    pore_volumes: float = 2.0
+    pore_fluid: str = ""
 
     # ---- editing --------------------------------------------------------------------------
     def to_dict(self) -> dict[str, Any]:
@@ -163,7 +174,7 @@ class Scenario:
             new.redox, new.redox_value = p.redox, p.redox_value
             new.fluid = CUSTOM
         for key, value in changes.items():
-            if key not in known or key == "kind":
+            if key not in known:
                 problems.append(f"'{key}' is not something the card can change")
                 continue
             try:
@@ -212,7 +223,7 @@ class Scenario:
     def display_title(self) -> str:
         if self.title.strip():
             return self.title.strip()
-        return f"{fluid_label(self.fluid)} run"
+        return f"{fluid_label(self.fluid)} {'column' if self.transport else 'run'}"
 
     def fluid_spec(self) -> FluidPreset:
         """The starting fluid, preset or custom, in one shape."""
@@ -244,8 +255,10 @@ class Scenario:
     # ---- checking -------------------------------------------------------------------------
     def problems(self) -> list[str]:
         out: list[str] = []
-        if self.kind != "path":
-            out.append(f"only temperature-pressure path runs exist so far, not '{self.kind}'")
+        if self.kind not in KINDS:
+            out.append(f"kind must be path or transport, not '{self.kind}'")
+        elif self.transport:
+            out.extend(self._column_problems())
         if self.fluid not in PRESETS and self.fluid != CUSTOM:
             out.append(f"unknown fluid '{self.fluid}' (known: {', '.join(PRESETS)}, {CUSTOM})")
         elif self.fluid == CUSTOM:
@@ -257,7 +270,7 @@ class Scenario:
             if not all(lo <= v <= hi for v in vals):
                 out.append(f"{name} must be between {lo:g} and {hi:g} {unit}")
                 ranges_ok = False
-        if not (2 <= self.steps <= 200):
+        if not self.transport and not (2 <= self.steps <= 200):
             out.append("steps must be between 2 and 200")
         for r in self.reactants:
             if not (r.get("amount", 0) > 0):
@@ -273,7 +286,7 @@ class Scenario:
                 out.append(f"the second fluid's temperature must be between {T_MIN:g} and {T_MAX:g} C")
         if ranges_ok:
             if not self.varies and not self.reactants and not self.mixing and not self.kinetics \
-                    and not self.evaporating:
+                    and not self.evaporating and not self.transport:
                 out.append("nothing changes along this path: give different start and end values "
                            "for temperature or pressure")
             boil = self._first_boiling_point()
@@ -310,6 +323,50 @@ class Scenario:
             out.append(f"mode must be one of {', '.join(MODES)}")
         if self.activity_model not in ACTIVITY_MODELS:
             out.append(f"activity_model must be one of {', '.join(ACTIVITY_MODELS)}")
+        return out
+
+    @property
+    def transport(self) -> bool:
+        return self.kind == "transport"
+
+    @property
+    def shifts(self) -> int:
+        """Shifts of a column run: each moves the fluid one cell along."""
+        return max(1, int(round(self.pore_volumes * self.cells)))
+
+    @property
+    def mixing_fraction(self) -> float:
+        """Dispersion per shift: the dispersivity over the cell length (D dt / dx^2 with D = alpha v)."""
+        return self.dispersivity_m / (self.column_m / max(self.cells, 1))
+
+    def cell_points(self) -> list[tuple[float, float]]:
+        """(temperature C, pressure bar) of each cell, from the inlet's (the start values) to the outlet's."""
+        n = max(int(self.cells), 2)
+        return [self.tp(i / (n - 1)) for i in range(n)]
+
+    def _column_problems(self) -> list[str]:
+        out: list[str] = []
+        if not (2 <= self.cells <= 100):
+            out.append("a column needs between 2 and 100 cells")
+        if not (0.0 < self.column_m <= 1e5):
+            out.append("the column length must be above 0 and at most 100 km")
+        if not (0.0 <= self.dispersivity_m <= self.column_m):
+            out.append("the dispersivity must be between 0 and the column length")
+        if not (0.0 < self.pore_volumes <= 100.0):
+            out.append("pore volumes must be above 0 and at most 100")
+        if self.pore_fluid and self.pore_fluid not in PRESETS:
+            out.append(f"the column can start filled with a named fluid ({', '.join(PRESETS)}) or the same fluid")
+        if 2 <= self.cells <= 100 and 0 < self.column_m and 0 < self.pore_volumes <= 100:
+            mixes = math.ceil(3.0 * self.mixing_fraction - 1e-12) if self.mixing_fraction > 0 else 0
+            solves = self.cells * self.shifts * (1 + mixes)
+            if solves > MAX_COLUMN_SOLVES:
+                out.append(f"this column needs {solves:,} equilibrium calculations, more than the "
+                           f"{MAX_COLUMN_SOLVES:,} allowed: use fewer cells or pore volumes, or a smaller dispersivity")
+        for flag, what in ((self.kinetics, "kinetics"), (self.evaporating, "evaporation"),
+                           (self.mixing, "mixing in a second fluid"), (self.follow_phase != "whole", "following the brine or vapour"),
+                           (self.isotopes, "isotopes"), (self.uncertainty_runs > 0, "uncertainty bands")):
+            if flag:
+                out.append(f"{what} is not available in a column yet; turn it off for a transport run")
         return out
 
     def _fluid_problems(self) -> list[str]:
@@ -351,6 +408,8 @@ class Scenario:
         return None
 
     def describe(self) -> str:
+        if self.transport:
+            return self._describe_column()
         text = self._describe_path()
         if self.reactants:
             added = ", ".join(f"{r['amount']:g} {r['unit']} {r['name']}" for r in self.reactants)
@@ -381,6 +440,28 @@ class Scenario:
             text = text.replace(f" ({self._how()}",
                                 f", mixed with up to {self.mix_ratio:g} kg of {other}{hot} per kg ({self._how()}")
         return text
+
+    def _describe_column(self) -> str:
+        label = fluid_label(self.fluid)
+        t0, t1, p0, p1 = self.t_start_c, self.t_end_c, self.p_start_bar, self.p_end_bar
+        temp = f"{t0:g} °C" if t0 == t1 else f"{t0:g} °C at the inlet to {t1:g} °C at the outlet"
+        pres = f"{p0:g} bar" if p0 == p1 else f"{p0:g} to {p1:g} bar"
+        text = (f"{label} flowing through a {self.column_m:g} m column of {self.cells} cells, "
+                f"{self.pore_volumes:g} pore volumes, at {temp} and {pres}")
+        if self.pore_fluid and self.pore_fluid != self.fluid:
+            text += f", first filled with {fluid_label(self.pore_fluid).lower()}"
+        bits = []
+        if self.reactants:
+            bits.append(", ".join(f"{r['amount']:g} {r['unit']} {r['name']}" for r in self.reactants) + " per kg of pore water")
+        if self.exchange_meq > 0:
+            bits.append(f"{self.exchange_meq:g} meq of exchange sites")
+        if self.hfo_g > 0:
+            bits.append(f"{self.hfo_g:g} g of ferric oxyhydroxide surface")
+        if self.solid_solutions:
+            bits.append("solid solutions")
+        if bits:
+            text += ", with " + "; ".join(bits)
+        return text + f" (dispersivity {self.dispersivity_m:g} m)"
 
     def _how(self) -> str:
         return {"static": "static", "flow_through": "flow-through",
@@ -469,7 +550,8 @@ def _coerce(key: str, value: Any) -> Any:
             return None
         return float(value)
     if key in ("t_start_c", "t_end_c", "p_start_bar", "p_end_bar", "fluid_t_c", "mix_ratio", "duration",
-               "surface_area_cm2_per_g", "evaporate", "exchange_meq", "hfo_g"):
+               "surface_area_cm2_per_g", "evaporate", "exchange_meq", "hfo_g", "column_m", "dispersivity_m",
+               "pore_volumes"):
         return float(value)
     if key == "duration_unit":
         low = str(value).strip().lower()
@@ -505,7 +587,16 @@ def _coerce(key: str, value: Any) -> Any:
         if hit is None:
             raise ValueError(f"'{text}' is not an ion I know")
         return hit[0]
-    if key in ("steps", "uncertainty_runs"):
+    if key == "kind":
+        low = str(value).strip().lower()
+        low = {"column": "transport", "reactive_transport": "transport", "1d": "transport", "heating": "path"}.get(low, low)
+        if low not in KINDS:
+            raise ValueError(f"'{value}' is not path or transport")
+        return low
+    if key == "pore_fluid":
+        text = str(value).strip().lower().replace("-", "_").replace(" ", "_")
+        return "" if text in ("", "same", "none", "the_same") else text
+    if key in ("steps", "uncertainty_runs", "cells"):
         if key == "uncertainty_runs" and isinstance(value, str) and value.strip().lower() in ("", "off", "none", "no"):
             return 0
         if key == "uncertainty_runs" and value is True:
@@ -660,6 +751,15 @@ FIELD_HELP = {
     "uncertainty_runs": "0 (default) for a single run; otherwise how many extra runs (5 to 200, 20 is a good "
                         "start) with every log K shifted at random by its uncertainty, giving a shaded range "
                         "on the plots",
+    "kind": "path (default): one fluid along a temperature-pressure path; transport: the fluid flows through a "
+            "column of cells (1D reactive transport), from the start temperature and pressure at the inlet to the "
+            "end values at the outlet",
+    "cells": "transport: number of cells in the column (2 to 100, default 20)",
+    "column_m": "transport: length of the column in metres (default 1)",
+    "dispersivity_m": "transport: dispersivity in metres (default 0.05; 0 = sharp fronts)",
+    "pore_volumes": "transport: how many pore volumes of the fluid flow through (default 2)",
+    "pore_fluid": f"transport: the fluid the column starts filled with ({', '.join(PRESETS)}), or empty for the "
+                  "same fluid as flows in",
     "duration": "how long a kinetic run lasts (number, in duration_unit)",
     "duration_unit": "seconds, minutes, hours, days or years",
     "surface_area_cm2_per_g": "reactive surface of the reactants, cm2 per gram (default 100, about "
