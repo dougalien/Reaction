@@ -146,6 +146,7 @@ class ReactionPath:
         self.kinetic_tol = kinetic_tol
         self._transferred: set[str] = set()
         self._removed: dict[str, float] = {}
+        self._removed_members: dict[str, float] = {}    # endmembers of the solid solutions left behind
         self._stopped: dict[str, float] = {}      # flow-through: saturated reactants, moles reacted
         self.kinetic = [r for r in self.reactants if r.kinetic]
         # kinetic amounts reacted at the two ends of the current step; in between, a straight line
@@ -170,7 +171,9 @@ class ReactionPath:
             reacted[r.name] = done
             for comp, c in r.composition.items():
                 bulk[comp] = bulk.get(comp, 0.0) + c * done
-        for name, moles in self._removed.items():
+        ss_names = {ss.name for ss in self.system.solid_solutions}
+        for name, moles in [*((k, v) for k, v in self._removed.items() if k not in ss_names),
+                            *self._removed_members.items()]:
             for comp, c in _composition_row(self.system, name).items():
                 bulk[comp] = bulk.get(comp, 0.0) - c * moles
         reacting = {r.mineral for r in self.reactants
@@ -391,9 +394,9 @@ class ReactionPath:
             except SpeciationError:
                 return 0.0
             seen.append((xi, state))
-            return -state.minerals.get(mineral, 0.0)
+            return -state.solids.get(mineral, 0.0)
 
-        start = st0.minerals.get(mineral, 0.0)
+        start = st0.solids.get(mineral, 0.0)
         tol = 1e-6 * max(xi1 - xi0, 1e-300)
         if -loss(xi0 + tol) <= start:                 # already falling where the step begins
             return xi0
@@ -421,13 +424,16 @@ class ReactionPath:
         if self.flow_through and st0 is not None and depth <= 200:
             # amounts below the solver's resolution (a mineral just removed and still listed) are noise
             floor = 1e-12 * max([abs(v) for k, v in st0.bulk.items() if k != WATER] + [1e-30])
-            shrinking = [m for m, n in st0.minerals.items()
-                         if n > floor and st1.minerals.get(m, 0.0) < n * (1.0 - 1e-9) - floor]
+            before, after = st0.solids, st1.solids
+            shrinking = [m for m, n in before.items()
+                         if n > floor and after.get(m, 0.0) < n * (1.0 - 1e-9) - floor]
             if shrinking:
                 # remove the first mineral to start redissolving, where its amount peaks
                 peak, name = min((self._peak(m, xi0, st0, xi1), m) for m in shrinking)
                 st_p = st0 if peak <= xi0 else self._solve(peak, st0)[0]
-                self._removed[name] = self._removed.get(name, 0.0) + st_p.minerals.get(name, 0.0)
+                self._removed[name] = self._removed.get(name, 0.0) + st_p.solids.get(name, 0.0)
+                for member, moles in st_p.solid_solutions.get(name, {}).items():
+                    self._removed_members[member] = self._removed_members.get(member, 0.0) + moles
                 st_p, _ = self._solve(peak, st_p)
                 if peak >= xi1:
                     return st_p, self._solve(xi1, st_p)[1]
@@ -475,6 +481,7 @@ class ReactionPath:
         Without ``on_failure`` a point where no equilibrium is found raises.  With it, the failure
         is reported there, that point is None and the path goes on from the last solved point."""
         self._transferred, self._removed, self._stopped = set(), {}, {}
+        self._removed_members = {}
         n_kin = {r.name: 0.0 for r in self.kinetic}
         self._span = (0.0, n_kin, 0.0, n_kin)
         self._dt_hint = None

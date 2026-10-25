@@ -35,6 +35,8 @@ def unit_group(item: dict) -> str:
         return "si"
     if g == "kinetic":
         return f"kinetic:{item['key'].split(':')[0]}"
+    if g == "composition":
+        return "composition"
     return f"property:{item['key']}"
 
 
@@ -145,6 +147,10 @@ def resolve_item(text: str, result: dict, prefer: str | None = None) -> dict | N
             label = cat.get("kinetic", {}).get(k, {}).get("label", "").lower()
             if kind == what and (stem == name.lower() or label.startswith(stem)):
                 return {"group": "kinetic", "key": k}
+    if run0.get("composition"):                       # "anorthite in plagioclase"
+        for k, v in cat.get("composition", {}).items():
+            if low_clean in (v["label"].lower(), "{1} in {0}".format(*k.lower().split(":", 1))):
+                return {"group": "composition", "key": k}
     hit = resolve(low_clean or t, mineral_index)
     if hit and (sat or hit not in species_index.values()):
         if sat and hit in run["saturation"]:

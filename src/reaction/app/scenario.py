@@ -99,6 +99,9 @@ class Scenario:
     # uncertainty bands: this many extra runs, each with every log K shifted by its own random draw
     # (one standard deviation from the reliability check, see thermo.validity.logk_sigma); 0 = none
     uncertainty_runs: int = 0
+    # solid solutions (plagioclase, carbonate, chlorite, olivine ...; see solidsolution.py) may form
+    # instead of their pure endmembers; a name in blocked_minerals leaves that one out
+    solid_solutions: bool = False
 
     # ---- editing --------------------------------------------------------------------------
     def to_dict(self) -> dict[str, Any]:
@@ -334,6 +337,8 @@ class Scenario:
         if self.evaporating:
             text = text.replace(f" ({self._how()}", f", evaporated to {self.evaporate:g} times its concentration "
                                                    f"({self._how()}")
+        if self.solid_solutions:
+            text = text.replace(f" ({self._how()}", f", with solid solutions ({self._how()}")
         if self.uncertainty_runs:
             text = text.replace(f" ({self._how()}", f", with a log K uncertainty range from {self.uncertainty_runs} "
                                                    f"runs ({self._how()}")
@@ -479,7 +484,7 @@ def _coerce(key: str, value: Any) -> Any:
         if not isinstance(value, (list, tuple)):
             raise TypeError("expected a list of mineral names")
         return [str(v).strip().lower() for v in value if str(v).strip()]
-    if key in ("gas_phase", "kinetics"):
+    if key in ("gas_phase", "kinetics", "solid_solutions"):
         if isinstance(value, str):
             low = value.strip().lower()
             if low in ("true", "yes", "on", "1", "allowed", "allow"):
@@ -579,6 +584,9 @@ FIELD_HELP = {
                  "what is there at the start",
     "kinetics": "false (default): reactants are added steadily and react completely; true: minerals and "
                 "basalt glass react at measured rates over the duration (time becomes the axis)",
+    "solid_solutions": "false (default): minerals are pure; true: ideal solid solutions (plagioclase, alkali "
+                       "feldspar, carbonate, chlorite, epidote, garnet, olivine, pyroxenes, biotite, actinolite) "
+                       "form in place of their endmembers",
     "uncertainty_runs": "0 (default) for a single run; otherwise how many extra runs (5 to 200, 20 is a good "
                         "start) with every log K shifted at random by its uncertainty, giving a shaded range "
                         "on the plots",

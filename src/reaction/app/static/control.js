@@ -14,6 +14,7 @@ function render(s) {
   renderFluid(s);
   $("f-activity_model").value = c.activity_model;
   $("f-gas_phase").value = c.gas_phase === false ? "false" : "true";
+  $("f-solid_solutions").value = c.solid_solutions ? "true" : "false";
   $("f-methane_sulfate").value = c.methane_sulfate || "apart";
   $("f-kinetics").value = c.kinetics ? "true" : "false";
   $("f-duration_unit").value = c.duration_unit || "years";
@@ -152,6 +153,7 @@ for (const k of ["analysis", "units", "ph", "fluid_t_c", "charge_balance", "redo
 }
 $("f-activity_model").addEventListener("change", (ev) => edit("activity_model", ev.target.value));
 $("f-gas_phase").addEventListener("change", (ev) => edit("gas_phase", ev.target.value === "true"));
+$("f-solid_solutions").addEventListener("change", (ev) => edit("solid_solutions", ev.target.value === "true"));
 $("f-methane_sulfate").addEventListener("change", (ev) => edit("methane_sulfate", ev.target.value));
 $("f-kinetics").addEventListener("change", (ev) => edit("kinetics", ev.target.value === "true"));
 for (const k of ["duration", "duration_unit", "surface_area_cm2_per_g", "evaporate", "uncertainty_runs"]) {
