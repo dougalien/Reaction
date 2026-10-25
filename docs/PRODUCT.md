@@ -119,8 +119,10 @@ the greenschist assemblage (albite, chlorite, epidote, actinolite, sulfides), st
 a water/rock ratio of 1 or below. Since P4 the results window draws Eh-pH, log fO2-pH and activity diagrams
 (a(cation)/a(H+) against a(SiO2), aluminium conserved) at any temperature and pressure, from the same logK as
 the runs, with the open run's path on top and the rest of the fluid held at the run's values; boundaries closer
-than the logK uncertainty at that (T, P) are hatched. Next: the gas phase, phase separation, kinetics, solid
-solutions and isotopes.
+than the logK uncertainty at that (T, P) are hatched. Since P5 a free gas phase (CO2, CH4, steam, H2, H2S,
+N2 ..., Peng-Robinson fugacities) forms and dissolves along any path, is vented in flow-through, and gases
+can be added; methane and sulfate are held apart unless the card says they may react. Next: phase
+separation (NaCl-H2O), kinetics, solid solutions and isotopes.
 
 ## Pressure and temperature are free variables
 

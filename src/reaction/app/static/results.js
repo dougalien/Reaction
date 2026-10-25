@@ -23,7 +23,7 @@ const DASH = { static: "", flow_through: "7 5" };
 const UNIT_SCALE = { mol: 1, mmol: 1e3, umol: 1e6, mg: 1e3 };
 const UNIT_TEXT = { mol: "mol", mmol: "mmol", umol: "µmol", mg: "mg" };
 const TABS = [["species", "Species"], ["elements", "Elements"], ["minerals", "Mineral amounts"],
-  ["saturation", "Saturation index"], ["property", "Properties"]];
+  ["gas", "Gas phase"], ["saturation", "Saturation index"], ["property", "Properties"]];
 const PROPS = { pH: "pH", ionic_strength: "Ionic strength", water_kg: "Solvent mass", log_aw: "log water activity", log_fO2: "log fO2", Eh: "Eh (V)" };
 
 function pill(el, text, kind) { el.textContent = text; el.className = "pill " + (kind || ""); }
@@ -51,6 +51,7 @@ function labelOf(item) {
   if (item.group === "species") return cat.species[item.key].label;
   if (item.group === "elements") return item.key + " (total dissolved)";
   if (item.group === "minerals") return cat.minerals[item.key].label;
+  if (item.group === "gas") return (cat.gas && cat.gas[item.key] ? cat.gas[item.key].label : item.key);
   if (item.group === "saturation") return "SI " + cat.minerals[item.key].label;
   return PROPS[item.key];
 }
@@ -67,7 +68,7 @@ function valuesOf(item, mode, view, res = result) {
   if (item.group === "property") arr = run.properties[item.key];
   else arr = run[item.group][item.key];
   if (!arr) return null;
-  if (item.group === "species" || item.group === "elements" || item.group === "minerals") {
+  if (item.group === "species" || item.group === "elements" || item.group === "minerals" || item.group === "gas") {
     let k = UNIT_SCALE[view.unit];
     if (view.unit === "mg") {
       const mw = mwOf(res, item);
@@ -83,7 +84,7 @@ function yLabel(items, view) {
   if (!items.length) return "";
   const g = items[0].group;
   if (g === "species" || g === "elements") return `${UNIT_TEXT[view.unit]} per kg of water`;
-  if (g === "minerals") return `${UNIT_TEXT[view.unit]} per kg of original water`;
+  if (g === "minerals" || g === "gas") return `${UNIT_TEXT[view.unit]} per kg of original water`;
   if (g === "saturation") return "log Q/K (0 = at saturation)";
   return PROPS[items[0].key];
 }
@@ -170,14 +171,14 @@ function draw() {
 
   const items = view.items;
   const g = items.length ? items[0].group : "";
-  const logOk = g === "species" || g === "elements" || g === "minerals" || (g === "property" && items[0].key === "ionic_strength");
+  const logOk = g === "species" || g === "elements" || g === "minerals" || g === "gas" || (g === "property" && items[0].key === "ionic_strength");
   const useLog = view.log && logOk;
   document.querySelectorAll("#axis button").forEach((b) => {
     b.classList.toggle("on", (b.dataset.log === "1") === useLog);
     b.onclick = () => setView({ log: b.dataset.log === "1" });
   });
   $("axisnote").textContent = view.log && !logOk && items.length ? "Log axis is not used for this quantity" : "";
-  const unitsOn = g === "species" || g === "elements" || g === "minerals";
+  const unitsOn = g === "species" || g === "elements" || g === "minerals" || g === "gas";
   $("units").style.display = unitsOn ? "" : "none";
   document.querySelectorAll("#units button").forEach((b) => {
     b.classList.toggle("on", b.dataset.unit === view.unit);
@@ -212,6 +213,9 @@ function candidates() {
   if (tab === "elements") return Object.keys(run.elements).map((k) => ({ group: "elements", key: k, label: k }));
   if (tab === "minerals") {
     return Object.keys(run.minerals).map((k) => ({ group: "minerals", key: k, label: result.catalog.minerals[k].label }));
+  }
+  if (tab === "gas") {
+    return Object.keys(run.gas || {}).map((k) => ({ group: "gas", key: k, label: labelOf({ group: "gas", key: k }) }));
   }
   if (tab === "saturation") {
     return Object.keys(run.saturation).map((k) => ({ group: "saturation", key: k,

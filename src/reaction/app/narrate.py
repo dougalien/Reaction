@@ -115,6 +115,29 @@ def _mineral_clauses(result: dict, run: dict, blocked: set[str]) -> list[str]:
     return [c for _, c in sorted(found)]
 
 
+def _gas_clause(result: dict, run: dict, mode: str) -> str:
+    """When a gas phase forms, and what it is made of at the end."""
+    gas = run.get("gas") or {}
+    if not gas:
+        return ""
+    n = len(next(iter(gas.values())))
+    totals = [sum((series[i] or 0.0) for series in gas.values()) for i in range(n)]
+    i = _first(totals, lambda v: v > APPEARS)
+    if i is None:
+        return ""
+    end = _last_valid(totals)
+    gone = totals[end] <= APPEARS
+    at = max(range(n), key=lambda k: totals[k]) if gone else end
+    total = totals[at]
+    parts = sorted(((series[at] or 0.0) / total, name) for name, series in gas.items())[::-1]
+    names = result.get("catalog", {}).get("gas", {})
+    what = ", ".join(f"{(names.get(k) or {}).get('label', k)} {100 * x:.0f}%" for x, k in parts[:3] if x > 0.005)
+    verb = "is vented" if mode == "flow_through" else "forms"
+    amount = (f"up to {_amount(total)} per kg of original water, gone by the end" if gone else
+              f"{_amount(total)} per kg of original water by the end")
+    return f"A gas phase {verb} {_when(result, i)}: {amount}; by moles {what}."
+
+
 def story(result: dict) -> list[str]:
     sc = result["scenario"]
     blocked = {b.lower() for b in sc["blocked_minerals"]}
@@ -142,7 +165,10 @@ def story(result: dict) -> list[str]:
         else:
             sentence += "no minerals form. "
         if lost:
-            sentence += "By the end the fluid has lost " + ", ".join(lost) + "."
+            sentence += "By the end the fluid has lost " + ", ".join(lost) + ". "
+        gas = _gas_clause(result, run, key)
+        if gas:
+            sentence += gas
         paras.append(sentence.strip())
 
     if len(modes) == 2:

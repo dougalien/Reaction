@@ -63,12 +63,13 @@ SOLUTES: dict[str, tuple[int, str, tuple[str, ...]]] = {
     "NO3-": (-1, "NO3", ("nitrate",)),
     "H2": (0, "H2", ("hydrogen", "dissolved hydrogen")),
     "O2": (0, "O2", ("oxygen", "dissolved oxygen")),
+    "CH4": (0, "CH4", ("methane",)),
 }
 
 # species that carry an oxidation state of their own -> the basis species holding that element
 # (None: the species is only H and O, so it changes the redox state but no element total)
 REDOX: dict[str, str | None] = {"Fe+3": "Fe+2", "H2S": "SO4-2", "NO3-": "NH3", "H2": None,
-                                "O2": None}
+                                "O2": None, "CH4": "HCO3-"}
 
 # other ways of giving the same component, weighed as written: name -> (species, formula)
 EXTRA_NAMES: dict[str, tuple[str, str]] = {

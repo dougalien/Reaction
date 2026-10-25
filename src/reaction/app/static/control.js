@@ -13,6 +13,8 @@ function render(s) {
   setIfIdle($("f-title"), c.title);
   renderFluid(s);
   $("f-activity_model").value = c.activity_model;
+  $("f-gas_phase").value = c.gas_phase === false ? "false" : "true";
+  $("f-methane_sulfate").value = c.methane_sulfate || "apart";
   for (const k of ["p_start_bar", "p_end_bar", "t_start_c", "t_end_c", "steps"]) setIfIdle($("f-" + k), c[k]);
   document.querySelectorAll("#modeseg button").forEach((b) => b.classList.toggle("on", b.dataset.mode === c.mode));
 
@@ -142,6 +144,8 @@ for (const k of ["analysis", "units", "ph", "fluid_t_c", "charge_balance", "redo
   $("f-" + k).addEventListener("change", (ev) => edit(k, ev.target.value));
 }
 $("f-activity_model").addEventListener("change", (ev) => edit("activity_model", ev.target.value));
+$("f-gas_phase").addEventListener("change", (ev) => edit("gas_phase", ev.target.value === "true"));
+$("f-methane_sulfate").addEventListener("change", (ev) => edit("methane_sulfate", ev.target.value));
 document.querySelectorAll("#modeseg button").forEach((b) => b.addEventListener("click", () => edit("mode", b.dataset.mode)));
 $("add-blocked").addEventListener("keydown", (ev) => {
   if (ev.key !== "Enter") return;

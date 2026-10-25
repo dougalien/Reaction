@@ -2,7 +2,7 @@
 
 The view is shared state: the chat and the clicks in the results window both go through
 ``apply_patch``, so they behave the same.  A plotted item is ``{"group": ..., "key": ...}`` where
-the group is one of species, elements, minerals, saturation or property.  Items can share a y axis
+the group is one of species, elements, minerals, gas, saturation or property.  Items can share a y axis
 only if they have the same unit, so adding an item of another unit replaces the current ones.
 """
 from __future__ import annotations
@@ -28,7 +28,7 @@ def unit_group(item: dict) -> str:
     g = item["group"]
     if g in ("species", "elements"):
         return "conc"
-    if g == "minerals":
+    if g in ("minerals", "gas"):
         return "mineral"
     if g == "saturation":
         return "si"
@@ -120,6 +120,16 @@ def resolve_item(text: str, result: dict, prefer: str | None = None) -> dict | N
     low_clean = re.sub(r"saturation( index)?( of)?|\bsi\b( of)?|log\s*q/k( of)?", "", low).strip()
     if low_clean in PROPERTY_WORDS:
         return {"group": "property", "key": PROPERTY_WORDS[low_clean]}
+    run0 = next(iter(result["modes"].values()))
+    if low_clean in ("steam", "water vapor", "water vapour", "vapor", "vapour"):
+        low_clean = "water gas"
+    g = re.fullmatch(r"(.+?)\s*(?:gas|\(g\))", low_clean)
+    if g and run0.get("gas"):
+        stem = {"methane": "ch4", "carbon dioxide": "co2", "water": "h2o", "steam": "h2o",
+                "hydrogen": "h2", "nitrogen": "n2", "hydrogen sulfide": "h2s"}.get(g.group(1), g.group(1))
+        for k in run0["gas"]:
+            if k.lower() == f"{stem.replace(' ', '')}(g)":
+                return {"group": "gas", "key": k}
     species_index = build_index({k: v["label"] for k, v in cat["species"].items()})
     mineral_index = build_index({k: v["label"] for k, v in cat["minerals"].items()})
     run = next(iter(result["modes"].values()))
