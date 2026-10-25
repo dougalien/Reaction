@@ -16,6 +16,13 @@ function render(s) {
   for (const k of ["p_start_bar", "p_end_bar", "t_start_c", "t_end_c", "steps"]) setIfIdle($("f-" + k), c[k]);
   document.querySelectorAll("#modeseg button").forEach((b) => b.classList.toggle("on", b.dataset.mode === c.mode));
 
+  const reactants = $("reactants");
+  reactants.replaceChildren(...c.reactants.map((r, i) => h("span", { class: "chip on static" },
+    `${r.amount} ${r.unit} ${r.name}`,
+    h("button", { class: "ghost", style: "padding:0 4px", title: "Remove " + r.name, "aria-label": "Remove " + r.name,
+      onclick: () => edit("reactants", c.reactants.filter((_, k) => k !== i)) }, "×"))));
+  if (!c.reactants.length) reactants.replaceChildren(h("span", { class: "hint" }, "none: only temperature and pressure change"));
+
   const blocked = $("blocked");
   blocked.replaceChildren(...c.blocked_minerals.map((m) => h("span", { class: "chip on static" }, m,
     h("button", { class: "ghost", style: "padding:0 4px", title: "Allow " + m, "aria-label": "Allow " + m,
@@ -121,6 +128,15 @@ $("add-blocked").addEventListener("keydown", (ev) => {
   if (v && snap && !snap.card.blocked_minerals.includes(v)) edit("blocked_minerals", [...snap.card.blocked_minerals, v]);
   ev.target.value = "";
 });
+$("add-reactant").addEventListener("keydown", async (ev) => {
+  if (ev.key !== "Enter") return;
+  const v = ev.target.value.trim();
+  if (!v || !snap) return;
+  const reply = await api("/api/card", { changes: { reactants: [...snap.card.reactants.map((r) => `${r.amount} ${r.unit} ${r.name}`), v].join("; ") } });
+  if (!(reply.problems || []).length) ev.target.value = "";
+  else $("add-reactant").setCustomValidity(reply.problems.join("; ")), $("add-reactant").reportValidity();
+});
+$("add-reactant").addEventListener("input", (ev) => ev.target.setCustomValidity(""));
 $("run").addEventListener("click", () => api("/api/run"));
 $("reset").addEventListener("click", () => api("/api/reset"));
 $("open-results").addEventListener("click", () => {

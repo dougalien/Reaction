@@ -11,6 +11,7 @@ computed from Gibbs energies at every point on the path.
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import asdict, dataclass, field, fields
 from typing import Any
 
@@ -23,6 +24,10 @@ MODES = ("static", "flow_through", "both")
 MODE_LABELS = {"static": "Static", "flow_through": "Flow-through", "both": "Both"}
 ACTIVITY_MODELS = ("bdot", "davies")
 FLUID_FIELDS = ("analysis", "units", "ph", "fluid_t_c", "charge_balance")   # what a custom fluid is
+REACTANT_UNITS = {"g": ("g", 1.0), "gram": ("g", 1.0), "grams": ("g", 1.0), "mg": ("g", 1e-3),
+                  "kg": ("g", 1e3), "mol": ("mol", 1.0), "mole": ("mol", 1.0), "moles": ("mol", 1.0),
+                  "mmol": ("mol", 1e-3), "umol": ("mol", 1e-6)}
+MAX_REACTANTS = 6
 
 T_MIN, T_MAX = 0.0, 600.0            # degrees C
 P_MIN, P_MAX = 1.0, 5000.0           # bar (the range the HKF equations are calibrated for)
@@ -56,6 +61,9 @@ class Scenario:
     ph: float | None = None
     fluid_t_c: float = 25.0
     charge_balance: str = "auto"
+    # minerals or aqueous species added steadily along the path, per kg of the starting fluid's water:
+    # [{"name": "albite", "amount": 10.0, "unit": "g"}]; reacted in full by the last step
+    reactants: list[dict] = field(default_factory=list)
 
     # ---- editing --------------------------------------------------------------------------
     def to_dict(self) -> dict[str, Any]:
@@ -161,8 +169,13 @@ class Scenario:
                 ranges_ok = False
         if not (2 <= self.steps <= 200):
             out.append("steps must be between 2 and 200")
+        for r in self.reactants:
+            if not (r.get("amount", 0) > 0):
+                out.append(f"the amount of {r.get('name', 'a reactant')} must be positive")
+        if len(self.reactants) > MAX_REACTANTS:
+            out.append(f"at most {MAX_REACTANTS} reactants")
         if ranges_ok:
-            if not self.varies:
+            if not self.varies and not self.reactants:
                 out.append("nothing changes along this path: give different start and end values "
                            "for temperature or pressure")
             boil = self._first_boiling_point()
@@ -213,6 +226,17 @@ class Scenario:
         return None
 
     def describe(self) -> str:
+        text = self._describe_path()
+        if self.reactants:
+            added = ", ".join(f"{r['amount']:g} {r['unit']} {r['name']}" for r in self.reactants)
+            text = text.replace(f" ({self._how()}", f", adding {added} ({self._how()}")
+        return text
+
+    def _how(self) -> str:
+        return {"static": "static", "flow_through": "flow-through",
+                "both": "static and flow-through"}.get(self.mode, self.mode)
+
+    def _describe_path(self) -> str:
         label = fluid_label(self.fluid)
         how = {"static": "static", "flow_through": "flow-through",
                "both": "static and flow-through"}.get(self.mode, self.mode)
@@ -240,6 +264,8 @@ def _coerce(key: str, value: Any) -> Any:
         return float(value)
     if key == "analysis":
         return str(value)
+    if key == "reactants":
+        return parse_reactants(value)
     if key == "units":
         unit = analysis.unit_key(str(value))
         if unit is None:
@@ -267,6 +293,36 @@ def _coerce(key: str, value: Any) -> Any:
             return text
         return text.lower().replace("-", "_").replace(" ", "_")
     raise ValueError("unknown field")
+
+
+def parse_reactants(value: Any) -> list[dict]:
+    """Reactants from the card's list or from text such as "10 g albite, 0.1 mol quartz" (either order)."""
+    if isinstance(value, str):
+        items = []
+        for part in re.split(r"[;\n]|,(?!\s*(?:ordered|disordered|low|high|alpha|beta|maximum|"
+                             r"intermediate|\d+A)\b)", value):
+            part = part.strip()
+            if not part:
+                continue
+            m = (re.fullmatch(r"(?P<amount>\d*\.?\d+(?:e-?\d+)?)\s*(?P<unit>[a-z]+)\s+(?:of\s+)?(?P<name>.+)", part, re.I)
+                 or re.fullmatch(r"(?P<name>.+?)\s+(?P<amount>\d*\.?\d+(?:e-?\d+)?)\s*(?P<unit>[a-z]+)", part, re.I))
+            if not m:
+                raise ValueError(f"read '{part}' as an amount, a unit and a name, such as 10 g albite")
+            items.append({"name": m["name"], "amount": m["amount"], "unit": m["unit"]})
+        value = items
+    if not isinstance(value, (list, tuple)):
+        raise TypeError("expected a list of reactants")
+    out = []
+    for item in value:
+        if not isinstance(item, dict) or not str(item.get("name", "")).strip():
+            raise TypeError("each reactant needs a name, an amount and a unit")
+        unit_text = str(item.get("unit", "g")).strip().lower()
+        if unit_text not in REACTANT_UNITS:
+            raise ValueError(f"unknown unit '{unit_text}' for {item['name']} (use g, mg, kg, mol or mmol)")
+        unit, scale = REACTANT_UNITS[unit_text]
+        out.append({"name": str(item["name"]).strip(), "amount": float(item.get("amount", 0)) * scale,
+                    "unit": unit})
+    return out
 
 
 def _rejoin_comma_names(parts: list[str]) -> list[str]:
@@ -298,4 +354,6 @@ FIELD_HELP = {
             "are removed and cannot redissolve; both = run the two for comparison",
     "blocked_minerals": "list of mineral names that may not precipitate (kinetically blocked)",
     "activity_model": "bdot (default, for brines) or davies",
+    "reactants": "minerals or species added steadily along the path, per kg of water, e.g. "
+                 "[{\"name\": \"albite\", \"amount\": 10, \"unit\": \"g\"}]",
 }

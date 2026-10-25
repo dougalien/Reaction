@@ -21,16 +21,17 @@ from ..database import load_data0
 from ..database.model import Kind
 from ..equilibrium import System
 from ..network import PROTON, WATER
-from ..path import PathPoint, ReactionPath
+from ..path import PathPoint, ReactionPath, mineral_reactant
 from ..speciation import PH, Molal, Speciation, speciate
 from ..thermo import validity
-from ..thermo.eosdb import load_eos_database
+from ..thermo.eosdb import DEFAULT_MASTERS, load_eos_database
 from . import analysis, config
 from .names import pretty_mineral, pretty_species
 from .scenario import ALWAYS_EXCLUDED, MODE_LABELS, Scenario
 
 Progress = Callable[[float, str], None]
 
+TRACE = 1e-12          # mol per kg of water of a component only a reactant brings in
 AXES = {"temperature_c": ("Temperature", "°C"), "pressure_bar": ("Pressure", "bar")}
 
 
@@ -110,8 +111,20 @@ class Engine:
         progress(0.0, f"Speciating {fluid.label.lower()}")
         sp0, fluid_notes = self.starting_fluid(sc)
         basis = [b for b in sp0.basis_names if b not in (WATER, PROTON)]
+        added = self._reactant_names(sc)
+        for name in added.values():                      # components the fluid does not carry yet
+            for el in db.species[name].elements:
+                master = DEFAULT_MASTERS.get(el)
+                if el in ("H", "O"):
+                    continue
+                if master is None:
+                    raise ValueError(f"{name} contains {el}, which this calculator cannot track yet")
+                if master not in basis:
+                    basis.append(master)
         system = System(db, basis, activity_model=sc.activity_model)
         bulk0 = dict(sp0.component_totals)
+        for b in basis:
+            bulk0.setdefault(b, TRACE)                   # a trace, so the solution has a start
         points = sc.points()
         modes = ["static", "flow_through"] if sc.mode == "both" else [sc.mode]
         rels = self.reliability(points)
@@ -149,6 +162,10 @@ class Engine:
                       "values": [_sig(pt[0] if key == "temperature_c" else pt[1]) for pt in points]}
                 for key, (label, unit) in AXES.items()}
         varies = sc.varies
+        if sc.reactants:
+            extra = self._reaction_axes(sc, added, len(points))
+            axes.update(extra)
+            varies = list(extra) + varies
         return {
             "id": _dt.datetime.now().strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:4],
             "created": _dt.datetime.now().isoformat(timespec="seconds"),
@@ -173,6 +190,56 @@ class Engine:
             "notes": seen,
             "elapsed_s": round(time.time() - started, 1),
         }
+
+    def _reactant_names(self, sc: Scenario) -> dict[str, str]:
+        """The database name of each reactant on the card (matched without regard to case)."""
+        db = self.db
+        lower: dict[str, list[str]] = {}
+        for name, sp in db.species.items():
+            lower.setdefault(name.lower(), []).append(name)
+        out = {}
+        for r in sc.reactants:
+            name = r["name"]
+            if name not in db.species:
+                hits = lower.get(name.lower(), [])
+                minerals = [h for h in hits if db.species[h].kind == Kind.MINERAL]
+                if not hits:
+                    raise ValueError(f"'{name}' is not a mineral or species in the database")
+                name = (minerals or hits)[0]
+            if db.species[name].kind not in (Kind.MINERAL, Kind.AQUEOUS, Kind.BASIS):
+                raise ValueError(f"{name} cannot be a reactant (only minerals and dissolved species)")
+            out[r["name"]] = name
+        return out
+
+    def _reactants(self, system: System, sc: Scenario, names: dict[str, str], steps: int) -> list:
+        """Each reactant added at a steady rate, all of it by the last step (reaction progress counts
+        the steps)."""
+        out = []
+        for r in sc.reactants:
+            name = names[r["name"]]
+            if name not in system.net.phase_names and name not in system.net.dep_names:
+                raise ValueError(f"{name} cannot be added yet: its formula needs the oxidation state, "
+                                 f"which is not tracked")
+            moles = r["amount"] / self.db.molecular_weight(name) if r["unit"] == "g" else r["amount"]
+            out.append(mineral_reactant(system, name, moles, rates=(moles / max(steps - 1, 1), 0.0, 0.0)))
+        return out
+
+    def _reaction_axes(self, sc: Scenario, names: dict[str, str], steps: int) -> dict:
+        """Reactant added (g per kg of starting water) and the water/rock mass ratio at each step; for
+        reactants given only in moles (a titration), the millimoles added."""
+        if all(r["unit"] == "mol" for r in sc.reactants):
+            mmol = sum(r["amount"] for r in sc.reactants) * 1000.0
+            return {"reacted": {"key": "reacted", "label": "Reactant added", "unit": "mmol per kg water",
+                                "values": [_sig(mmol * i / max(steps - 1, 1)) for i in range(steps)]}}
+        grams = [0.0] * steps
+        for r in sc.reactants:
+            g = r["amount"] if r["unit"] == "g" else r["amount"] * self.db.molecular_weight(names[r["name"]])
+            for i in range(steps):
+                grams[i] += g * i / max(steps - 1, 1)
+        return {"reacted": {"key": "reacted", "label": "Reactant added", "unit": "g per kg water",
+                            "values": [_sig(g) for g in grams]},
+                "water_rock": {"key": "water_rock", "label": "Water/rock", "unit": "by mass",
+                               "values": [_sig(1000.0 / g) if g > 0 else None for g in grams]}}
 
     def starting_fluid(self, sc: Scenario) -> tuple[Speciation, list[str]]:
         """Speciate the card's fluid at its measurement temperature, closing the charge balance as the
@@ -224,7 +291,8 @@ class Engine:
         blocked = {b.lower() for b in sc.blocked_minerals} | set(ALWAYS_EXCLUDED)
         suppress = [name for name, kind in zip(system.net.phase_names, system.net.phase_kind)
                     if kind == Kind.MINERAL and name.lower() in blocked]
-        path = ReactionPath(system, bulk0,
+        reactants = self._reactants(system, sc, self._reactant_names(sc), n)
+        path = ReactionPath(system, bulk0, reactants=reactants,
                             temperature=lambda xi: t0 + (t1 - t0) * xi / last,
                             pressure=lambda xi: p0 + (p1 - p0) * xi / last,
                             suppress_minerals=suppress, flow_through=flow_through)

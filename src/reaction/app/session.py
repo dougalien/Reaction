@@ -114,13 +114,23 @@ class Session:
                                    "ph": spec.ph if spec.ph == spec.ph else None,   # NaN is not JSON
                                    "measured_t_c": spec.measured_t_c,
                                    "charge_balance": spec.charge_balance},
-                    "card_problems": self.card.problems(), "advisories": advice,
+                    "card_problems": self.card_problems(), "advisories": advice,
                     "chat": self.chat[-KEEP_CHAT:],
                     "run": dict(self.run_state), "runs": self.list_runs(), "current": self.current,
                     "view": self.view, "llm": {"model": getattr(self.model, "model", None),
                                                "ready": self._llm_ok},
                     "engine": self.engine.status() if self.engine._db is not None else
                     {"ready": None, "message": "Thermodynamic data load on the first run."}}
+
+    def card_problems(self) -> list[str]:
+        """The card's own checks, plus reactant names once the database is loaded to check them."""
+        out = self.card.problems()
+        if self.card.reactants and getattr(self.engine, "_db", None) is not None:
+            try:
+                self.engine._reactant_names(self.card)
+            except (ValueError, AttributeError) as exc:
+                out.append(str(exc))
+        return out
 
     # ---- chat ---------------------------------------------------------------------------------
     def say(self, role: str, text: str, log: bool = True) -> None:
@@ -206,7 +216,7 @@ class Session:
         if patch and result is not None:
             self.view = apply_patch(self.view, patch, result)
         reply = got.reply or ("Done." if (patch or got.scenario_changes) else "")
-        problems_now = self.card.problems()
+        problems_now = self.card_problems()
         # answering the mode question counts as the go-ahead for the run that prompted it
         want_run = got.run or (self.pending_run and (got.mode_mentioned or "mode" in got.scenario_changes))
         self.pending_run = False
