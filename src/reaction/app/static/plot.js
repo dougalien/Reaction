@@ -2,7 +2,7 @@
 
 /* A small line plot: linear or log y axis, gaps for missing points, hover readout, SVG export.
    Series share one x array unless they carry their own (a compared run).
-   series = [{label, color, dash, y: [...], x?: [...]}]. */
+   series = [{label, color, dash, y: [...], x?: [...], lo?: [...], hi?: [...]}]; lo and hi shade a range. */
 class LinePlot {
   constructor(host) {
     this.host = host;
@@ -42,7 +42,8 @@ class LinePlot {
     const x0 = Math.min(...xs), x1 = Math.max(...xs);
 
     let ys = [];
-    series.forEach((s) => s.y.forEach((v) => { if (v !== null && isFinite(v) && (!opts.log || v > 0)) ys.push(v); }));
+    const keep = (v) => { if (v !== null && isFinite(v) && (!opts.log || v > 0)) ys.push(v); };
+    series.forEach((s) => [s.y, s.lo || [], s.hi || []].forEach((arr) => arr.forEach(keep)));
     if (opts.refLines) ys = ys.concat(opts.log ? [] : opts.refLines);
     let y0 = ys.length ? Math.min(...ys) : 0, y1 = ys.length ? Math.max(...ys) : 1;
     let yticks;
@@ -95,6 +96,26 @@ class LinePlot {
           `style="fill:${fills[opts.strip[p.i]] || fills.good};stroke:none" opacity="0.85"/>`;
       });
     }
+    // uncertainty ranges under every line: one filled band per unbroken stretch of the path
+    series.forEach((s) => {
+      if (!s.lo || !s.hi) return;
+      const sxs = s.x || x;
+      const ok = (i) => s.lo[i] !== null && s.hi[i] !== null && sxs[i] !== null && sxs[i] !== undefined &&
+        isFinite(s.lo[i]) && isFinite(s.hi[i]) && (!opts.log || s.hi[i] > 0);
+      const clamp = (v) => Math.min(Math.max(v, y0), y1);           // a zero low edge sits on the axis
+      let run = [];
+      const flush = () => {
+        if (run.length > 1) {
+          const top = run.map((i) => `${f(sx(sxs[i]))},${f(sy(clamp(s.hi[i])))}`);
+          const bot = run.slice().reverse().map((i) => `${f(sx(sxs[i]))},${f(sy(clamp(s.lo[i])))}`);
+          g += `<path class="band" d="M${top.join("L")}L${bot.join("L")}Z" style="fill:${s.color};stroke:none" ` +
+            `fill-opacity="${s.dash ? 0.12 : 0.2}"/>`;
+        }
+        run = [];
+      };
+      s.y.forEach((_, i) => (ok(i) ? run.push(i) : flush()));
+      flush();
+    });
     // thick solid lines first, then thin darker dashed ones on top, so a dashed line that follows
     // a solid one exactly is still visible
     [...series].sort((a, b) => (a.dash ? 1 : 0) - (b.dash ? 1 : 0)).forEach((s) => {
@@ -142,7 +163,8 @@ class LinePlot {
         let d = Infinity;
         s.x.forEach((v, i) => { if (v !== null && Math.abs(v - x[best]) < d) { d = Math.abs(v - x[best]); k = i; } });
       }
-      html += `<div><span style="color:${s.color}">■</span> ${s.label}: ${fmtVal(s.y[k])}</div>`;
+      const range = s.lo && s.lo[k] !== null && s.hi[k] !== null ? ` <span class="muted">(${fmtVal(s.lo[k])} to ${fmtVal(s.hi[k])})</span>` : "";
+      html += `<div><span style="color:${s.color}">■</span> ${s.label}: ${fmtVal(s.y[k])}${range}</div>`;
     });
     this.tip.innerHTML = html;
     this.tip.style.display = "block";
@@ -167,7 +189,7 @@ class LinePlot {
       const cs = getComputedStyle(el);
       let style = "";
       for (const p of ["stroke", "fill", "stroke-width", "stroke-dasharray", "font-size", "font-weight",
-        "font-style", "opacity", "paint-order", "stroke-linejoin"]) {
+        "font-style", "opacity", "fill-opacity", "paint-order", "stroke-linejoin"]) {
         style += `${p}:${cs.getPropertyValue(p)};`;
       }
       style += `font-family:${cs.fontFamily};`;

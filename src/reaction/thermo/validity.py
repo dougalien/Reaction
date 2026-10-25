@@ -21,6 +21,9 @@ _MF = (-4.098, -3245.2, 2.2362e5, -3.984e7, 13.957, -1262.3, 8.5641e5)
 # thresholds on |engine - measured| in log units
 GOOD, CAUTION = 0.15, 0.35
 LOW_DENSITY = 0.35          # g/cm3: below this the HKF equations are extrapolated
+# one standard deviation of a tabulated log K where water ionization is reproduced: the usual spread
+# between compilations for minerals and complexes at moderate temperature
+BASE_SIGMA = 0.1
 
 
 @dataclass(frozen=True)
@@ -51,6 +54,20 @@ def water_ionization_check(db, t_c: float, p_bar: float) -> Reliability:
     level = "good" if size <= GOOD and rho >= LOW_DENSITY else \
         "caution" if size <= CAUTION else "poor"
     return Reliability(t_c, p_bar, rho, dev, level)
+
+
+def logk_sigma(db, t_c: float, p_bar: float) -> float:
+    """One standard deviation (log units) assumed for every log K at T and P, for uncertainty bands:
+    BASE_SIGMA with the water-ionization deviation added in quadrature, and at least the caution
+    threshold at low water density.  Outside the liquid field the 'poor' half-width is used."""
+    try:
+        r = water_ionization_check(db, t_c, p_bar)
+    except Exception:
+        return 2.0 * CAUTION
+    if not math.isfinite(r.deviation):
+        return 2.0 * CAUTION
+    sigma = math.hypot(BASE_SIGMA, r.deviation)
+    return max(sigma, CAUTION) if r.density < LOW_DENSITY else sigma
 
 
 LEVEL_TEXT = {

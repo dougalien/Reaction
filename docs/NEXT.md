@@ -84,11 +84,21 @@ PHREEQC defaults as I understand them); no pressure term in the Pitzer parameter
 in the log K); the NBS pH convention is not applied with Pitzer. A run whose ionic strength passes 1
 mol/kg without Pitzer says so.
 
-Next, at Douglas's request: uncertainty bands (propagate the log K uncertainty along a run so plots show a
-range). P5b may become possible from the CC BY lookup tables of Oguntola on Zenodo (record 20394023,
+Uncertainty bands (Douglas's request, done): card field `uncertainty_runs` (0 = off, 5 to 200; "with
+uncertainty" in the chat gives 20). The run is repeated with every log K shifted by its own standard-normal
+draw times sigma(T, P) = sqrt(0.1^2 + dev^2), dev being the water-ionization deviation of the reliability
+check, and at least 0.35 below 0.35 g/cm3 (`thermo.validity.logk_sigma`). Each draw is kept along the whole
+path; polymorphs (same formula) share a draw, and H2O(g) is never shifted (steam against water is exact).
+Draws are seeded by run number, so a card always gives the same range. The runs go to spawned worker
+processes (all processors but one). Plots shade the 5th to 95th percentile, widened to include the main
+line; hover shows the range, the CSV gets 5% and 95% columns, and the notes list minerals that appear or
+disappear within the uncertainty. Judgment calls: independent draws for every species and mineral (no
+covariance from shared data is known to us); 0.1 log units as the base sigma.
+
+Next: P7b solid solutions. P5b may become possible from the CC BY lookup tables of Oguntola on Zenodo (record 20394023,
 computed from Driesner and Heinrich), if they hold the coexisting phase compositions.
 
-323 tests pass with the data folder present. The data folder needs `OBIGT/Berman/` (run
+329 tests pass with the data folder present. The data folder needs `OBIGT/Berman/` (run
 `scripts/fetch_references.ps1` again); without it the old minerals are used and every run says so.
 
 ## First things to do, in this order

@@ -81,6 +81,23 @@ function valuesOf(item, mode, view, res = result) {
   return arr;
 }
 
+/* The shaded uncertainty range of a line, scaled as valuesOf scales it: [low, high] or null. */
+function bandOf(item, mode, view, res = result) {
+  const run = res.modes[mode];
+  const b = run && run.bands && run.bands[item.group === "property" ? "properties" : item.group];
+  const pair = b && b[item.key];
+  if (!pair) return null;
+  const line = valuesOf(item, mode, view, res), raw = item.group === "property" ? run.properties[item.key] : run[item.group][item.key];
+  // the same factor as the line: unit conversion is a constant, so take it from any nonzero value
+  let k = 1;
+  if (line && raw) {
+    const i = raw.findIndex((v, j) => v && line[j] !== null);
+    if (i >= 0) k = line[i] / raw[i];
+    else if (line.every((v) => v === null)) return null;
+  }
+  return pair.map((arr) => arr.map((v) => (v === null ? null : v * k)));
+}
+
 function yLabel(items, view) {
   if (!items.length) return "";
   const g = items[0].group;
@@ -102,9 +119,11 @@ function currentSeries() {
     modes.forEach((m) => {
       const y = valuesOf(item, m, view);
       if (!y) return;
+      const band = bandOf(item, m, view);
       series.push({
         label: labelOf(item) + (modes.length > 1 ? ` (${MODE_LABEL[m].toLowerCase()})` : ""),
         color: `var(--s${(i % 8) + 1})`, dash: DASH[m], y,
+        lo: band ? band[0] : null, hi: band ? band[1] : null,
         csv: `${labelOf(item)}${modes.length > 1 ? " " + MODE_LABEL[m].toLowerCase() : ""} [${yLabel([item], view)}]`,
       });
     });
@@ -200,6 +219,10 @@ function draw() {
   const anyRisk = rel.some((l) => l !== "good");
   const other = varies.length > 1 ? result.axes[varies.find((k) => k !== xkey)] : null;
   $("reliab").style.display = anyRisk ? "" : "none";
+  const banded = Object.values(result.modes).find((r) => r.band_runs);
+  $("bandnote").style.display = banded && series.some((s) => s.lo) ? "" : "none";
+  if (banded) $("bandnote").textContent = `Shaded: the middle 90% of ${banded.band_runs} runs with the log K values ` +
+    "shifted at random by their uncertainty (see Assumptions and limits).";
   plot.set(xax.values, series, {
     log: useLog, yLabel: yLabel(items, view), xLabel: `${xax.label} (${xax.unit})`,
     xName: xax.label, xUnit: " " + xax.unit, refLines: g === "saturation" ? [0] : null,
@@ -261,10 +284,13 @@ function download(name, text, type) {
 $("dl-csv").addEventListener("click", () => {
   const series = currentSeries().filter((s) => !s.compare);
   const q = (s) => `"${s.replace(/"/g, '""')}"`;
-  const cols = ["reacted", "water_rock", "temperature_c", "pressure_bar"].filter((k) => result.axes[k]).map((k) => result.axes[k]);
-  const rows = [[...cols.map((a) => q(`${a.label} (${a.unit})`)), ...series.map((s) => q(s.csv))].join(",")];
-  cols[0].values.forEach((_, i) => rows.push([...cols.map((a) => (a.values[i] === null ? "" : a.values[i])),
-    ...series.map((s) => (s.y[i] === null ? "" : s.y[i]))].join(",")));
+  const keys = [...new Set([...(result.varies || []), "temperature_c", "pressure_bar"])];
+  const cols = keys.filter((k) => result.axes[k]).map((k) => result.axes[k]);
+  const cell = (v) => (v === null || v === undefined ? "" : v);
+  const head = series.flatMap((s) => (s.lo ? [q(s.csv), q(s.csv + " 5%"), q(s.csv + " 95%")] : [q(s.csv)]));
+  const rows = [[...cols.map((a) => q(`${a.label} (${a.unit})`)), ...head].join(",")];
+  cols[0].values.forEach((_, i) => rows.push([...cols.map((a) => cell(a.values[i])),
+    ...series.flatMap((s) => (s.lo ? [cell(s.y[i]), cell(s.lo[i]), cell(s.hi[i])] : [cell(s.y[i])]))].join(",")));
   download(`${result.id}.csv`, rows.join("\n"), "text/csv");
 });
 $("dl-svg").addEventListener("click", () => download(`${result.id}.svg`, plot.svgText(), "image/svg+xml"));

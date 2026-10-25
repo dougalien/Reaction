@@ -125,8 +125,9 @@ can be added; methane and sulfate are held apart unless the card says they may r
 last a given time with minerals and basalt glass reacting at measured rates (Palandri and Kharaka 2004;
 Gislason and Oelkers 2003) from a reactive surface area: they dissolve toward saturation, grow on their seed
 past it, and the results show each rate and how much is left. Since P7a brines use Pitzer's equations and
-a fluid can be evaporated (seawater to its bittern salts). Next: uncertainty bands on the plots, phase
-separation (NaCl-H2O, waiting on data), solid solutions and isotopes.
+a fluid can be evaporated (seawater to its bittern salts). Any run can carry an uncertainty range: it is
+repeated with the log K values shifted at random by their uncertainty (larger where the reliability check is
+worse) and the plots shade the middle 90%, something GWB does not offer. Next: phase separation (NaCl-H2O, waiting on data), solid solutions and isotopes.
 
 ## Pressure and temperature are free variables
 
