@@ -57,7 +57,18 @@ SOLUTES: dict[str, tuple[int, str, tuple[str, ...]]] = {
     "B(OH)3": (0, "BO3H3", ("boric acid",)),
     "NH3": (0, "NH3", ("ammonia",)),
     "HPO4-2": (-2, "HPO4", ("phosphate",)),
+    # oxidation states other than the basis one: they need the redox state of the fluid
+    "Fe+3": (3, "Fe", ("ferric iron",)),
+    "H2S": (0, "H2S", ("hydrogen sulfide", "hydrogen sulphide", "sulfide", "sulphide")),
+    "NO3-": (-1, "NO3", ("nitrate",)),
+    "H2": (0, "H2", ("hydrogen", "dissolved hydrogen")),
+    "O2": (0, "O2", ("oxygen", "dissolved oxygen")),
 }
+
+# species that carry an oxidation state of their own -> the basis species holding that element
+# (None: the species is only H and O, so it changes the redox state but no element total)
+REDOX: dict[str, str | None] = {"Fe+3": "Fe+2", "H2S": "SO4-2", "NO3-": "NH3", "H2": None,
+                                "O2": None}
 
 # other ways of giving the same component, weighed as written: name -> (species, formula)
 EXTRA_NAMES: dict[str, tuple[str, str]] = {
@@ -67,6 +78,8 @@ EXTRA_NAMES: dict[str, tuple[str, str]] = {
     "CO2": ("HCO3-", "CO2"), "DIC": ("HCO3-", "C"), "TIC": ("HCO3-", "C"),
     "total carbonate": ("HCO3-", "C"), "carbonate": ("HCO3-", "CO3"), "CO3": ("HCO3-", "CO3"),
     "CO3-2": ("HCO3-", "CO3"), "CO32-": ("HCO3-", "CO3"), "CO3--": ("HCO3-", "CO3"),
+    "HS": ("H2S", "HS"), "HS-": ("H2S", "HS"), "total sulfide": ("H2S", "S"),
+    "Fe(III)": ("Fe+3", "Fe"), "Fe3": ("Fe+3", "Fe"),
 }
 
 # unit -> (amount: "mass" in mg, "mole" in mol or "eq" in equivalents; scale; per "solution", "water" or "litre")
@@ -103,9 +116,16 @@ def _names() -> dict[str, tuple[str, str]]:
     out: dict[str, tuple[str, str]] = {}
     for species, (z, formula, words) in SOLUTES.items():
         base = re.sub(r"[+-]\d*$", "", species)
-        spellings = {species, base}
+        spellings = {species, base} if species != "Fe+3" else {species}   # plain Fe is ferrous
         if z:
             sign, n = ("+" if z > 0 else "-"), abs(z)
+            if species == "Fe+3":
+                spellings |= {"Fe+++", "Fe3+"}
+                for w in words:
+                    out[w] = (species, formula)
+                for sp in spellings:
+                    out[sp] = (species, formula)
+                continue
             spellings |= {base + sign * n, f"{base}{n}{sign}" if n > 1 else base + sign,
                           f"{base}{sign}{n}"}
             if z == -2:
@@ -227,6 +247,8 @@ def parse(text: str, default_unit: str = DEFAULT_UNIT, *, strict: bool = True) -
 
 
 def SOLUTES_LABEL(species: str) -> str:
+    if species == "Fe+3":
+        return "Fe(III)"
     return re.sub(r"[+-]\d*$", "", species) if species not in ("SiO2", "B(OH)3", "NH3") else species
 
 

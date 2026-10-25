@@ -22,11 +22,11 @@ from ..database.model import Kind
 from ..equilibrium import System
 from ..network import PROTON, WATER
 from ..path import PathPoint, ReactionPath, Reactant, mineral_reactant
-from ..speciation import PH, Molal, Speciation, speciate
+from ..speciation import PH, Couple, Eh, LogFO2, Molal, Pe, Speciation, speciate
 from ..thermo import validity
 from ..thermo.eosdb import DEFAULT_MASTERS, load_eos_database
 from . import analysis, config
-from .fluids import preset
+from .fluids import AIR_LOG_FO2, preset
 from .names import pretty_mineral, pretty_species
 from .scenario import ALWAYS_EXCLUDED, MODE_LABELS, Scenario
 
@@ -154,7 +154,8 @@ class Engine:
                     start_elements[el] = start_elements.get(el, 0.0) + k * st.molality
         names = _catalog(db, runs, sc)
         known = {n.lower() for n in db.species}
-        blocked_unknown = [b for b in sc.blocked_minerals if b.lower() not in known]
+        blocked_unknown = [b for b in sc.blocked_minerals if b.lower() not in known
+                           and b.lower() not in ("dolomite,ordered", "dolomite,disordered")]  # old defaults
         if blocked_unknown:
             notes.append("Not in the database, so ignored: " + ", ".join(blocked_unknown))
         notes.extend(fluid.caveats)
@@ -230,8 +231,8 @@ class Engine:
         for r in sc.reactants:
             name = names[r["name"]]
             if name not in system.net.phase_names and name not in system.net.dep_names:
-                raise ValueError(f"{name} cannot be added yet: its formula needs the oxidation state, "
-                                 f"which is not tracked")
+                raise ValueError(f"{name} cannot be added: its formula needs the redox state of the "
+                                 f"fluid, which is not tracked; set the redox state on the card")
             moles = r["amount"] / self.db.molecular_weight(name) if r["unit"] == "g" else r["amount"]
             out.append(mineral_reactant(system, name, moles, rates=(moles / max(steps - 1, 1), 0.0, 0.0)))
         return out
@@ -271,15 +272,41 @@ class Engine:
         if read.problems:
             raise ValueError("; ".join(read.problems))
         molal, _ = analysis.molalities(read.entries)
-        constraints = {name: Molal(m) for name, m in molal.items()}
+        kind, arg = sc.redox_setting()
+        # every redox species counts toward the element total of its basis partner; H2 and O2 carry
+        # only the redox state.  The couple (if any) first gives the oxygen fugacity on its own.
+        folded: dict[str, float] = {}
+        for name, m in molal.items():
+            target = analysis.REDOX.get(name, name) if name in analysis.REDOX else name
+            if target is not None:
+                folded[target] = folded.get(target, 0.0) + m
+        constraints = {name: Molal(m) for name, m in folded.items()}
         constraints[PROTON] = PH(fluid.ph)
+        redox = {"air": lambda: LogFO2(AIR_LOG_FO2), "log_fo2": lambda: LogFO2(arg),
+                 "eh": lambda: Eh(arg), "pe": lambda: Pe(arg)}.get(kind, lambda: None)()
 
         def solve(balance_on=None):
-            return speciate(db, fluid.measured_t_c, constraints, balance_on=balance_on,
-                            activity_model=sc.activity_model)
-
+            if kind != "couple":
+                return speciate(db, fluid.measured_t_c, constraints, redox=redox,
+                                balance_on=balance_on, activity_model=sc.activity_model)
+            own = dict(constraints)
+            partner = analysis.REDOX[arg]
+            if partner is not None:
+                rest = folded[partner] - molal[arg]
+                own[partner] = Molal(rest)
+            own[arg] = Molal(molal[arg])
+            first = speciate(db, fluid.measured_t_c, own, redox=Couple(arg),
+                             balance_on=balance_on, activity_model=sc.activity_model)
+            return speciate(db, fluid.measured_t_c, constraints, redox=LogFO2(first.log_fo2),
+                            balance_on=balance_on, activity_model=sc.activity_model)
         notes = list(read.notes)
         sp = solve()
+        if kind != "none":
+            how = {"air": "equilibrium with air", "log_fo2": "the log fO2 given",
+                   "eh": "the Eh given", "pe": "the pe given"}.get(
+                kind, f"dissolved {analysis.SOLUTES_LABEL(arg) if arg else ''}")
+            notes.append(f"Redox state from {how}: log fO2 {sp.log_fo2:.1f}, Eh {sp.eh_volts:+.2f} V "
+                         f"at {fluid.measured_t_c:g} C.")
         equivalents = sum(abs(analysis.SOLUTES[n][0]) * m for n, m in molal.items()) or 1.0
         off = sp.charge_imbalance / equivalents * 2.0         # relative to the mean of the two sides
         ion = fluid.charge_balance
@@ -346,6 +373,7 @@ class Engine:
         for name, moles in state.minerals.items():
             minerals[name] = minerals.get(name, 0.0) + moles
         return {"pH": spec.ph, "ionic_strength": spec.ionic_strength, "water_kg": state.water_kg,
+                "log_fO2": spec.log_fo2, "Eh": spec.eh_volts,
                 "log_aw": spec.log_a_water, "species": species, "elements": elements,
                 "minerals": minerals, "saturation": dict(spec.saturation),
                 "warnings": list(spec.warnings)}
@@ -398,6 +426,8 @@ def _pack(rows: list[dict | None]) -> dict:
             "ionic_strength": [_sig(r["ionic_strength"]) if r else None for r in rows],
             "water_kg": [_sig(r["water_kg"]) if r else None for r in rows],
             "log_aw": [_sig(r["log_aw"]) if r else None for r in rows],
+            **{k: [_sig(r.get(k)) if r else None for r in rows] for k in ("log_fO2", "Eh")
+               if any(r and math.isfinite(r.get(k, math.nan)) for r in rows)},   # only with redox
         },
         "species": column(lambda r, k: r["species"].get(k, 0.0), species_keys),
         "elements": column(lambda r, k: r["elements"].get(k, 0.0), element_keys),

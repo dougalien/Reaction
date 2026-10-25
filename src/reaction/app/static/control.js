@@ -98,6 +98,16 @@ function renderFluid(s) {
     if (!opts.some(([v]) => v === read.charge_balance)) opts.push([read.charge_balance, "On " + read.charge_balance]);
     $("f-charge_balance").replaceChildren(...opts.map(([v, l]) => h("option", { value: v }, l)));
     $("f-charge_balance").value = read.charge_balance;
+    const label = { "O2": "Dissolved O2", "H2": "Dissolved H2", "Fe+3": "Fe(III) / Fe(II)", "H2S": "Sulfide / sulfate", "NO3-": "Nitrate / ammonia" };
+    const ropts = [["auto", "Auto (from the analysis)"], ["none", "Not tracked"], ["air", "Air (O2 0.21 bar)"],
+      ["log_fo2", "log fO2"], ["eh", "Eh (V)"], ["pe", "pe"],
+      ...read.redox_species.map((s) => [s, label[s] || s])];
+    if (!ropts.some(([v]) => v === read.redox)) ropts.push([read.redox, label[read.redox] || read.redox]);
+    $("f-redox").replaceChildren(...ropts.map(([v, l]) => h("option", { value: v }, l)));
+    $("f-redox").value = read.redox;
+    const needsValue = ["log_fo2", "eh", "pe"].includes(read.redox);
+    $("redox-value-box").style.display = needsValue ? "" : "none";
+    if (needsValue) setIfIdle($("f-redox_value"), read.redox_value === null ? "" : read.redox_value);
   }
   const n = read.lines.length;
   $("fluid-sum").textContent = n ? `As read: ${n} solute${n > 1 ? "s" : ""}, pH ${read.ph ?? "not given"} at ${read.measured_t_c} °C, ` +
@@ -128,7 +138,7 @@ for (const k of ["title", "p_start_bar", "p_end_bar", "t_start_c", "t_end_c", "s
   $("f-" + k).addEventListener("change", (ev) => edit(k, ev.target.value));
 }
 $("f-fluid").addEventListener("change", (ev) => edit("fluid", ev.target.value));
-for (const k of ["analysis", "units", "ph", "fluid_t_c", "charge_balance", "mix_with", "mix_ratio", "mix_t_c"]) {
+for (const k of ["analysis", "units", "ph", "fluid_t_c", "charge_balance", "redox", "redox_value", "mix_with", "mix_ratio", "mix_t_c"]) {
   $("f-" + k).addEventListener("change", (ev) => edit(k, ev.target.value));
 }
 $("f-activity_model").addEventListener("change", (ev) => edit("activity_model", ev.target.value));

@@ -118,7 +118,9 @@ class Session:
                                    "analysis": spec.analysis, "units": spec.units,
                                    "ph": spec.ph if spec.ph == spec.ph else None,   # NaN is not JSON
                                    "measured_t_c": spec.measured_t_c,
-                                   "charge_balance": spec.charge_balance},
+                                   "charge_balance": spec.charge_balance,
+                                   "redox": spec.redox, "redox_value": spec.redox_value,
+                                   "redox_species": _couples(analysis.parse(spec.analysis, spec.units).species)},
                     "card_problems": self.card_problems(), "advisories": advice,
                     "chat": self.chat[-KEEP_CHAT:],
                     "run": dict(self.run_state), "runs": self.list_runs(), "current": self.current,
@@ -418,3 +420,9 @@ class Session:
         with self.lock:
             self.run_state = {"state": "error", "progress": 0.0, "message": "", "error": message}
             self.say("assistant", f"The run failed: {message}")
+
+
+def _couples(species: list[str]) -> list[str]:
+    """Redox species of an analysis that can set its redox state (their partner is there too)."""
+    return [s for s in species if s in analysis.REDOX
+            and (analysis.REDOX[s] is None or analysis.REDOX[s] in species)]

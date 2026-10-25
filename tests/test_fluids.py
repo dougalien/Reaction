@@ -133,3 +133,41 @@ def test_mixing_on_the_card_and_in_the_chat():
     assert got.scenario_changes == {"pressure_bar": 250.0, "fluid": "vent_fluid", "mix_with": "seawater",
                                     "mix_ratio": 10.0, "mix_t_c": 2.0, "t_start_c": 350.0}
     assert interpret_rules("no mixing", Scenario()).scenario_changes == {"mix_with": ""}
+
+
+def test_redox_species_are_read_and_need_a_redox_state():
+    assert analysis.lookup("Fe3+")[0] == "Fe+3" and analysis.lookup("Fe")[0] == "Fe+2"
+    assert analysis.lookup("HS-") == ("H2S", "HS") and analysis.lookup("dissolved oxygen")[0] == "O2"
+    card = Scenario(fluid="custom", analysis="Na 10\nCl 15\nH2S 1", ph=7.0)
+    assert any("redox state" in p for p in card.problems())              # sulfide alone: no couple
+    card = Scenario(fluid="custom", analysis="Na 10\nCl 15\nH2S 1\nSO4 5", ph=7.0)
+    assert not card.problems() and card.redox_setting() == ("couple", "H2S")
+    card = Scenario(fluid="custom", analysis="Na 10\nCl 15\nFe 1\nFe3+ 0.1\nO2 8", ph=7.0)
+    assert card.redox_setting() == ("couple", "O2")                       # dissolved O2 comes first
+    card, _ = card.changed({"redox": "Fe(III)"})
+    assert card.redox_setting() == ("couple", "Fe+3")
+    card, _ = card.changed({"redox": "log fO2"})
+    assert any("log fO2" in p for p in card.problems())
+    card, _ = card.changed({"redox_value": -30})
+    assert card.redox_setting() == ("log_fo2", -30.0)
+    card, _ = card.changed({"redox": "none"})
+    assert any("not tracked" in p for p in card.problems())
+
+
+def test_presets_carry_their_redox_state():
+    assert Scenario(fluid="seawater").redox_setting() == ("air", None)
+    assert Scenario(fluid="vent_fluid").redox_setting() == ("couple", "H2")
+    assert Scenario(fluid="formation_brine").redox_setting() == ("none", None)
+    card, _ = Scenario(fluid="vent_fluid").changed({"ph": 3.0})     # a custom copy keeps it
+    assert card.fluid == "custom" and card.redox_setting() == ("couple", "H2")
+
+
+def test_redox_from_the_chat():
+    for text, want in (("heat seawater to 300 C with log fO2 -35", {"redox": "log_fo2", "redox_value": -35.0}),
+                       ("set Eh to 150 mV", {"redox": "eh", "redox_value": 0.15}),
+                       ("pe 4", {"redox": "pe", "redox_value": 4.0}),
+                       ("use air-saturated rainwater", {"redox": "air"}),
+                       ("no redox", {"redox": "none"})):
+        ch = interpret_rules(text, Scenario()).scenario_changes
+        assert {k: ch[k] for k in want} == want, text
+    assert "redox" not in interpret_rules("heat to 250 C at 500 bar", Scenario()).scenario_changes

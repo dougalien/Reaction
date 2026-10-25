@@ -49,8 +49,10 @@
           <label class="f">pH<input id="f-ph" type="number" min="0" max="14" step="any"></label>
           <label class="f">Measured at (&deg;C)<input id="f-fluid_t_c" type="number" min="0" max="300" step="any"></label>
           <label class="f">Charge balance<select id="f-charge_balance"></select></label>
+          <label class="f">Redox state<select id="f-redox"></select></label>
+          <label class="f" id="redox-value-box">Value<input id="f-redox_value" type="number" step="any"></label>
         </div>
-        <div class="hint" style="margin-top:4px">Per kg means per kg of solution; mg/L is read at 1 kg/L. Auto balance adjusts the main ion of the side that is short.</div>
+        <div class="hint" style="margin-top:4px">Per kg means per kg of solution; mg/L is read at 1 kg/L. Auto balance adjusts the main ion of the side that is short. Redox: Fe(III), sulfide, H2 or O2 in the analysis set it; otherwise choose air, a log fO2, Eh or pe.</div>
       </div>
       <details id="fluid-read" style="margin-top:6px"><summary id="fluid-sum" class="small"></summary><div id="fluid-table"></div></details>
       <div class="small muted" style="margin:10px 0 4px">Path: a straight line from start to end</div>

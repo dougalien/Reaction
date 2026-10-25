@@ -14,11 +14,12 @@ from .names import ELEMENT_NAMES, build_index, resolve
 
 PROPERTIES = {
     "pH": "pH", "ionic_strength": "Ionic strength (mol/kg)", "water_kg": "Solvent mass (kg)",
-    "log_aw": "log water activity",
+    "log_aw": "log water activity", "log_fO2": "log fO2", "Eh": "Eh (V)",
 }
 PROPERTY_WORDS = {"ph": "pH", "ionic strength": "ionic_strength", "ionic_strength": "ionic_strength",
                   "water activity": "log_aw", "activity of water": "log_aw", "water mass": "water_kg",
-                  "solvent mass": "water_kg"}
+                  "solvent mass": "water_kg", "fo2": "log_fO2", "log fo2": "log_fO2",
+                  "oxygen fugacity": "log_fO2", "eh": "Eh", "redox potential": "Eh"}
 MAX_ITEMS = 8
 UNITS = ("mol", "mmol", "umol", "mg")
 

@@ -18,12 +18,13 @@ from typing import Any
 from ..thermo import water
 from . import analysis
 from .analysis import DEFAULT_UNIT
-from .fluids import CUSTOM, CUSTOM_LABEL, PRESETS, FluidPreset, label as fluid_label
+from .fluids import CUSTOM, CUSTOM_LABEL, PRESETS, REDOX_CHOICES, FluidPreset, label as fluid_label
 
 MODES = ("static", "flow_through", "both")
 MODE_LABELS = {"static": "Static", "flow_through": "Flow-through", "both": "Both"}
 ACTIVITY_MODELS = ("bdot", "davies")
-FLUID_FIELDS = ("analysis", "units", "ph", "fluid_t_c", "charge_balance")   # what a custom fluid is
+FLUID_FIELDS = ("analysis", "units", "ph", "fluid_t_c", "charge_balance", "redox",
+                "redox_value")                                       # what a custom fluid is
 REACTANT_UNITS = {"g": ("g", 1.0), "gram": ("g", 1.0), "grams": ("g", 1.0), "mg": ("g", 1e-3),
                   "kg": ("g", 1e3), "mol": ("mol", 1.0), "mole": ("mol", 1.0), "moles": ("mol", 1.0),
                   "mmol": ("mol", 1e-3), "umol": ("mol", 1e-6)}
@@ -34,7 +35,7 @@ P_MIN, P_MAX = 1.0, 5000.0           # bar (the range the HKF equations are cali
 
 # carbonates that supersaturated seawater "wants" to form but that do not form on laboratory and
 # field time scales at these temperatures (the usual practice is to block them)
-DEFAULT_BLOCKED = ["dolomite", "dolomite,ordered", "dolomite,disordered", "magnesite", "huntite"]
+DEFAULT_BLOCKED = ["dolomite", "magnesite", "huntite"]
 
 # oxides, elements and ice that the database lists but that are not sensible products here
 ALWAYS_EXCLUDED = ("ice", "sulfur", "S_liq", "graphite", "potassium oxide", "sodium oxide",
@@ -61,6 +62,10 @@ class Scenario:
     ph: float | None = None
     fluid_t_c: float = 25.0
     charge_balance: str = "auto"
+    # the redox state of a custom fluid: one of fluids.REDOX_CHOICES or a redox species of the analysis
+    # (O2, H2, Fe+3, H2S, NO3-) used as the couple; ``redox_value`` for log_fo2, eh and pe
+    redox: str = "auto"
+    redox_value: float | None = None
     # minerals or aqueous species added steadily along the path, per kg of the starting fluid's water:
     # [{"name": "albite", "amount": 10.0, "unit": "g"}]; reacted in full by the last step
     reactants: list[dict] = field(default_factory=list)
@@ -111,6 +116,7 @@ class Scenario:
             p = PRESETS[start]
             new.analysis, new.units, new.ph = p.analysis, p.units, p.ph
             new.fluid_t_c, new.charge_balance = p.measured_t_c, p.charge_balance
+            new.redox, new.redox_value = p.redox, p.redox_value
             new.fluid = CUSTOM
         for key, value in changes.items():
             if key not in known or key == "kind":
@@ -166,11 +172,18 @@ class Scenario:
             return PRESETS[self.fluid]
         return FluidPreset(CUSTOM, CUSTOM_LABEL, "A fluid entered as an analysis.", self.fluid_t_c,
                            self.analysis, self.ph if self.ph is not None else float("nan"),
-                           "entered on the card", units=self.units, charge_balance=self.charge_balance)
+                           "entered on the card", units=self.units, charge_balance=self.charge_balance,
+                           redox=self.redox, redox_value=self.redox_value)
 
     def fluid_analysis(self) -> analysis.Analysis:
         spec = self.fluid_spec()
         return analysis.parse(spec.analysis, spec.units)
+
+    def redox_setting(self) -> tuple[str, Any]:
+        """How the starting fluid's redox state is set: ("none", None), ("air", None),
+        ("log_fo2" | "eh" | "pe", value) or ("couple", species).  Raises ValueError when the
+        card cannot say."""
+        return resolve_redox(self.fluid_spec(), self.fluid_analysis())
 
     # ---- checking -------------------------------------------------------------------------
     def problems(self) -> list[str]:
@@ -231,6 +244,10 @@ class Scenario:
             out.append("pH must be between 0 and 14")
         if not (0.0 <= self.fluid_t_c <= 300.0):
             out.append("the analysis temperature must be between 0 and 300 C")
+        try:
+            self.redox_setting()
+        except ValueError as exc:
+            out.append(str(exc))
         cb = self.charge_balance
         if cb not in ("auto", "none") and cb not in got.species:
             names = ", ".join(got.species) or "none yet"
@@ -290,7 +307,65 @@ class Scenario:
         return f"{label} at {t0:g} °C and {p0:g} bar {tail}"
 
 
+def resolve_redox(spec: FluidPreset, got: analysis.Analysis) -> tuple[str, Any]:
+    """See :meth:`Scenario.redox_setting`."""
+    present = [s for s in got.species if s in analysis.REDOX]
+    # a redox species can be the couple only when its partner (if any) is in the analysis too
+    couples = [s for s in ("O2", "H2", "Fe+3", "H2S", "NO3-")
+               if s in present and (analysis.REDOX[s] is None or analysis.REDOX[s] in got.species)]
+    choice = spec.redox
+    if choice == "auto":
+        if couples:
+            return "couple", couples[0]
+        if present:
+            names = ", ".join(analysis.SOLUTES_LABEL(s) for s in present)
+            raise ValueError(f"{names} needs the redox state of the fluid: give its partner too "
+                             f"(Fe(II) with Fe(III), sulfate with sulfide), dissolved O2 or H2, or set "
+                             f"the redox state (air, log fO2, Eh or pe)")
+        return "none", None
+    if choice == "none":
+        if present:
+            names = ", ".join(analysis.SOLUTES_LABEL(s) for s in present)
+            raise ValueError(f"{names} needs the redox state of the fluid, which is set to not tracked")
+        return "none", None
+    if choice == "air":
+        return "air", None
+    if choice in ("log_fo2", "eh", "pe"):
+        if spec.redox_value is None or not math.isfinite(spec.redox_value):
+            raise ValueError(f"give the {REDOX_LABELS[choice]} of the fluid")
+        return choice, spec.redox_value
+    if choice in analysis.REDOX:
+        if choice not in couples:
+            partner = analysis.REDOX[choice]
+            need = analysis.SOLUTES_LABEL(choice) + (
+                f" and {analysis.SOLUTES_LABEL(partner)}" if partner else "")
+            raise ValueError(f"the redox couple {analysis.SOLUTES_LABEL(choice)} needs {need} "
+                             f"in the analysis")
+        return "couple", choice
+    raise ValueError(f"unknown redox setting '{choice}'")
+
+
+REDOX_LABELS = {"log_fo2": "log fO2", "eh": "Eh (volts)", "pe": "pe"}
+
+
 def _coerce(key: str, value: Any) -> Any:
+    if key == "redox":
+        text = str(value).strip()
+        low = text.lower().replace(" ", "_").replace("-", "_")
+        low = {"fo2": "log_fo2", "logfo2": "log_fo2", "log_f_o2": "log_fo2", "oxygen_fugacity":
+               "log_fo2", "not_tracked": "none", "off": "none", "atmosphere": "air", "": "auto"
+               }.get(low, low)
+        if low in REDOX_CHOICES:
+            return low
+        hit = analysis.lookup(text)
+        if hit is not None and hit[0] in analysis.REDOX:
+            return hit[0]
+        raise ValueError(f"'{text}' is not a redox setting (use auto, none, air, log_fo2, eh, pe, or "
+                         f"a redox species such as O2, H2, Fe+3 or H2S)")
+    if key == "redox_value":
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return None
+        return float(value)
     if key in ("t_start_c", "t_end_c", "p_start_bar", "p_end_bar", "fluid_t_c", "mix_ratio"):
         return float(value)
     if key == "mix_t_c":
@@ -387,6 +462,9 @@ FIELD_HELP = {
     "ph": "pH of the fluid (number); changing it makes the fluid custom",
     "fluid_t_c": "temperature the fluid's analysis and pH were measured at, degrees C",
     "charge_balance": "auto (adjust the main ion that is short), none, or an ion name such as Cl-",
+    "redox": "redox state of the fluid: auto, none, air, log_fo2, eh, pe, or a redox species of the "
+             "analysis used as the couple (O2, H2, Fe+3, H2S)",
+    "redox_value": "the log fO2, Eh (volts) or pe when redox is log_fo2, eh or pe",
     "t_start_c": "temperature the run starts at, degrees C (0 to 600)",
     "t_end_c": "temperature the run ends at, degrees C; equal to the start means temperature is held fixed",
     "p_start_bar": "pressure the run starts at, bar (1 to 5000)",

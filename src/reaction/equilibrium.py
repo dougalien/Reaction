@@ -115,9 +115,39 @@ def _initial_u(model: AqueousModel, B: np.ndarray, fixed: dict[int, float]) -> n
                 step[j] = d
                 biggest = max(biggest, abs(d))
         u += step
+        o2 = model.ib.get(OXYGEN)
+        if o2 is not None and o2 not in fixed:     # the redox budget can be negative (a reduced
+            before = u[o2]                          # fluid): match it by bisection, as it is monotonic
+            u[o2] = _match_total(model, u, o2, B[o2] / w0, lg0, lgd)
+            biggest = max(biggest, abs(u[o2] - before))
         if biggest < 0.05:
             break
     return u
+
+
+def _match_total(model: AqueousModel, u: np.ndarray, j: int, target: float, lg0, lgd) -> float:
+    """The ln activity of basis species ``j`` at which its component total equals ``target``, the
+    others held; the total rises with u_j (its derivative is a sum of nu^2 m)."""
+    trial = u.copy()
+
+    def total(v):
+        trial[j] = v
+        m_dep, m_b = model.state(trial, lg0, lgd)
+        return (m_b[j] if model.solute[j] else 0.0) + model.nu[:, j] @ m_dep
+
+    lo, hi = -250.0 * LN10, 10.0 * LN10
+    with np.errstate(over="ignore", invalid="ignore"):
+        if not total(lo) < target < total(hi):
+            return float(u[j])
+        for _ in range(80):
+            mid = 0.5 * (lo + hi)
+            if total(mid) < target:
+                lo = mid
+            else:
+                hi = mid
+            if hi - lo < 1e-3:
+                break
+    return 0.5 * (lo + hi)
 
 
 class _Solve:
@@ -385,6 +415,14 @@ def equilibrate(system: System, temperature_c: float, bulk: dict[str, float], *,
         raise EquilibriumError("the starting guess belongs to a different basis")
     for j, v in fixed_idx.items():
         u0[j] = v
+    o2 = ib.get(OXYGEN)
+    if guess is not None and o2 is not None and o2 not in fixed_idx and o2 not in buffer_rows:
+        # log fO2 moves by many units with temperature: start it where the fluid's share of the
+        # redox budget (the minerals keep their amounts) is matched at the new conditions
+        held = sum(v * model.nu_ph[model.ph_names.index(k), o2] for k, v in n_prev.items()
+                   if k in model.ph_names)
+        zeros_b, zeros_d = np.zeros(nb), np.zeros(len(model.dep_names))
+        u0[o2] = _match_total(model, u0, o2, (B[o2] - held) / math.exp(ln_w0), zeros_b, zeros_d)
 
     hints = dict(amounts or {})
 
