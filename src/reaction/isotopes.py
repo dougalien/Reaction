@@ -1,4 +1,4 @@
-"""Stable isotopes (δ18O, δ13C, δ34S) and 87Sr/86Sr as a layer on a solved reaction path.
+"""Stable isotopes (δ18O, δD, δ13C, δ34S) and 87Sr/86Sr as a layer on a solved reaction path.
 
 At each point every carrier of an element (water, dissolved carbon or sulfur species, each mineral, the gas)
 is in isotopic equilibrium with the others at that temperature: δ_carrier = δ_ref + Δ_carrier(T), with
@@ -7,6 +7,11 @@ The system's inventory Σ n δ is carried from point to point: reactants add the
 (flow-through minerals and gas, a phase that separates) takes the δ it had, and evaporation takes vapour in
 equilibrium with the water (Horita and Wesolowski 1994).  δ_ref then follows from the mass balance
 Σ n (δ_ref + Δ) = inventory.  This is the δ-notation approximation GWB and EQ6 also use.
+
+Hydrogen: the water carries nearly all of it (111 mol per kg), and only the liquid-vapour fractionation is used
+(Horita and Wesolowski 1994).  Mineral-water D/H factors are scattered and depend on composition, so hydrous
+minerals take the water's δD for now; they hold about 1% of the hydrogen in a basalt run, which moves the water's
+δD by well under a permil.  Dissolved and gaseous H2 and CH4, far lighter in nature, are counted with the water.
 
 Strontium does not fractionate: 87Sr/86Sr is a tracer carried with the fluid, mixed from the starting fluid and
 the Sr that dissolving rock (or a reactant given Sr) adds; secondary minerals are taken to keep none.
@@ -20,9 +25,9 @@ from pathlib import Path
 
 
 DATA = Path(__file__).parent / "data" / "isotope_fractionation.tsv"
-SYSTEMS = {"O": "d18O", "C": "d13C", "S": "d34S"}
+SYSTEMS = {"O": "d18O", "C": "d13C", "S": "d34S", "H": "dD"}
 SR_GRAMS_PER_MOLE = 87.62
-STANDARDS = {"d18O": "VSMOW", "d13C": "VPDB", "d34S": "VCDT"}
+STANDARDS = {"d18O": "VSMOW", "d13C": "VPDB", "d34S": "VCDT", "dD": "VSMOW"}
 
 
 @dataclass(frozen=True)
@@ -59,6 +64,19 @@ def liquid_vapour_o(t_c: float) -> float:
         return 0.0
     t = t_c + 273.15
     return max(-7.685 + 6.7123e3 / t - 1.6664e6 / t ** 2 + 0.35041e9 / t ** 3, 0.0)
+
+
+def liquid_vapour_h(t_c: float) -> float:
+    """1000 ln α (liquid water − vapour) for D/H, Horita and Wesolowski (1994): 76 ‰ at 25 °C, 28 ‰ at 100 °C,
+    changing sign near 220 °C (the vapour is then the heavier), 0 at and above 374 °C."""
+    if t_c >= 374.0:
+        return 0.0
+    t = t_c + 273.15
+    return 1158.8e-9 * t ** 3 - 1620.1e-6 * t ** 2 + 794.84e-3 * t - 161.04 + 2.9992e9 / t ** 3
+
+
+LIQUID_VAPOUR = {"O": liquid_vapour_o, "H": liquid_vapour_h}
+WATER_ATOMS = {"O": 1.0, "H": 2.0}
 
 
 # minerals of the database without a row of their own: the closest phase that has one
@@ -104,6 +122,7 @@ class Fractionation:
         self.db = db
         self.analogues: dict[str, set[str]] = {}       # system -> "mineral (as analogue)"
         self.beyond: set[str] = set()                  # factors used above their calibrated range
+        self.hydrous: set[str] = set()                 # minerals given the water's δD (no D/H factor)
 
     def _factor(self, system: str, phase: str, t_c: float) -> float:
         f = table()[(system, phase)]
@@ -112,6 +131,9 @@ class Fractionation:
         return f.delta(t_c)
 
     def mineral(self, system: str, name: str, t_c: float) -> float:
+        if system == "H":
+            self.hydrous.add(name)
+            return 0.0
         rows = table()
         key = {"S": self._sulfur_phase, "C": self._carbon_phase}.get(system, self._oxygen_phase)(name)
         if key != name and not (system == "S" and key == "sulfate" and name in ("anhydrite", "barite")):
@@ -205,7 +227,8 @@ def carriers(db, state, t_c: float, frac: Fractionation) -> dict[str, Carriers]:
             if sp.elements.get(e):
                 out[e].add(_fluid_label(e, name, sp.elements), n * sp.elements[e],
                            frac.aqueous(e, name, sp.elements, t_c))
-    out["O"].add("water", totals["O"] - out["O"].total, 0.0)
+    for e in ("O", "H"):
+        out[e].add("water", totals[e] - out[e].total, 0.0)
     for e in ("C", "S"):
         rest = totals[e] - out[e].total
         if rest > 1e-12 * max(totals[e], 1e-300):
@@ -248,7 +271,8 @@ class Tracker:
         self.sr_inv = self.sr * (fluid.sr_ratio or 0.0)
         self.sr_ratio = fluid.sr_ratio
         self._cl = None
-        self._vapour = (0.0, 0.0, 0.0)               # this step's evaporation: moles, Σ m δ_start, Σ m Δ(l-v)
+        # this step's evaporation, per system: moles of the element, Σ m δ_start, Σ m Δ(l-v)
+        self._vapour = {e: (0.0, 0.0, 0.0) for e in LIQUID_VAPOUR}
 
     def add(self, comp_moles: dict[str, float], source: Source, units: float) -> None:
         """``units`` of a reactant whose components per unit are ``comp_moles`` join the system."""
@@ -263,14 +287,17 @@ class Tracker:
             self.sr_inv += sr * source.sr_ratio
 
     def evaporate(self, water_moles: float, t_c: float) -> None:
-        """Water vapour in equilibrium with the water leaves.  The vapour's δ18O is the mean of the water's at
-        the start and at the end of the step (settled in ``point``), so coarse steps follow Rayleigh closely."""
-        d_water = self.prev_deltas.get("O", {}).get("water")
-        if d_water is None:
-            d_water = self.inventory["O"] / self.totals["O"] if self.totals["O"] else 0.0
-        self.totals["O"] -= water_moles
-        m, start, lv = self._vapour
-        self._vapour = (m + water_moles, start + water_moles * d_water, lv + water_moles * liquid_vapour_o(t_c))
+        """Water vapour in equilibrium with the water leaves.  The vapour's δ18O and δD are the mean of the
+        water's at the start and at the end of the step (settled in ``point``), so coarse steps follow Rayleigh
+        closely."""
+        for e, lv_of in LIQUID_VAPOUR.items():
+            n = water_moles * WATER_ATOMS[e]
+            d_water = self.prev_deltas.get(e, {}).get("water")
+            if d_water is None:
+                d_water = self.inventory[e] / self.totals[e] if self.totals[e] else 0.0
+            self.totals[e] -= n
+            m, start, lv = self._vapour[e]
+            self._vapour[e] = (m + n, start + n * d_water, lv + n * lv_of(t_c))
 
     def point(self, state, t_c: float, chloride: float) -> dict[str, dict[str, float]]:
         """δ of every carrier at this point, after matter that left since the last one is taken out."""
@@ -295,16 +322,16 @@ class Tracker:
                 out[e] = {}
                 continue
             inv, weight = self.inventory[e], total
-            m, start, lv = self._vapour
-            if e == "O" and m > 0:                    # vapour at the mean of the water's δ18O before and after
+            m, start, lv = self._vapour.get(e, (0.0, 0.0, 0.0))
+            if m > 0:                                 # vapour at the mean of the water's δ before and after
                 inv -= 0.5 * start - lv
                 weight += 0.5 * m
             ref = (inv - sum(n * c.delta[k] for k, n in c.moles.items())) / weight
-            if e == "O" and m > 0:
+            if m > 0:
                 self.inventory[e] = inv - 0.5 * m * (ref + c.delta.get("water", 0.0))
             out[e] = {k: ref + c.delta[k] for k in c.moles}
         self.prev, self.prev_deltas = now, out
-        self._vapour = (0.0, 0.0, 0.0)
+        self._vapour = {e: (0.0, 0.0, 0.0) for e in LIQUID_VAPOUR}
         return out
 
     @property
