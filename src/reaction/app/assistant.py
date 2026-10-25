@@ -213,7 +213,7 @@ def _guard(changes: dict, text: str) -> dict:
 # ---- plain rules ------------------------------------------------------------------------------------
 _NUM = r"(-?\d+(?:\.\d+)?)"
 _DEG = r"\s*(?:°|deg(?:rees?)?)?\s*c(?![a-z])"
-RUN_WORDS = re.compile(r"\b(run|go|start|simulate|calculate|compute|react|titrate|mix|heat|warm|cool|decompress|"
+RUN_WORDS = re.compile(r"\b(run|go|start|simulate|calculate|compute|react|titrate|mix|add|heat|warm|cool|decompress|"
                        r"compress|depressuri[sz]e|pressuri[sz]e|do it|what happens)\b", re.I)
 
 
@@ -238,7 +238,7 @@ def _fluid_key(words: str) -> str | None:
 _REACTANT = re.compile(
     r"\b(?:react(?:ing)?|add(?:ing)?|dissolv(?:e|ing)|titrat(?:e|ing)(?:\s+\w+)?\s+with|with)\s+"
     r"(?:up\s+to\s+)?(\d*\.?\d+)\s*(g|grams?|mg|kg|mol|moles?|mmol)\s+(?:of\s+)?"
-    r"([A-Za-z][\w()+\-]*(?:,(?:ordered|disordered|low|high|alpha|beta|maximum))?)", re.I)
+    r"([A-Za-z][\w()+\-]*(?:,(?:ordered|disordered|low|high|alpha|beta|maximum)|\s+glass)?)", re.I)
 
 
 def interpret_rules(text: str, card: Scenario) -> Interpretation:

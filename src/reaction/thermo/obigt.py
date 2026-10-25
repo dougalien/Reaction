@@ -230,6 +230,12 @@ def load_obigt(folder: str | Path, files=DEFAULT_FILES) -> ObigtData:
                     data.skipped.append(f"{fname}: {row['name']} ({row['state']}) has no low-"
                                         f"temperature phase")
                     continue                      # its G is relative to a phase without data
+                if sp.model == "Berman" and "," in sp.name:
+                    base = data.species.get((sp.name.split(",")[0], "cr"))
+                    if base is not None and base.model == "Berman" and \
+                            _same_params(base.eos.params, sp.eos.params):
+                        data.skipped.append(f"{fname}: {sp.name} is the same as {base.name}")
+                        continue                  # albite,low is albite: one name, not a tie
                 if sp.model == "Berman":          # replaces every polymorph of the older data
                     for key in [k for k in data.species
                                 if re.fullmatch(r"cr\d?", k[1])
@@ -237,3 +243,7 @@ def load_obigt(folder: str | Path, files=DEFAULT_FILES) -> ObigtData:
                         data.species.pop(key)
                 data.species[(sp.name, sp.state)] = sp
     return data
+
+
+def _same_params(a, b) -> bool:
+    return (a.h0, a.s0, a.v0, a.k, a.v, a.lam, a.dis) == (b.h0, b.s0, b.v0, b.k, b.v, b.lam, b.dis)

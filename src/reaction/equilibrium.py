@@ -310,17 +310,48 @@ def _phase_rule_swap(nu_ph, assemblage, add, unk, n_prev, ph_names):
     """(mineral that leaves, moles of the newcomer, lam) when ``add`` cannot join the assemblage
     without making the saturation conditions dependent; (None, 0, None) when it can join.  The
     leaving mineral is picked by the ratio test, so every amount stays non-negative."""
+    options, lam = _swap_options(nu_ph, assemblage, add, unk, n_prev, ph_names)
+    if not options:
+        return None, 0.0, None
+    leave, theta = options[0]
+    return leave, theta, lam
+
+
+def _swap_options(nu_ph, assemblage, add, unk, n_prev, ph_names):
+    """Every mineral that could leave to make room for ``add``, best (the ratio test) first, as
+    (mineral, moles of the newcomer); and lam.  Empty when ``add`` can simply join."""
     lam = _dependence(nu_ph, assemblage, add, unk)
     if lam is None or not np.any(np.abs(lam) > 1e-12):      # independent, or no condition at all
-        return None, 0.0, None
+        return [], None
     amounts = [max(n_prev.get(ph_names[a], 0.0), 0.0) for a in assemblage]
-    ratios = [(amounts[k] / lam[k], k) for k in range(len(assemblage)) if lam[k] > 1e-12]
-    if ratios:
-        theta, k = min(ratios)
-    else:
-        k = int(np.argmax(np.abs(lam)))
-        theta = 0.0
-    return assemblage[k], theta, lam
+    ratios = sorted((amounts[k] / lam[k], k) for k in range(len(assemblage)) if lam[k] > 1e-12)
+    if not ratios:
+        return [(assemblage[int(np.argmax(np.abs(lam)))], 0.0)], lam
+    return [(assemblage[k], theta) for theta, k in ratios], lam
+
+
+def _most_alike(nu_ph, assemblage, add, unk, limit=4):
+    """Minerals of the assemblage whose compositions are closest in direction to ``add``'s, as
+    (mineral, 0) swap options, most alike first."""
+    v = nu_ph[add, unk]
+    scored = []
+    for a in assemblage:
+        w = nu_ph[a, unk]
+        denom = float(np.linalg.norm(v) * np.linalg.norm(w))
+        if denom > 0:
+            scored.append((-abs(float(v @ w)) / denom, a))
+    return [(a, 0.0) for _, a in sorted(scored)[:limit]]
+
+
+def _swapped(assemblage, n_prev, ph_names, lam, leave, add, theta):
+    """The assemblage and amounts after ``add`` replaces ``leave`` (a simplex pivot, or without
+    ``lam`` a plain exchange)."""
+    n_new = dict(n_prev)
+    for k, a in enumerate(assemblage if lam is not None else ()):
+        n_new[ph_names[a]] = n_new.get(ph_names[a], 0.0) - theta * lam[k]
+    n_new.pop(ph_names[leave], None)
+    n_new[ph_names[add]] = theta
+    return [a for a in assemblage if a != leave] + [add], n_new
 
 
 def _independent(nu_ph, assemblage: list[int], unk: list[int]) -> list[int]:
@@ -441,6 +472,7 @@ def equilibrate(system: System, temperature_c: float, bulk: dict[str, float], *,
     solved: dict[frozenset, dict] = {}
     tried: dict[frozenset, set[int]] = {}
     blocked: set[int] = set()                 # minerals whose addition failed
+    swaps: dict[frozenset, tuple] = {}        # assemblage reached by a pivot -> how to try another
     u_cur, ln_w_cur, ionic_cur = u0, ln_w0, ionic0
     last = None
     total_iter = 0
@@ -454,11 +486,29 @@ def equilibrate(system: System, temperature_c: float, bulk: dict[str, float], *,
                 last = problem.solve(assemblage, u_cur, ln_w_cur, initial_n(assemblage), ionic_cur,
                                      tol=tol)
             except (SpeciationError, np.linalg.LinAlgError) as exc:
-                if not assemblage:
-                    raise EquilibriumError(f"aqueous solution alone failed: {exc}") from exc
-                blocked.add(assemblage[-1])           # the newest mineral could not be added
-                assemblage = assemblage[:-1]
-                continue
+                # across a redox jump the last state can be a poor start: try once from the
+                # bulk composition itself before giving up on this assemblage
+                try:
+                    cold = _initial_u(model, B, fixed_idx)
+                    last = problem.solve(assemblage, cold, math.log(B[0] / WATER_MOLES_PER_KG),
+                                         initial_n(assemblage), 0.0, tol=tol)
+                except (SpeciationError, np.linalg.LinAlgError):
+                    if not assemblage:
+                        raise EquilibriumError(f"aqueous solution alone failed: {exc}") from exc
+                    if key in swaps:                      # a pivot that did not solve: try the
+                        prev, n_before, add, lam, options = swaps.pop(key)   # next mineral to leave
+                        if options:
+                            leave, theta = options.pop(0)
+                            assemblage, n_prev = _swapped(prev, n_before, model.ph_names, lam,
+                                                          leave, add, theta)
+                            swaps[frozenset(assemblage)] = (prev, n_before, add, lam, options)
+                            continue
+                        blocked.add(add)
+                        assemblage, n_prev = prev, n_before
+                        continue
+                    blocked.add(assemblage[-1])           # the newest mineral could not be added
+                    assemblage = assemblage[:-1]
+                    continue
             last["assemblage"] = list(assemblage)
             solved[key] = last
         total_iter += last["iterations"]
@@ -480,20 +530,24 @@ def equilibrate(system: System, temperature_c: float, bulk: dict[str, float], *,
         if candidates:
             _, add = max(untried)
             tried[key].add(add)
-            leave, theta, lam = _phase_rule_swap(model.nu_ph, assemblage, add, problem.unk, n_prev,
-                                                 model.ph_names)
-            if leave is None:
+            options, lam = _swap_options(model.nu_ph, assemblage, add, problem.unk, n_prev,
+                                         model.ph_names)
+            if not options:
+                # it can join; if that assemblage will not solve, it may replace the mineral most
+                # like it instead (tremolite for diopside when talc-like Mg is short)
+                prev, n_before = list(assemblage), dict(n_prev)
                 assemblage = assemblage + [add]
+                swaps[frozenset(assemblage)] = (prev, n_before, add, None,
+                                                _most_alike(model.nu_ph, prev, add, problem.unk))
             else:
                 # the new mineral's saturation condition is a combination of those already present
                 # (Dolomite against Dolomite-ord, gypsum against anhydrite): adding it would break
-                # the phase rule, so it replaces one of them, as in a simplex pivot
-                for k, a in enumerate(assemblage):
-                    name = model.ph_names[a]
-                    n_prev[name] = n_prev.get(name, 0.0) - theta * lam[k]
-                n_prev.pop(model.ph_names[leave], None)
-                n_prev[model.ph_names[add]] = theta
-                assemblage = [a for a in assemblage if a != leave] + [add]
+                # the phase rule, so it replaces one of them, as in a simplex pivot; if that
+                # assemblage cannot be solved, the next candidate leaves instead
+                prev, n_before = list(assemblage), dict(n_prev)
+                leave, theta = options.pop(0)
+                assemblage, n_prev = _swapped(prev, n_before, model.ph_names, lam, leave, add, theta)
+                swaps[frozenset(assemblage)] = (prev, n_before, add, lam, options)
             continue
         stuck = [model.ph_names[a] for a in blocked if a in allowed_set and a not in assemblage
                  and si[a] > 1e-6]

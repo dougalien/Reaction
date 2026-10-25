@@ -28,7 +28,22 @@ P1 (solver: phase rule, flow-through in the path class, speed) and P2 (custom fl
 run comparison, a second results window, mg/kg units) were done on 2026-10-25 as pull requests #2 to #8;
 see the roadmap doc linked in the project memory.
 
-258 tests pass with the data folder present.
+P3 (seawater and basalt at 350 C) was done on 2026-10-25 as pull requests #9 to #11:
+- Berman (1988) minerals (`thermo/berman.py`, CHNOSZ `extdata/Berman/*.csv` in `OBIGT/Berman/`) replace the
+  Helgeson silicates in the "current" data, as in OBIGT's defaults. Minerals hold only to their transition
+  temperature (CHNOSZ `exceed.Ttr = FALSE`).
+- Redox on the card (`redox`, `redox_value`): from a redox species in the analysis (O2, H2, Fe(III), sulfide,
+  nitrate) as the couple, air, log fO2, Eh or pe. Seawater and rain are air-saturated, the vent fluid has
+  H2S and an illustrative 0.5 mmol/kg H2. log fO2 and Eh can be plotted.
+- Basalt glass as a reactant (`app/rocks.py`, MORB glass, a tenth of the iron ferric, Ti left out): it
+  dissolves congruently; the water/rock axis comes with it.
+- Solver: log fO2 starts where the redox budget is matched; a failed warm start retries from the bulk
+  composition; a mineral whose addition will not solve replaces the most similar mineral (or the next one
+  in the ratio test) instead of failing the point. Seawater + 1 kg basalt glass at 350 C, 11 steps: static
+  2 s, flow-through 8 s, no failed points; it gives albite, chlorite, epidote, actinolite, pyrrhotite.
+
+277 tests pass with the data folder present. The data folder needs `OBIGT/Berman/` (run
+`scripts/fetch_references.ps1` again); without it the old minerals are used and every run says so.
 
 ## First things to do, in this order
 
@@ -78,8 +93,13 @@ see the roadmap doc linked in the project memory.
   in heating experiments, so Mg removal and the acid it releases are underestimated.
 - **App**: the reliability strip is thin (5 px); "Earlier runs" in the user's workspace includes my test
   runs. Only preset fluids can be mixed in (not a second custom analysis). Mixing temperature assumes equal
-  heat capacities. Reactants whose formula needs the oxidation state (magnetite, pyrite) wait for redox (P3).
-  Alkalinity is not read from an analysis yet; give total carbonate as HCO3.
+  heat capacities. Alkalinity is not read from an analysis yet; give total carbonate as HCO3.
+- **Minerals**: no smectites (saponite, nontronite, beidellite) or celadonite in OBIGT, so low-temperature
+  basalt alteration shows the equilibrium greenschist-like minerals (albite, K-feldspar, pumpellyite,
+  andradite) instead of clays and zeolites; block those to mimic kinetics. Endmembers only until solid
+  solutions (P7), so iron goes to minnesotaite, annite and daphnite rather than into chlorite and actinolite.
+  The zeolites (laumontite, wairakite, analcime) and some others are still the Helgeson (1978) data, so they
+  are not strictly consistent with the Berman minerals.
 
 ## How to run things
 
