@@ -30,7 +30,7 @@ from ..database.model import Kind
 from ..equilibrium import System
 from ..kinetics import basalt_glass, rate_law
 from ..network import PROTON, WATER
-from ..path import PathPoint, ReactionPath, Reactant, mineral_reactant
+from ..path import PathPoint, ReactionPath, Reactant, _composition_row, mineral_reactant
 from ..phasesep import phase_state, salinity_from_chloride
 from ..solidsolution import table as solid_solution_table
 from ..speciation import PH, Couple, Eh, LogFO2, Molal, Pe, Speciation, speciate
@@ -165,7 +165,8 @@ class Engine:
                          f"equation is unreliable above about 1 mol/kg; choose Pitzer on the card for brines.")
         for mode, run in runs.items():
             _phase_split(run, points)
-            notes.extend(phase_notes(run, points, MODE_LABELS[mode] if len(runs) > 1 else ""))
+            notes.extend(phase_notes(run, points, MODE_LABELS[mode] if len(runs) > 1 else "",
+                                     sc.follow_phase))
         if sc.solid_solutions:
             notes.append("Solid solutions mix ideally on their sites (the EQ3/6 models). Real carbonates and "
                          "feldspars unmix at low temperature, so there the minor endmember is overstated.")
@@ -464,7 +465,9 @@ class Engine:
         if sc.evaporating:           # water taken away, evenly in the logarithm of the concentration
             reactants.append(_Evaporation("evaporation", {WATER: -WATER_MOLES_PER_KG},
                                           1.0 - 1.0 / sc.evaporate, factor=sc.evaporate, steps=last))
-        path = ReactionPath(system, bulk0, reactants=reactants,
+        split: dict[float, tuple] = {}
+        separate = self._separator(system, sc, split) if sc.follow_phase != "whole" else None
+        path = ReactionPath(system, bulk0, reactants=reactants, separate=separate,
                             temperature=lambda xi: sc.tp(xi / (last * step))[0],
                             pressure=lambda xi: sc.tp(xi / (last * step))[1],
                             suppress_minerals=suppress, flow_through=flow_through)
@@ -476,7 +479,58 @@ class Engine:
 
         solved = path.run([i * step for i in range(n)], on_failure=failed, progress=tick)
         kinetic = [r for r in reactants if r.kinetic]
-        return _pack([None if pt is None else self._record(db, pt, kinetic) for pt in solved])
+        run = _pack([None if pt is None else self._record(db, pt, kinetic) for pt in solved])
+        if separate is not None:
+            run["split"] = [split.get(round(i * step, 9)) for i in range(n)]
+        return run
+
+    def _separator(self, system: System, sc: Scenario, record: dict):
+        """The path's phase-separation hook when the card follows the brine or the vapour: where the fluid
+        splits (NaCl-H2O, by its chloride), the other phase leaves.  Water goes by the lever rule; chloride
+        and every other solute in proportion to the salt in each phase; dissolved gases (neutral species
+        with a gas of the same formula) with the water, as they do near the critical point, where gases
+        partition about evenly between the two phases per kg of water.  Minerals stay with the brine and a
+        separate gas phase goes with the vapour.  ``record`` gets, for each xi,
+        (phase state before the split, kg of fluid that left)."""
+        net = system.net
+        gases = {n[:-3] for n in net.phase_names if n.endswith("(g)")}
+        brine = sc.follow_phase == "brine"
+        gone = [0.0]
+
+        def separate(xi, state):
+            spec = state.speciation
+            x = salinity_from_chloride(spec.component_totals.get("Cl-", 0.0))
+            ps = phase_state(spec.temperature_c, spec.pressure_bar, x)
+            if not ps.separated:
+                record[round(xi, 9)] = (ps, gone[0])
+                return None
+            w = state.water_kg
+            share_w = ps.vapour_mass * (1.0 - ps.x_vap) / (1.0 - x)       # of the water, in the vapour
+            share_s = ps.vapour_mass * ps.x_vap / x                         # of the salt, in the vapour
+            if not brine:
+                share_w, share_s = 1.0 - share_w, 1.0 - share_s
+            fluid_kg = w / (1.0 - x)
+            gone[0] += fluid_kg * (ps.vapour_mass if brine else 1.0 - ps.vapour_mass)
+            record[round(xi, 9)] = (ps, gone[0])
+            out = {WATER: share_w * w * WATER_MOLES_PER_KG}
+            for name, st in spec.species.items():
+                if name == WATER or st.molality <= 0:
+                    continue
+                volatile = name in gases and self.db.species[name].charge == 0
+                moles = (share_w if volatile else share_s) * st.molality * w
+                for comp, c in _composition_row(system, name).items():
+                    out[comp] = out.get(comp, 0.0) + c * moles
+            # the vapour moves on without the minerals; a separate gas phase goes with the vapour
+            left = dict(state.gas) if brine else dict(state.minerals)
+            if not brine:
+                for members in state.solid_solutions.values():
+                    left.update(members)
+            for name, moles in left.items():
+                for comp, c in _composition_row(system, name).items():
+                    out[comp] = out.get(comp, 0.0) + c * moles
+            return out
+
+        return separate
 
     def _uncertainty(self, sc: Scenario, modes: list[str], runs: dict[str, dict], progress: Progress
                      ) -> list[str]:
@@ -716,7 +770,17 @@ def _phase_split(run: dict, points: list[tuple[float, float]]) -> None:
     sal = run["phases"]["salinity"]
     known = [i for i, v in enumerate(sal) if v is not None]
     state, share, brine, vapour = [], [], [], []
+    split = run.pop("split", None)
+    if split is not None:                    # following one phase: the split before it was taken
+        run["phases"]["split_off_kg"] = [_sig(s[1]) if s else None for s in split]
     for i, (t, p) in enumerate(points):
+        if split is not None and split[i] is not None:
+            ps = split[i][0]
+            state.append(ps.kind)
+            share.append(_sig(100.0 * ps.vapour_mass) if ps.separated else None)
+            brine.append(_sig(100.0 * ps.x_liq) if ps.separated else None)
+            vapour.append(_sig(100.0 * ps.x_vap) if ps.separated else None)
+            continue
         if not known:
             state.append(None)
             share.append(None), brine.append(None), vapour.append(None)
@@ -732,9 +796,10 @@ def _phase_split(run: dict, points: list[tuple[float, float]]) -> None:
         run["phases"].update(vapour_share=share, brine_salinity=brine, vapour_salinity=vapour)
 
 
-def phase_notes(run: dict, points: list[tuple[float, float]], mode: str = "") -> list[str]:
+def phase_notes(run: dict, points: list[tuple[float, float]], mode: str = "",
+                follow: str = "whole") -> list[str]:
     """Where the fluid splits into brine and vapour (NaCl-H2O, Driesner and Heinrich 2007), or meets
-    halite, and where the path leaves the table."""
+    halite, and where the path leaves the table.  ``follow`` is the card's follow_phase."""
     state = run.get("phase_state", [])
     where = f" ({mode.lower()})" if mode else ""
     out = []
@@ -749,7 +814,8 @@ def phase_notes(run: dict, points: list[tuple[float, float]], mode: str = "") ->
                    f"splits into brine and vapour from about {t:.0f} °C and {p:.0f} bar (Driesner and Heinrich 2007). "
                    f"At most {ph['vapour_share'][top]:.0f}% of its mass is vapour with "
                    f"{ph['vapour_salinity'][top]:.2g} wt% NaCl, against {ph['brine_salinity'][top]:.3g} wt% in the brine. "
-                   f"The chemistry shown is that of the whole fluid; the Brine and vapour tab has the split.")
+                   + ("The chemistry shown is that of the whole fluid; the Brine and vapour tab has the split."
+                      if follow == "whole" else _follow_note(run, follow)))
     halite = [i for i, s in enumerate(state) if s in ("vapour + halite", "liquid + halite")]
     if halite:
         t, p = points[halite[0]]
@@ -763,6 +829,18 @@ def phase_notes(run: dict, points: list[tuple[float, float]], mode: str = "") ->
         out.append("Phase separation is checked only from 10 to 490 bar (the range of the NaCl-H2O table), so it "
                    "is not checked on this path.")
     return out
+
+
+def _follow_note(run: dict, follow: str) -> str:
+    """The phase-separation note's last sentence when the run follows the brine or the vapour."""
+    gone = [v for v in run["phases"].get("split_off_kg", []) if v is not None]
+    left = f" By the end {gone[-1]:.2g} kg of fluid has left." if gone and gone[-1] > 0 else ""
+    if follow == "brine":
+        return ("The chemistry shown is that of the brine: at each step the vapour boils off and leaves, taking "
+                "the water and dissolved gases with it." + left + " Brines above about 20 wt% NaCl are "
+                "beyond the activity model, so points there may be left blank.")
+    return ("The chemistry shown is that of the vapour: at each step the brine stays behind with most of the "
+            "salt; dissolved gases go with the water." + left)
 
 
 def _bands(run: dict, samples: list[dict]) -> dict:
@@ -825,7 +903,9 @@ def _catalog(db, runs: dict[str, dict], sc: Scenario) -> dict:
     phases = {"salinity": {"label": "Salinity of the whole fluid", "unit": "wt% NaCl"},
               "vapour_share": {"label": "Vapour share of the fluid", "unit": "% by mass"},
               "brine_salinity": {"label": "Brine salinity", "unit": "wt% NaCl"},
-              "vapour_salinity": {"label": "Vapour salinity", "unit": "wt% NaCl"}}
+              "vapour_salinity": {"label": "Vapour salinity", "unit": "wt% NaCl"},
+              "split_off_kg": {"label": ("Vapour boiled off" if sc.follow_phase == "brine" else "Brine left behind"),
+                               "unit": "kg per kg of starting water"}}
     return {"species": species, "elements": elements, "minerals": minerals, "gas": gases,
             "kinetic": kinetic, "composition": composition, "phases": phases}
 

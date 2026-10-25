@@ -55,9 +55,7 @@ component, CH4(g) is tied to it); the card's `methane_sulfate` = react lets them
 this default). Gases are reactants ("2 mol CO2 gas", "methane"). CO2 solubility is within 10% of Duan and
 Sun (2003) to 200 bar; at 400 bar the aqueous side runs about 20% low (a Duan-type model is the next step).
 
-P5b (phase separation, NaCl-H2O after Driesner and Heinrich 2007) is on hold: the coefficient tables are in
-the paywalled paper and neither Douglas nor I could get them (2026-10-25). Look for an open implementation
-with a usable license (xThermal, for example) before writing it.
+P5b (phase separation) was unblocked on 2026-10-25 by Oguntola's open lookup table: see below.
 
 P6 (kinetics) was done on 2026-10-25: `kinetics.py` (rate laws r = A sum k(T) prod a^n (1 - Omega), the
 Palandri and Kharaka 2004 table in `data/rates_palandri_kharaka_2004.tsv`, 60-odd minerals mapped to the
@@ -117,9 +115,20 @@ splits from about 390 C. Not yet: the chemistry still follows the whole fluid; f
 vapour (partitioning of every solute and gas) is the next step, then paths below the boiling curve.
 Judgment calls: NaCl-equivalent from Cl; bilinear interpolation, nearest corner at field edges.
 
-Next: P5b part two (follow the brine or the vapour), then P7c isotopes.
+P5b part two (done): the card's `follow_phase` (whole, brine, vapour; chat "follow the brine", "let the
+vapour boil off", "leave the brine behind"; a Follow select on the card). Where the fluid splits, the
+path's `separate` hook removes the other phase after each step and the point is solved again. Water goes
+by the lever rule, solutes in proportion to the salt in each phase, neutral species with a gas of the same
+formula (CO2, H2S, HCl, ...) with the water; minerals stay with the brine and a gas phase goes with the
+vapour. Seawater at 300 bar, 405 C: the brine left has 6.6 wt% NaCl, the vapour 0.56 wt%, as the table
+says. Limits: brines past about 20 wt% (seawater above about 410 C) are beyond B-dot and points there are
+blank; the near-critical points fail as before. A failing step is halved at most 40 times per point
+(before, a failure could halve both halves 25 deep). Judgment calls: gases with the water (they partition
+roughly evenly per kg water near the critical point); the vapour leaves its minerals behind.
 
-340 tests pass with the data folder present. The data folder needs `OBIGT/Berman/` (run
+Next: P7c isotopes.
+
+343 tests pass with the data folder present. The data folder needs `OBIGT/Berman/` (run
 `scripts/fetch_references.ps1` again); without it the old minerals are used and every run says so.
 
 ## First things to do, in this order

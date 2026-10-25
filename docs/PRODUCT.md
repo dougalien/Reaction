@@ -127,7 +127,7 @@ Gislason and Oelkers 2003) from a reactive surface area: they dissolve toward sa
 past it, and the results show each rate and how much is left. Since P7a brines use Pitzer's equations and
 a fluid can be evaporated (seawater to its bittern salts). Any run can carry an uncertainty range: it is
 repeated with the log K values shifted at random by their uncertainty (larger where the reliability check is
-worse) and the plots shade the middle 90%, something GWB does not offer. Since P7b solid solutions (plagioclase, carbonate, chlorite, epidote, olivine, pyroxenes and others) can form with their compositions followed along the run. Since P5b every run reports where a saline fluid splits into brine and vapour (NaCl-H2O after Driesner and Heinrich), with the vapour share and both salinities. Next: following the brine or the vapour chemically, and isotopes.
+worse) and the plots shade the middle 90%, something GWB does not offer. Since P7b solid solutions (plagioclase, carbonate, chlorite, epidote, olivine, pyroxenes and others) can form with their compositions followed along the run. Since P5b every run reports where a saline fluid splits into brine and vapour (NaCl-H2O after Driesner and Heinrich), with the vapour share and both salinities, and a run can follow the brine as the vapour boils off, or the vapour as it leaves the brine behind. Next: isotopes.
 
 ## Pressure and temperature are free variables
 
