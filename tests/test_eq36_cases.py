@@ -17,11 +17,13 @@ from pathlib import Path
 
 import pytest
 
+from reaction.app import config
 from reaction.validation.eq3nr_run import run_case
 
-_ROOT = os.environ.get("REACTION_EQ36_TESTS")
-_LIB = Path(_ROOT) / "3tlib_cmp" if _ROOT else None
-CASES = sorted(p.stem for p in _LIB.glob("*.3i")) if _LIB and _LIB.is_dir() else []
+# the test library: REACTION_EQ36_TESTS, else the app's data folder (see conftest.py)
+_ROOT = os.environ.get("REACTION_EQ36_TESTS") or str(config.external_dir() / "EQ36_tests")
+_LIB = Path(_ROOT) / "3tlib_cmp"
+CASES = sorted(p.stem for p in _LIB.glob("*.3i")) if _LIB.is_dir() else []
 
 TOLERANCE = 1e-4
 

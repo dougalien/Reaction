@@ -166,5 +166,5 @@ to add, which makes the step subdivision follow the redox front. Still open: `de
 identical data, such as Dolomite and Dolomite-ord), `microft` (flow-through in the general path class), and
 the cases that need special basis switches, solid solutions, ion exchangers or kinetics.
 
-Nothing in `equilibrium.py`, `path.py`, `validation/eq6_*.py` or `app/` is committed yet; the last commit is
-M2 (e90e9d9).
+The solver, paths and EQ6 harness were committed in `3af9559`, the app in `a3076e0` and pressure paths in
+`3f37964`.

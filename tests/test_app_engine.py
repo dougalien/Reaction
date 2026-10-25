@@ -80,3 +80,47 @@ def test_story_and_catalog_are_consistent(result):
 def test_a_bad_card_is_refused(engine):
     with pytest.raises(ValueError, match="boils"):
         engine.run(Scenario(p_start_bar=100.0, p_end_bar=100.0))
+
+
+def test_flow_through_runs_above_the_critical_temperature(engine):
+    """Leaving minerals behind must not need a saturation pressure, which does not exist above 374 C."""
+    card = Scenario(t_start_c=300.0, t_end_c=450.0, steps=4, p_start_bar=1000.0, p_end_bar=1000.0,
+                    mode="flow_through")
+    run = engine.run(card)["modes"]["flow_through"]
+    assert all(v is not None for v in run["properties"]["pH"])
+    assert run["minerals"]["anhydrite"][-1] > 0
+
+
+def test_a_failed_step_leaves_nothing_behind_halfway(engine, monkeypatch):
+    """When a step is retried in two halves, the halfway point is only a starting guess: minerals are
+    left behind at the steps of the card and nowhere else."""
+    from reaction.app import engine as engine_module
+    from reaction.speciation import SpeciationError
+
+    card = Scenario(t_start_c=25.0, t_end_c=350.0, steps=8, p_start_bar=500.0, p_end_bar=500.0,
+                    mode="flow_through")
+    target = card.points()[5][0]
+    real_solve, real_row = engine_module.equilibrate, engine_module._composition_row
+    failed, removals = [], []
+
+    def flaky(system, t_c, *args, **kwargs):
+        if abs(t_c - target) < 1e-9 and not failed:
+            failed.append(t_c)
+            raise SpeciationError("simulated convergence failure")
+        return real_solve(system, t_c, *args, **kwargs)
+
+    def counted(*args):
+        removals.append(args[1])
+        return real_row(*args)
+
+    monkeypatch.setattr(engine_module, "_composition_row", counted)
+    plain = engine.run(card)["modes"]["flow_through"]
+    plain_removals = len(removals)
+    removals.clear()
+    monkeypatch.setattr(engine_module, "equilibrate", flaky)
+    retried = engine.run(card)["modes"]["flow_through"]
+    assert failed
+    assert len(removals) == plain_removals
+    assert set(retried["minerals"]) == set(plain["minerals"])
+    for name, amounts in plain["minerals"].items():
+        assert retried["minerals"][name] == pytest.approx(amounts, rel=1e-6, abs=1e-12)
