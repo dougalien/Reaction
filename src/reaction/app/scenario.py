@@ -75,6 +75,10 @@ class Scenario:
     mix_with: str = ""
     mix_ratio: float = 1.0
     mix_t_c: float | None = None
+    # a free gas phase (CO2, CH4, H2O, H2, H2S, N2 ...) forms when the dissolved gases' fugacities add
+    # up to the pressure; methane and sulfate are held apart (no reaction between them) unless asked
+    gas_phase: bool = True
+    methane_sulfate: str = "apart"
 
     # ---- editing --------------------------------------------------------------------------
     def to_dict(self) -> dict[str, Any]:
@@ -184,6 +188,10 @@ class Scenario:
         ("log_fo2" | "eh" | "pe", value) or ("couple", species).  Raises ValueError when the
         card cannot say."""
         return resolve_redox(self.fluid_spec(), self.fluid_analysis())
+
+    @property
+    def hold_methane_apart(self) -> bool:
+        return self.methane_sulfate == "apart"
 
     # ---- checking -------------------------------------------------------------------------
     def problems(self) -> list[str]:
@@ -311,7 +319,7 @@ def resolve_redox(spec: FluidPreset, got: analysis.Analysis) -> tuple[str, Any]:
     """See :meth:`Scenario.redox_setting`."""
     present = [s for s in got.species if s in analysis.REDOX]
     # a redox species can be the couple only when its partner (if any) is in the analysis too
-    couples = [s for s in ("O2", "H2", "Fe+3", "H2S", "NO3-")
+    couples = [s for s in ("O2", "H2", "Fe+3", "H2S", "NO3-", "CH4")
                if s in present and (analysis.REDOX[s] is None or analysis.REDOX[s] in got.species)]
     choice = spec.redox
     if choice == "auto":
@@ -404,6 +412,22 @@ def _coerce(key: str, value: Any) -> Any:
         if not isinstance(value, (list, tuple)):
             raise TypeError("expected a list of mineral names")
         return [str(v).strip().lower() for v in value if str(v).strip()]
+    if key == "gas_phase":
+        if isinstance(value, str):
+            low = value.strip().lower()
+            if low in ("true", "yes", "on", "1", "allowed", "allow"):
+                return True
+            if low in ("false", "no", "off", "0", "none", "suppressed"):
+                return False
+            raise ValueError(f"'{value}' is not yes or no")
+        return bool(value)
+    if key == "methane_sulfate":
+        low = str(value).strip().lower().replace("-", "_").replace(" ", "_")
+        low = {"held_apart": "apart", "separate": "apart", "no": "apart", "equilibrate": "react",
+               "equilibrium": "react", "yes": "react", "reacting": "react"}.get(low, low)
+        if low not in ("apart", "react"):
+            raise ValueError(f"'{value}' is not apart or react")
+        return low
     if key in ("title", "fluid", "mode", "activity_model"):
         text = str(value).strip()
         if key == "title":
@@ -477,6 +501,9 @@ FIELD_HELP = {
     "mix_with": f"a second fluid mixed in steadily ({', '.join(PRESETS)}), or empty for none",
     "mix_ratio": "kg of the second fluid per kg of the first at the end of the run",
     "mix_t_c": "temperature of the second fluid, degrees C; the mixture's temperature then follows the mixing",
+    "gas_phase": "true (default): a gas phase forms when dissolved gases exceed the pressure; false: none",
+    "methane_sulfate": "apart (default): methane and sulfate do not react with each other; react: "
+                       "they reach equilibrium (thermochemical sulfate reduction)",
     "reactants": "minerals or species added steadily along the path, per kg of water, e.g. "
                  "[{\"name\": \"albite\", \"amount\": 10, \"unit\": \"g\"}]",
 }

@@ -238,7 +238,7 @@ def _fluid_key(words: str) -> str | None:
 _REACTANT = re.compile(
     r"\b(?:react(?:ing)?|add(?:ing)?|dissolv(?:e|ing)|titrat(?:e|ing)(?:\s+\w+)?\s+with|with)\s+"
     r"(?:up\s+to\s+)?(\d*\.?\d+)\s*(g|grams?|mg|kg|mol|moles?|mmol)\s+(?:of\s+)?"
-    r"([A-Za-z][\w()+\-]*(?:,(?:ordered|disordered|low|high|alpha|beta|maximum)|\s+glass)?)", re.I)
+    r"([A-Za-z][\w()+\-]*(?:,(?:ordered|disordered|low|high|alpha|beta|maximum)|\s+glass|\s+gas)?)", re.I)
 
 
 def interpret_rules(text: str, card: Scenario) -> Interpretation:
@@ -336,6 +336,7 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
     elif pasted.ph is not None and not re.search(r"\b(plot|show|hide)\b", low):
         ch["ph"] = pasted.ph
     ch.update(_redox(low))
+    ch.update(_gas_options(low))
     found = [f for f in _REACTANT.findall(text)
              if not re.fullmatch(_FLUID_WORDS, f[2].lower())]       # "with 10 kg of seawater" is mixing
     if found:
@@ -399,6 +400,21 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
             out.reply = "Set " + ", ".join(bits) + "." if bits else ""
         elif bits:
             out.reply += " Set " + ", ".join(bits) + "."
+    return out
+
+
+def _gas_options(low: str) -> dict:
+    """The gas phase switch and whether methane may reduce sulfate."""
+    out: dict = {}
+    if re.search(r"\b(no|without|suppress\w*|disable\w*|turn off)\b[^.]*\bgas phase\b|\bgas phase\b[^.]*\b(off|suppressed)\b", low):
+        out["gas_phase"] = False
+    elif re.search(r"\b(allow|with|enable|turn on)\b[^.]*\bgas phase\b", low):
+        out["gas_phase"] = True
+    if re.search(r"methane", low) and re.search(r"sulfate|sulphate", low):
+        if re.search(r"\b(apart|separate|not react|don'?t react|no reaction|block)", low):
+            out["methane_sulfate"] = "apart"
+        elif re.search(r"\b(react|equilibrat|reduc)", low):
+            out["methane_sulfate"] = "react"
     return out
 
 

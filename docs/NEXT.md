@@ -47,7 +47,15 @@ water and quartz-saturation lines; an uncertainty band from the water-ionization
 (requests in words: "Eh-pH diagram for Fe at 300 C", "fO2-pH diagram of iron with sulfur", "activity diagram
 for K"; the run's path and fluid), a panel in the results window (`static/diagram.js`).
 
-287 tests pass with the data folder present. The data folder needs `OBIGT/Berman/` (run
+P5 (gas phase) was done on 2026-10-25: `thermo/gas.py` (Peng-Robinson mixture with k_ij), a free gas phase
+in `equilibrium.py` (one more unknown, the moles of gas, and one more condition, the mole fractions f/(phi P)
+summing to one; it appears and disappears like a mineral), flow-through vents it. Methane (OBIGT
+organic_aq/organic_gas, only CH4 is read) is held apart from sulfate by default (`hold_apart`: CH4 is its own
+component, CH4(g) is tied to it); the card's `methane_sulfate` = react lets them equilibrate (Douglas chose
+this default). Gases are reactants ("2 mol CO2 gas", "methane"). CO2 solubility is within 10% of Duan and
+Sun (2003) to 200 bar; at 400 bar the aqueous side runs about 20% low (a Duan-type model is the next step).
+
+297 tests pass with the data folder present. The data folder needs `OBIGT/Berman/` (run
 `scripts/fetch_references.ps1` again); without it the old minerals are used and every run says so.
 
 ## First things to do, in this order

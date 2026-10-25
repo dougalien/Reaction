@@ -26,6 +26,7 @@ from .constants import LN10, WATER_MOLES_PER_KG
 from .database.model import Kind, ThermoDatabase
 from .network import OXYGEN, PROTON, WATER, Network, NetworkError
 from .speciation import Speciation, SpeciationError, _globalized_step, make_speciation
+from .thermo import gas as gas_eos
 
 
 class EquilibriumError(SpeciationError):
@@ -37,14 +38,25 @@ class System:
 
     def __init__(self, db: ThermoDatabase, basis: list[str], *,
                  switches: dict[str, str] | None = None, suppress=(), suppress_phases=(),
-                 activity_model: str = "bdot", ph_scale: str = "nbs"):
+                 activity_model: str = "bdot", ph_scale: str = "nbs", gas_phase: bool = False,
+                 hold_apart=()):
         basis = [WATER, PROTON] + [b for b in basis if b not in (WATER, PROTON)]
+        # a species in the basis that is not a strict basis species (CH4 from a speciation that held it
+        # apart) is a component of its own
+        targets = set((switches or {}).values())
+        own = [b for b in basis if b in db and db[b].kind == Kind.AQUEOUS and b not in targets]
+        basis = [b for b in basis if b not in own]
+        hold_apart = tuple(hold_apart) + tuple(b for b in own if b not in hold_apart)
         try:
             self.net = Network(db, basis, switches=switches, suppress=suppress,
-                               suppress_phases=suppress_phases)
+                               suppress_phases=suppress_phases, decoupled=tuple(hold_apart))
         except NetworkError as exc:
             raise EquilibriumError(str(exc)) from exc
+        for d in hold_apart:                         # its gas follows it, not the rest of the basis
+            _tie_gas_to(self.net, db, d)
         self.db = db
+        self.gas_phase = gas_phase
+        self.hold_apart = tuple(hold_apart)
         self.activity_model, self.ph_scale = activity_model, ph_scale
         self._models: dict[tuple, AqueousModel] = {}
 
@@ -64,6 +76,24 @@ class System:
         return self._models[key]
 
 
+def _tie_gas_to(net: Network, db, species: str) -> None:
+    """Rewrite the gas of a held-apart species (CH4(g) for CH4) over that species' own column, so that
+    the gas exchanges with it and not with the rest of the basis.  Both are written over the core basis
+    with the same formula, so CH4(g) = CH4(aq) with the difference of their logK."""
+    gas = f"{db[species].formula}(g)"
+    if gas not in net.phase_names:
+        return
+    k = net.phase_names.index(gas)
+    own, terms = net.couple[species]
+    if np.max(np.abs(net.nu_phase[k] - own)) > 1e-9:
+        return
+    col = net.basis.index(species)
+    row = np.zeros(len(net.basis))
+    row[col] = 1.0
+    net.nu_phase[k] = row
+    net.phase_terms[k] = list(net.phase_terms[k]) + [(-cf, lk) for cf, lk in terms]
+
+
 @dataclass
 class EquilibriumState:
     speciation: Speciation
@@ -72,6 +102,7 @@ class EquilibriumState:
     bulk: dict[str, float]                   # moles of each component in the whole system
     iterations: int = 0
     open_components: tuple[str, ...] = ()
+    gas: dict[str, float] = field(default_factory=dict)      # moles of each gas in the gas phase
     _u: np.ndarray = field(default=None, repr=False)
 
     @property
@@ -150,12 +181,49 @@ def _match_total(model: AqueousModel, u: np.ndarray, j: int, target: float, lg0,
     return 0.5 * (lo + hi)
 
 
+class _Gas:
+    """The gases of the network as one ideal mixture of real gases: x_i = f_i / (phi_i P), the phase
+    exists when the x_i add up to one.  O2(g), a basis column, is one of them."""
+
+    def __init__(self, model: AqueousModel):
+        nb = model.nbf
+        idx = [i for i, k in enumerate(model.ph_kind) if k == Kind.GAS]
+        rows = [model.nu_ph[i] for i in idx]
+        logk = [float(model.logk_ph[i]) for i in idx]
+        names = [model.ph_names[i] for i in idx]
+        if OXYGEN in model.ib:
+            row = np.zeros(nb)
+            row[model.ib[OXYGEN]] = 1.0
+            rows.append(row); logk.append(0.0); names.append(OXYGEN)
+        self.names = names
+        self.formulas = [gas_eos.formula_of(n) for n in names]
+        self.nu = np.array(rows).reshape(-1, nb)
+        self.logk = np.array(logk)
+        self.t_k = model.temperature_c + 273.15
+        self.p = float(model.pressure_bar)
+        self.log_p = math.log10(self.p)
+        self.log_phi = np.zeros(len(names))
+
+    def fractions(self, u: np.ndarray) -> np.ndarray:
+        """x_i at ln activities ``u`` with the current fugacity coefficients."""
+        return np.exp(np.clip(self.nu @ u - LN10 * (self.logk + self.log_phi + self.log_p), -600.0, 50.0))
+
+    def update_phi(self, u: np.ndarray) -> float:
+        """Fugacity coefficients for the composition at ``u``; returns the largest change."""
+        x = self.fractions(u)
+        new = gas_eos.log_phi(self.formulas, x, self.t_k, self.p)
+        change = float(np.max(np.abs(new - self.log_phi))) if len(new) else 0.0
+        self.log_phi = new
+        return change
+
+
 class _Solve:
-    """Joint Newton solution for a fixed mineral assemblage."""
+    """Joint Newton solution for a fixed mineral assemblage (and the gas phase, if present)."""
 
     def __init__(self, model: AqueousModel, B: np.ndarray, fixed: dict[int, float],
-                 buffer_rows: dict[int, tuple[int, float]]):
+                 buffer_rows: dict[int, tuple[int, float]], gas: _Gas | None = None):
         self.m, self.B = model, B
+        self.gas = gas
         self.fixed, self.buffer_rows = fixed, buffer_rows
         nb = model.nbf
         self.unk = [j for j in range(1, nb) if j not in fixed]
@@ -166,16 +234,18 @@ class _Solve:
         self.nu_u = model.nu[:, self.unk]
 
     # ---- residual and Jacobian of the combined system --------------------------------------
-    def residual(self, x, assemblage, u_base, lg_b_ln, lg_d_ln, log_aw, want_jac=True):
+    def residual(self, x, assemblage, u_base, lg_b_ln, lg_d_ln, log_aw, want_jac=True, gas=False):
         """Every balance at once (matrix products over all components); the rows then pick the
-        form that suits them.  This is the inner loop of every line search."""
+        form that suits them.  This is the inner loop of every line search.  With ``gas`` the last
+        unknown is the moles of gas and the last equation says its mole fractions add up to one."""
         m = self.m
         unk, nu_cnt = self.unk, len(self.unk)
         u = u_base.copy()
         u[unk] = x[:nu_cnt]
         u[0] = log_aw * LN10
         w = math.exp(x[nu_cnt])
-        n = np.asarray(x[nu_cnt + 1:], dtype=float)
+        n_end = len(x) - (1 if gas else 0)
+        n = np.asarray(x[nu_cnt + 1:n_end], dtype=float)
         nu_ph = m.nu_ph
         m_dep, m_b = m.state(u, lg_b_ln, lg_d_ln)
         rows = self.rows
@@ -188,6 +258,13 @@ class _Solve:
         b = self.B[rows]
         mineral = n @ ph
         involved = (np.abs(ph) > 1e-12).any(axis=0)
+        if gas:
+            g_amt = float(x[-1])
+            y = self.gas.fractions(u)
+            g_nu = self.gas.nu[:, rows]
+            per_mole = y @ g_nu                              # components per mole of gas
+            mineral = mineral + g_amt * per_mole
+            involved = involved | (np.abs(g_nu) > 1e-12).any(axis=0)
         p_aq = w * (mb_r + m_dep @ self.nu_pos)
         n_aq = -w * (m_dep @ self.nu_neg)
         rows_arr = np.array(rows)
@@ -196,9 +273,11 @@ class _Solve:
         mode2 = log_ok & ~mode1 & (b < 0.0) & (n_aq > 0.0)
         linear = ~(mode1 | mode2)
         scale = np.abs(aq) + np.abs(b) + np.abs(n) @ np.abs(ph)
+        if gas:
+            scale = scale + abs(g_amt) * (y @ np.abs(g_nu))
         scale = np.where(scale > 0, scale, 1.0)
-        size = nu_cnt + 1 + len(assemblage)
-        res = np.zeros(len(rows) + len(assemblage))
+        size = nu_cnt + 1 + len(assemblage) + (1 if gas else 0)
+        res = np.zeros(len(rows) + len(assemblage) + (1 if gas else 0))
         den1 = np.where(mode1, n_aq + b, 1.0)
         den2 = np.where(mode2, p_aq - b, 1.0)
         nr = len(rows)
@@ -211,8 +290,11 @@ class _Solve:
                 p, target = self.buffer_rows[j]
                 res[r] = nu_ph[p] @ u - LN10 * (m.logk_ph[p] + target)
         base = nr
+        na = len(assemblage)
         if assemblage:                                   # mineral saturation, log Q/K = 0
-            res[base:] = nu_ph[assemblage] @ u - LN10 * m.logk_ph[assemblage]
+            res[base:base + na] = nu_ph[assemblage] @ u - LN10 * m.logk_ph[assemblage]
+        if gas:
+            res[-1] = y.sum() - 1.0
         if not want_jac:
             return res, None
 
@@ -233,25 +315,33 @@ class _Solve:
         jac[:nr, nu_cnt] = np.where(mode1, 1.0 - n_aq / den1,
                                     np.where(mode2, p_aq / den2 - 1.0, aq / scale))
         if assemblage:
-            jac[:nr, nu_cnt + 1:] = np.where(lin, ph.T / scale[:, None], 0.0)
+            jac[:nr, nu_cnt + 1:nu_cnt + 1 + na] = np.where(lin, ph.T / scale[:, None], 0.0)
+        if gas:
+            g_unk = self.gas.nu[:, unk]
+            d_gas = g_amt * (g_nu.T @ (y[:, None] * g_unk))          # rows x unknowns
+            jac[:nr, :nu_cnt] += np.where(lin, d_gas / scale[:, None], 0.0)
+            jac[:nr, -1] = np.where(linear, per_mole / scale, 0.0)
+            jac[-1, :nu_cnt] = y @ g_unk
         for r, j in enumerate(rows):
             if j in self.buffer_rows:
                 p, _ = self.buffer_rows[j]
                 jac[r, :] = 0.0
                 jac[r, :nu_cnt] = nu_ph[p][unk]
         if assemblage:
-            jac[base:, :nu_cnt] = nu_ph[assemblage][:, unk]
+            jac[base:base + na, :nu_cnt] = nu_ph[assemblage][:, unk]
         return res, jac
 
     # ---- solve for one assemblage ----------------------------------------------------------------
-    def solve(self, assemblage, u, ln_w, n, ionic0, tol=1e-10, max_newton=80, max_outer=60):
+    def solve(self, assemblage, u, ln_w, n, ionic0, tol=1e-10, max_newton=80, max_outer=60,
+              gas_moles=None):
         m = self.m
         unk, nu_cnt = self.unk, len(self.unk)
+        gas = gas_moles is not None
         u = u.copy()
         for j, v in self.fixed.items():
             u[j] = v
-        x = np.concatenate([u[unk], [ln_w], n])
-        cap = np.concatenate([np.full(nu_cnt, 2.3), [0.5], np.full(len(assemblage), np.inf)])
+        x = np.concatenate([u[unk], [ln_w], n] + ([[gas_moles]] if gas else []))
+        cap = np.concatenate([np.full(nu_cnt, 2.3), [0.5], np.full(len(assemblage) + gas, np.inf)])
         everything = np.arange(len(x))
         ionic = ionic0
         lg_b, lg_d = m.log_gammas(ionic)
@@ -262,13 +352,13 @@ class _Solve:
             lg_b_ln, lg_d_ln = lg_b * LN10, lg_d * LN10
             for inner in range(max_newton):
                 iterations += 1
-                res, jac = self.residual(x, assemblage, u, lg_b_ln, lg_d_ln, log_aw)
+                res, jac = self.residual(x, assemblage, u, lg_b_ln, lg_d_ln, log_aw, gas=gas)
                 if np.max(np.abs(res)) < tol:
                     break
                 x = _globalized_step(
                     x, everything, res, jac, cap,
                     lambda v: self.residual(v, assemblage, u, lg_b_ln, lg_d_ln, log_aw,
-                                            want_jac=False)[0])
+                                            want_jac=False, gas=gas)[0])
             else:
                 raise EquilibriumError("Newton iteration did not converge")
             u_now = u.copy()
@@ -281,6 +371,8 @@ class _Solve:
             delta = max(abs(ionic_new - ionic), float(np.max(np.abs(lg_b_new - lg_b))),
                         float(np.max(np.abs(lg_d_new - lg_d))) if len(lg_d) else 0.0,
                         abs(log_aw_new - log_aw))
+            if gas:
+                delta = max(delta, self.gas.update_phi(u_now))
             ionic, lg_b, lg_d, log_aw = ionic_new, lg_b_new, lg_d_new, log_aw_new
             if delta < 1e-11 and outer > 0:
                 break
@@ -289,8 +381,10 @@ class _Solve:
         u_out = u.copy()
         u_out[unk] = x[:nu_cnt]
         u_out[0] = log_aw * LN10              # the water activity the solution was solved with
-        return dict(u=u_out, ln_w=float(x[nu_cnt]), n=np.array(x[nu_cnt + 1:]), ionic=ionic,
-                    sum_m=sum_m, log_aw=log_aw, lg_b=lg_b, lg_d=lg_d, iterations=iterations)
+        n_end = len(x) - (1 if gas else 0)
+        return dict(u=u_out, ln_w=float(x[nu_cnt]), n=np.array(x[nu_cnt + 1:n_end]), ionic=ionic,
+                    sum_m=sum_m, log_aw=log_aw, lg_b=lg_b, lg_d=lg_d, iterations=iterations,
+                    gas=float(x[-1]) if gas else None, log_phi=self.gas.log_phi.copy() if gas else None)
 
 
 def _dependence(nu_ph: np.ndarray, assemblage: list[int], phase: int,
@@ -421,7 +515,10 @@ def equilibrate(system: System, temperature_c: float, bulk: dict[str, float], *,
             allowed.append(a)
             allowed_set.add(a)
 
-    problem = _Solve(model, B, fixed_idx, buffer_rows)
+    gas = _Gas(model) if system.gas_phase and model.pressure_bar else None
+    if gas is not None and not len(gas.names):
+        gas = None
+    problem = _Solve(model, B, fixed_idx, buffer_rows, gas)
     # minerals given starting amounts (a reactant that has just been converted) win ties against
     # earlier minerals with the same saturation condition
     hinted = [a for a in assemblage if model.ph_names[a] in (amounts or {})]
@@ -429,11 +526,14 @@ def equilibrate(system: System, temperature_c: float, bulk: dict[str, float], *,
                               problem.unk)
 
     # warm start
+    gas_on = None
     if isinstance(guess, EquilibriumState):
         u0 = np.array(guess.speciation.ln_activities, dtype=float)
         ln_w0 = math.log(guess.water_kg)
         n_prev = dict(guess.minerals)
         ionic0 = guess.speciation.ionic_strength
+        if guess.gas and gas is not None:
+            gas_on = sum(guess.gas.values())
     elif isinstance(guess, Speciation):
         u0 = np.array(guess.ln_activities, dtype=float)
         ln_w0 = math.log(B[0] / WATER_MOLES_PER_KG)
@@ -456,6 +556,9 @@ def equilibrate(system: System, temperature_c: float, bulk: dict[str, float], *,
         u0[o2] = _match_total(model, u0, o2, (B[o2] - held) / math.exp(ln_w0), zeros_b, zeros_d)
 
     hints = dict(amounts or {})
+    if gas is not None:                       # fugacity coefficients for the starting composition
+        for _ in range(3):
+            gas.update_phi(u0)
 
     def initial_n(assem):
         return np.array([n_prev.get(model.ph_names[a], hints.get(model.ph_names[a], 0.0))
@@ -476,23 +579,30 @@ def equilibrate(system: System, temperature_c: float, bulk: dict[str, float], *,
     u_cur, ln_w_cur, ionic_cur = u0, ln_w0, ionic0
     last = None
     total_iter = 0
+    gas_tried: set = set()
+    gas_blocked = False
     for attempt in range(max_attempts):
-        key = frozenset(assemblage)
+        key = frozenset(assemblage) | ({"gas"} if gas_on is not None else set())
         if key in solved:
             last = solved[key]
             assemblage = last["assemblage"]
         else:
             try:
                 last = problem.solve(assemblage, u_cur, ln_w_cur, initial_n(assemblage), ionic_cur,
-                                     tol=tol)
+                                     tol=tol, gas_moles=gas_on)
             except (SpeciationError, np.linalg.LinAlgError) as exc:
                 # across a redox jump the last state can be a poor start: try once from the
                 # bulk composition itself before giving up on this assemblage
                 try:
                     cold = _initial_u(model, B, fixed_idx)
                     last = problem.solve(assemblage, cold, math.log(B[0] / WATER_MOLES_PER_KG),
-                                         initial_n(assemblage), 0.0, tol=tol)
+                                         initial_n(assemblage), 0.0, tol=tol, gas_moles=gas_on)
                 except (SpeciationError, np.linalg.LinAlgError):
+                    if gas_on is not None and key not in gas_tried:   # the gas phase would not solve
+                        gas_tried.add(key)
+                        gas_on = None
+                        gas_blocked = True
+                        continue
                     if not assemblage:
                         raise EquilibriumError(f"aqueous solution alone failed: {exc}") from exc
                     if key in swaps:                      # a pivot that did not solve: try the
@@ -515,12 +625,22 @@ def equilibrate(system: System, temperature_c: float, bulk: dict[str, float], *,
         u_cur, ln_w_cur, ionic_cur = last["u"], last["ln_w"], last["ionic"]
         n = last["n"]
         n_prev = {model.ph_names[a]: float(n[k]) for k, a in enumerate(assemblage)}
+        if gas_on is not None:
+            gas_on = last["gas"]
+            if gas_on < -n_floor:                     # the gas phase has dissolved
+                gas_on = None
+                continue
         negative = [k for k in range(len(assemblage)) if n[k] < -n_floor]
         if negative:
             worst = min(negative, key=lambda k: n[k])
             n_prev.pop(model.ph_names[assemblage[worst]])
             assemblage = [a for k, a in enumerate(assemblage) if k != worst]
             continue
+        if gas is not None and gas_on is None and not gas_blocked:
+            gas.update_phi(last["u"])
+            if gas.fractions(last["u"]).sum() > 1.0 + 1e-9:     # bubbles form
+                gas_on = 1e-6 * scale_b
+                continue
         si = (model.nu_ph @ last["u"]) / LN10 - model.logk_ph
         candidates = [(si[a] / formula_size[a], a) for a in allowed
                       if a not in assemblage and a not in blocked and si[a] > 1e-7]
@@ -553,6 +673,9 @@ def equilibrate(system: System, temperature_c: float, bulk: dict[str, float], *,
                  and si[a] > 1e-6]
         if stuck:                                     # never return a state that is supersaturated
             raise EquilibriumError(f"could not add the supersaturated mineral(s) {stuck}")
+        if gas is not None and gas_on is None and gas_blocked and \
+                gas.fractions(last["u"]).sum() > 1.0 + 1e-6:
+            raise EquilibriumError("could not add the gas phase that the dissolved gases call for")
         break
     else:
         raise EquilibriumError("no stable phase assemblage found")
@@ -562,5 +685,10 @@ def equilibrate(system: System, temperature_c: float, bulk: dict[str, float], *,
     n = last["n"]
     present = {model.ph_names[a]: float(n[k]) for k, a in enumerate(assemblage)}
     open_names = tuple(names[j] for j in list(fixed_idx) + list(buffer_rows))
+    gas_moles = {}
+    if gas_on is not None and last.get("gas") is not None:
+        gas.log_phi = last["log_phi"]
+        x = gas.fractions(last["u"])
+        gas_moles = {nm: float(last["gas"] * xi) for nm, xi in zip(gas.names, x) if xi > 1e-12}
     return EquilibriumState(spec, math.exp(last["ln_w"]), present, dict(bulk), total_iter,
-                            open_names, _u=last["u"])
+                            open_names, gas=gas_moles, _u=last["u"])

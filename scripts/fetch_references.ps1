@@ -27,7 +27,7 @@ foreach ($name in $zips.Keys) {
 $obigt = Join-Path $Dest "obigt"
 New-Item -ItemType Directory -Force -Path $obigt | Out-Null
 foreach ($f in "AD","Berman_cr","DEW","H2O_aq","SLOP98-a","SLOP98-b","SUPCRT92",
-               "inorganic_aq","inorganic_cr","inorganic_gas","inorganic_liq") {
+               "inorganic_aq","inorganic_cr","inorganic_gas","inorganic_liq","organic_aq","organic_gas") {
     curl.exe -sSL -o (Join-Path $obigt "$f.csv") `
         "https://raw.githubusercontent.com/jedick/CHNOSZ/main/inst/extdata/OBIGT/$f.csv"
 }

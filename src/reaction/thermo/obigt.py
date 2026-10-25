@@ -28,6 +28,9 @@ SUPCRT92_FILES = ("SUPCRT92.csv",)
 SLOP98_FILES = ("SLOP98-a.csv", "SLOP98-b.csv")
 BERMAN_FILES = ("Berman_cr.csv",)
 BERMAN_DIR = "Berman"          # parameter files, next to the OBIGT csv files
+# Of the organic files only methane is read: the gas phase needs it, the rest would slow every run
+ORGANIC_FILES = ("organic_aq.csv", "organic_gas.csv")
+ORGANIC_KEEP = {("CH4", "aq"), ("methane", "gas")}
 
 # Minerals of the older (Helgeson et al., 1978) dataset that the Berman dataset replaces under
 # another name; when Berman minerals are loaded these are dropped so the two cannot compete.
@@ -214,10 +217,17 @@ def load_obigt(folder: str | Path, files=DEFAULT_FILES) -> ObigtData:
                 data.missing.append(BERMAN_DIR)
                 continue
             berman_params = berman.load_parameters(pdir)
+        if fname in ORGANIC_FILES and not path.exists():
+            data.skipped.append(f"{fname} is not in {folder}; no methane")
+            if "organic" not in data.missing:
+                data.missing.append("organic")
+            continue
         if not path.exists():
             raise ObigtError(f"{path} not found")
         with path.open(encoding="utf-8", newline="") as fh:
             for row in csv.DictReader(fh):
+                if fname in ORGANIC_FILES and (row["name"], row["state"]) not in ORGANIC_KEEP:
+                    continue
                 sp = _row_to_species(row, fname, berman_params)
                 if sp is None:
                     data.skipped.append(f"{fname}: {row['name']} ({row['state']}) {row['model']}")

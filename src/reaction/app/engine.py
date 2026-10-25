@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import math
+import re
 import threading
 import time
 import uuid
@@ -125,13 +126,18 @@ class Engine:
                     raise ValueError(f"{name} contains {el}, which this calculator cannot track yet")
                 if master not in basis:
                     basis.append(master)
+            if (sc.hold_methane_apart and name in ("CH4(g)", "CH4") and "CH4" not in basis
+                    and "O2(g)" in basis):
+                basis.append("CH4")                      # methane added to a fluid without any
         mix = None
         if sc.mixing:
             progress(0.0, f"Speciating {preset(sc.mix_with).label.lower()}")
             mix, mix_notes = self.starting_fluid(Scenario(fluid=sc.mix_with, activity_model=sc.activity_model))
             fluid_notes += [f"Second fluid: {n}" for n in mix_notes]
             basis += [b for b in mix.basis_names if b not in basis and b not in (WATER, PROTON)]
-        system = System(db, basis, activity_model=sc.activity_model)
+        hold = [b for b in basis if db.species[b].kind != Kind.BASIS]     # CH4, held apart
+        system = System(db, [b for b in basis if b not in hold], activity_model=sc.activity_model,
+                        gas_phase=sc.gas_phase, hold_apart=hold)
         bulk0 = dict(sp0.component_totals)
         for b in basis:
             bulk0.setdefault(b, TRACE)                   # a trace, so the solution has a start
@@ -217,6 +223,13 @@ class Engine:
         out = {}
         for r in sc.reactants:
             name = r["name"]
+            gas_word = re.fullmatch(r"(.+?)\s+gas|(.+?)\s*\(g\)|(methane|carbon dioxide)", name.strip(), re.I)
+            if gas_word:
+                stem = (gas_word.group(1) or gas_word.group(2) or gas_word.group(3)).strip()
+                stem = {"methane": "CH4", "carbon dioxide": "CO2", "hydrogen": "H2", "nitrogen": "N2",
+                        "hydrogen sulfide": "H2S", "oxygen": "O2"}.get(stem.lower(), stem)
+                if f"{stem}(g)" in db.species:
+                    name = f"{stem}(g)"
             if name not in db.species:
                 hits = lower.get(name.lower(), [])
                 minerals = [h for h in hits if db.species[h].kind == Kind.MINERAL]
@@ -229,8 +242,8 @@ class Engine:
                 if not hits:
                     raise ValueError(f"'{name}' is not a mineral, rock or species in the database")
                 name = (minerals or hits)[0]
-            if db.species[name].kind not in (Kind.MINERAL, Kind.AQUEOUS, Kind.BASIS):
-                raise ValueError(f"{name} cannot be a reactant (only minerals and dissolved species)")
+            if db.species[name].kind not in (Kind.MINERAL, Kind.AQUEOUS, Kind.BASIS, Kind.GAS):
+                raise ValueError(f"{name} cannot be a reactant (only minerals, gases and dissolved species)")
             out[r["name"]] = name
         return out
 
@@ -294,11 +307,16 @@ class Engine:
         kind, arg = sc.redox_setting()
         # every redox species counts toward the element total of its basis partner; H2 and O2 carry
         # only the redox state.  The couple (if any) first gives the oxygen fugacity on its own.
+        apart = sc.hold_methane_apart
         folded: dict[str, float] = {}
         for name, m in molal.items():
             target = analysis.REDOX.get(name, name) if name in analysis.REDOX else name
+            if name == "CH4" and apart:
+                target = "CH4"                           # its own component: it never meets sulfate
             if target is not None:
                 folded[target] = folded.get(target, 0.0) + m
+        if apart and kind != "none" and "HCO3-" in folded and "CH4" not in folded and "CH4" in db.species:
+            folded["CH4"] = TRACE                        # a column of its own, so a run can add some
         constraints = {name: Molal(m) for name, m in folded.items()}
         constraints[PROTON] = PH(fluid.ph)
         redox = {"air": lambda: LogFO2(AIR_LOG_FO2), "log_fo2": lambda: LogFO2(arg),
@@ -311,7 +329,7 @@ class Engine:
             own = dict(constraints)
             partner = analysis.REDOX[arg]
             if partner is not None:
-                rest = folded[partner] - molal[arg]
+                rest = folded[partner] - (0.0 if arg == "CH4" and apart else molal[arg])
                 own[partner] = Molal(rest)
             own[arg] = Molal(molal[arg])
             first = speciate(db, fluid.measured_t_c, own, redox=Couple(arg),
@@ -388,15 +406,20 @@ class Engine:
             for el, k in sp.elements.items():
                 if el not in ("H", "O"):
                     elements[el] = elements.get(el, 0.0) + k * st.molality
-        minerals = dict(point.removed)                    # flow-through: everything left behind so far
+        minerals, gas = {}, {}                           # flow-through: everything left behind so far
+        for name, moles in point.removed.items():
+            target = gas if name.endswith("(g)") else minerals
+            target[name] = target.get(name, 0.0) + moles
         for name, moles in state.minerals.items():
             minerals[name] = minerals.get(name, 0.0) + moles
+        for name, moles in state.gas.items():
+            gas[name] = gas.get(name, 0.0) + moles
         return {"pH": spec.ph, "ionic_strength": spec.ionic_strength, "water_kg": state.water_kg,
                 "log_fO2": spec.log_fo2, "Eh": spec.eh_volts,
                 "log_aw": spec.log_a_water, "species": species,
                 "log_a": {n: spec.species[n].log_activity for n in spec.basis_names
                           if n in spec.species and n not in (WATER, PROTON)}, "elements": elements,
-                "minerals": minerals, "saturation": dict(spec.saturation),
+                "minerals": minerals, "gas": gas, "saturation": dict(spec.saturation),
                 "warnings": list(spec.warnings)}
 
 
@@ -439,6 +462,7 @@ def _pack(rows: list[dict | None]) -> dict:
     species_keys = [k for k in species_keys if max(r["species"].get(k, 0.0) for r in good) >= 1e-12]
     element_keys = sorted({k for r in good for k in r["elements"]})
     mineral_keys = sorted({k for r in good for k, v in r["minerals"].items() if v > 0})
+    gas_keys = sorted({k for r in good for k, v in r.get("gas", {}).items() if v > 1e-9})
     sat_keys = sorted({k for r in good for k, v in r["saturation"].items()
                        if math.isfinite(v) and v > -3.0})
     return {
@@ -454,6 +478,7 @@ def _pack(rows: list[dict | None]) -> dict:
         "log_a": column(lambda r, k: r.get("log_a", {}).get(k), sorted({k for r in good for k in r.get("log_a", {})})),
         "elements": column(lambda r, k: r["elements"].get(k, 0.0), element_keys),
         "minerals": column(lambda r, k: r["minerals"].get(k, 0.0), mineral_keys),
+        "gas": column(lambda r, k: r.get("gas", {}).get(k, 0.0), gas_keys),
         "saturation": column(lambda r, k: r["saturation"].get(k), sat_keys),
         "warnings": sorted({w for r in good for w in r["warnings"]}),
     }
@@ -461,7 +486,7 @@ def _pack(rows: list[dict | None]) -> dict:
 
 def _catalog(db, runs: dict[str, dict], sc: Scenario) -> dict:
     """Display names for everything that can be plotted."""
-    species, elements, minerals = {}, {}, {}
+    species, elements, minerals, gases = {}, {}, {}, {}
     blocked = {b.lower() for b in sc.blocked_minerals}
     for run in runs.values():
         for k in run["species"]:
@@ -470,10 +495,13 @@ def _catalog(db, runs: dict[str, dict], sc: Scenario) -> dict:
             species[k] = {"label": pretty_species(k, z), "charge": z, "mw": _mw(db, k)}
         for k in run["elements"]:
             elements[k] = {"label": k, "mw": db.elements.get(k)}
+        for k in run.get("gas", {}):
+            gases[k] = {"label": pretty_species(k[:-3], 0).replace("(aq)", "") + " gas",
+                        "mw": _mw(db, k)}
         for group in ("minerals", "saturation"):
             for k in run[group]:
                 minerals[k] = {"label": pretty_mineral(k), "blocked": k.lower() in blocked, "mw": _mw(db, k)}
-    return {"species": species, "elements": elements, "minerals": minerals}
+    return {"species": species, "elements": elements, "minerals": minerals, "gas": gases}
 
 
 def _mw(db, name: str) -> float | None:

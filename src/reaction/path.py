@@ -75,6 +75,8 @@ def _composition_row(system: System, name: str) -> dict[str, float]:
     temperature or pressure, so it comes from the network itself: building an aqueous model here
     would need a pressure, and there is no default one above the critical temperature."""
     net = system.net
+    if name in net.basis:                         # O2(g) left with a gas phase
+        return {name: 1.0}
     if name in net.phase_names:
         row = net.nu_phase[net.phase_names.index(name)]
     elif name in net.dep_names:
@@ -258,6 +260,11 @@ class ReactionPath:
                 on_failure(xi, exc)
                 points.append(None)
                 continue
+            if self.flow_through and new.gas:
+                # bubbles leave with the fluid's flow, like the minerals: the gas phase is vented
+                for name, moles in new.gas.items():
+                    self._removed[name] = self._removed.get(name, 0.0) + moles
+                new, reacted = self._solve(xi, new)
             state, xi_prev = new, xi
             points.append(PathPoint(xi, self._temperature(xi), state.speciation.pressure_bar,
                                     state, reacted, tuple(sorted(self._transferred)),

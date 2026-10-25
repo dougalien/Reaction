@@ -27,7 +27,7 @@ from .crystal import CrystalSpecies
 from .hkf import HKFSpecies, WaterStateError
 from pathlib import Path
 
-from .obigt import (BERMAN_FILES, DEFAULT_FILES, SLOP98_FILES, SUPCRT92_FILES, ObigtData,
+from .obigt import (BERMAN_FILES, DEFAULT_FILES, ORGANIC_FILES, SLOP98_FILES, SUPCRT92_FILES, ObigtData,
                     ObigtSpecies, load_obigt)
 
 WATER, PROTON, OXYGEN = "H2O", "H+", "O2(g)"
@@ -382,7 +382,7 @@ PRESETS = {
     # newest curated data win: SLOP98 supplies extra species, SUPCRT92 the classic minerals,
     # the maintained inorganic_* files override both, and the Berman (1988 and later) dataset
     # replaces the Helgeson (1978) silicates, as in OBIGT's default data
-    "current": SLOP98_FILES + SUPCRT92_FILES + DEFAULT_FILES + BERMAN_FILES,
+    "current": SLOP98_FILES + SUPCRT92_FILES + DEFAULT_FILES + BERMAN_FILES + ORGANIC_FILES,
     # SUPCRT92-era data win, to reproduce databases built from SUPCRT92 (EQ3/6 data0.com)
     "supcrt92": DEFAULT_FILES + SUPCRT92_FILES + SLOP98_FILES,
 }
@@ -403,6 +403,10 @@ def load_eos_database(obigt_dir: str | Path, preset: str = "current",
         db.data_notes.append(
             "The Berman mineral data are missing from the data folder, so the older Helgeson "
             "(1978) silicates are used; run scripts/fetch_references.ps1 again to add them.")
+    if "organic" in data.missing:
+        db.data_notes.append(
+            "Methane data (OBIGT organic_aq.csv and organic_gas.csv) are missing from the data folder; "
+            "run scripts/fetch_references.ps1 again to add them.")
     if eq36_database is not None:
         set_ion_sizes_from_eq36(db, eq36_database)
     return db
