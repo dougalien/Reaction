@@ -27,6 +27,7 @@ from .aqueous import AqueousModel
 from .constants import LN10, WATER_MOLES_PER_KG
 from .database.model import Kind, ThermoDatabase
 from .network import OXYGEN, PROTON, WATER, Network, NetworkError
+from . import sorption
 from .speciation import Speciation, SpeciationError, _globalized_step, make_speciation
 from .thermo import gas as gas_eos
 
@@ -41,7 +42,7 @@ class System:
     def __init__(self, db: ThermoDatabase, basis: list[str], *,
                  switches: dict[str, str] | None = None, suppress=(), suppress_phases=(),
                  activity_model: str = "bdot", ph_scale: str = "nbs", gas_phase: bool = False,
-                 hold_apart=(), solid_solutions=()):
+                 hold_apart=(), solid_solutions=(), sorption=None):
         basis = [WATER, PROTON] + [b for b in basis if b not in (WATER, PROTON)]
         # a species in the basis that is not a strict basis species (CH4 from a speciation that held it
         # apart) is a component of its own
@@ -59,6 +60,7 @@ class System:
         self.db = db
         self.gas_phase = gas_phase
         self.solid_solutions = tuple(solid_solutions)        # solidsolution.SolidSolution entries
+        self.sorption = sorption                             # sorption.Sorption: exchanger and surface
         self.hold_apart = tuple(hold_apart)
         self.activity_model, self.ph_scale = activity_model, ph_scale
         self._models: dict[tuple, AqueousModel] = {}
@@ -123,6 +125,10 @@ class EquilibriumState:
     _u: np.ndarray = field(default=None, repr=False)
     # moles of each endmember of each solid solution present: {"plagioclase": {"anorthite": ...}}
     solid_solutions: dict[str, dict[str, float]] = field(default_factory=dict)
+    # moles of each sorbed species (exchange and surface), the sorbents' unknowns, and the surface potential (mV)
+    sorbed: dict[str, float] = field(default_factory=dict)
+    _sorb_x: np.ndarray | None = field(default=None, repr=False)
+    surface_potential_mv: float | None = None
 
     @property
     def solids(self) -> dict[str, float]:
@@ -267,9 +273,12 @@ class _Solve:
     """Joint Newton solution for a fixed mineral assemblage (and the gas phase, if present)."""
 
     def __init__(self, model: AqueousModel, B: np.ndarray, fixed: dict[int, float],
-                 buffer_rows: dict[int, tuple[int, float]], gas: _Gas | None = None):
+                 buffer_rows: dict[int, tuple[int, float]], gas: _Gas | None = None, sorbents=()):
         self.m, self.B = model, B
         self.gas = gas
+        self.sorbents = list(sorbents)            # exchanger and surface (sorption.py): fixed sites, own unknowns
+        self.n_sorb = sum(sb.nvar for sb in self.sorbents)
+        self.ionic = 0.0
         self.fixed, self.buffer_rows = fixed, buffer_rows
         nb = model.nbf
         self.unk = [j for j in range(1, nb) if j not in fixed]
@@ -292,7 +301,8 @@ class _Solve:
         u[0] = log_aw * LN10
         w = math.exp(x[nu_cnt])
         nm = len(mixes)
-        n_end = len(x) - nm
+        ns = self.n_sorb
+        n_end = len(x) - nm - ns
         n = np.asarray(x[nu_cnt + 1:n_end], dtype=float)
         nu_ph = m.nu_ph
         m_dep, m_b = m.state(u, lg_b_ln, lg_d_ln)
@@ -315,6 +325,16 @@ class _Solve:
             mineral = mineral + amt * per_mole
             involved = involved | (np.abs(c_r) > 1e-12).any(axis=0)
             parts.append((amt, y, c_r, per_mole))
+        sorb = []
+        at = n_end + nm
+        for sb in self.sorbents:
+            sb.set_gammas(lg_b_ln, lg_d_ln)
+            v = np.asarray(x[at:at + sb.nvar], dtype=float)
+            _, bound, d_du, d_dv, eq, deq_du, deq_dv = sb.evaluate(u, v, self.ionic)
+            mineral = mineral + bound[rows]
+            involved = involved | (np.abs(sb.sp.e[:, rows]) > 1e-12).any(axis=0)
+            sorb.append((at, sb, bound, d_du, d_dv, eq, deq_du, deq_dv))
+            at += sb.nvar
         p_aq = w * (mb_r + m_dep @ self.nu_pos)
         n_aq = -w * (m_dep @ self.nu_neg)
         rows_arr = np.array(rows)
@@ -325,9 +345,11 @@ class _Solve:
         scale = np.abs(aq) + np.abs(b) + np.abs(n) @ np.abs(ph)
         for amt, y, c_r, _ in parts:
             scale = scale + abs(amt) * (y @ np.abs(c_r))
+        for _, sb, bound, *_ in sorb:
+            scale = scale + np.abs(bound[rows])
         scale = np.where(scale > 0, scale, 1.0)
-        size = nu_cnt + 1 + len(assemblage) + nm
-        res = np.zeros(len(rows) + len(assemblage) + nm)
+        size = nu_cnt + 1 + len(assemblage) + nm + ns
+        res = np.zeros(len(rows) + len(assemblage) + nm + ns)
         den1 = np.where(mode1, n_aq + b, 1.0)
         den2 = np.where(mode2, p_aq - b, 1.0)
         nr = len(rows)
@@ -345,6 +367,8 @@ class _Solve:
             res[base:base + na] = nu_ph[assemblage] @ u - LN10 * m.logk_ph[assemblage]
         for k, (_, y, _, _) in enumerate(parts):
             res[nr + na + k] = y.sum() - 1.0
+        for at, sb, _, _, _, eq, _, _ in sorb:
+            res[nr + na + (at - n_end):nr + na + (at - n_end) + sb.nvar] = eq
         if not want_jac:
             return res, None
 
@@ -372,6 +396,14 @@ class _Solve:
             jac[:nr, :nu_cnt] += np.where(lin, d_mix / scale[:, None], 0.0)
             jac[:nr, nu_cnt + 1 + na + k] = np.where(linear, per_mole / scale, 0.0)
             jac[nr + na + k, :nu_cnt] = y @ e_unk
+        for at, sb, _, d_du, d_dv, _, deq_du, deq_dv in sorb:
+            col = at - n_end                                  # offset among the mixture/sorbent unknowns
+            jac[:nr, :nu_cnt] += np.where(lin, d_du[np.ix_(rows, unk)] / scale[:, None], 0.0)
+            jac[:nr, nu_cnt + 1 + na + col:nu_cnt + 1 + na + col + sb.nvar] = \
+                np.where(lin, d_dv[rows] / scale[:, None], 0.0)
+            r0 = nr + na + col
+            jac[r0:r0 + sb.nvar, :nu_cnt] = deq_du[:, unk]
+            jac[r0:r0 + sb.nvar, nu_cnt + 1 + na + col:nu_cnt + 1 + na + col + sb.nvar] = deq_dv
         for r, j in enumerate(rows):
             if j in self.buffer_rows:
                 p, _ = self.buffer_rows[j]
@@ -383,15 +415,18 @@ class _Solve:
 
     # ---- solve for one assemblage ----------------------------------------------------------------
     def solve(self, assemblage, u, ln_w, n, ionic0, tol=1e-10, max_newton=80, max_outer=60,
-              mixes=(), amounts=()):
+              mixes=(), amounts=(), sorb_x=None):
         m = self.m
         unk, nu_cnt = self.unk, len(self.unk)
         mixes = tuple(mixes)
         u = u.copy()
         for j, v in self.fixed.items():
             u[j] = v
-        x = np.concatenate([u[unk], [ln_w], n, np.asarray(amounts, dtype=float)])
-        cap = np.concatenate([np.full(nu_cnt, 2.3), [0.5], np.full(len(assemblage) + len(mixes), np.inf)])
+        if sorb_x is None or len(sorb_x) != self.n_sorb:
+            sorb_x = np.concatenate([sb.start(u) for sb in self.sorbents]) if self.sorbents else np.zeros(0)
+        x = np.concatenate([u[unk], [ln_w], n, np.asarray(amounts, dtype=float), np.asarray(sorb_x, dtype=float)])
+        cap = np.concatenate([np.full(nu_cnt, 2.3), [0.5], np.full(len(assemblage) + len(mixes), np.inf),
+                              np.full(self.n_sorb, 2.3)])
         everything = np.arange(len(x))
         ionic = ionic0
         lg_b, lg_d = m.log_gammas(ionic)
@@ -402,6 +437,7 @@ class _Solve:
         if m.pitzer is not None:          # coefficients that depend on every molality: solver noise is larger
             max_outer, outer_tol = max_outer * 8, 1e-9
         for outer in range(max_outer):
+            self.ionic = ionic
             lg_b_ln, lg_d_ln = lg_b * LN10, lg_d * LN10
             for inner in range(max_newton):
                 iterations += 1
@@ -445,11 +481,12 @@ class _Solve:
         u_out = u.copy()
         u_out[unk] = x[:nu_cnt]
         u_out[0] = log_aw * LN10              # the water activity the solution was solved with
-        n_end = len(x) - len(mixes)
+        n_end = len(x) - len(mixes) - self.n_sorb
         gas = self.gas if self.gas in mixes else None
         return dict(u=u_out, ln_w=float(x[nu_cnt]), n=np.array(x[nu_cnt + 1:n_end]), ionic=ionic,
                     sum_m=sum_m, log_aw=log_aw, lg_b=lg_b, lg_d=lg_d, iterations=iterations,
-                    mix=[float(v) for v in x[n_end:]],
+                    mix=[float(v) for v in x[n_end:len(x) - self.n_sorb]],
+                    sorb=np.array(x[len(x) - self.n_sorb:]),
                     log_phi=gas.log_phi.copy() if gas is not None else None)
 
 
@@ -584,7 +621,8 @@ def equilibrate(system: System, temperature_c: float, bulk: dict[str, float], *,
     gas = _Gas(model) if system.gas_phase and model.pressure_bar else None
     if gas is not None and not len(gas.names):
         gas = None
-    problem = _Solve(model, B, fixed_idx, buffer_rows, gas)
+    sorbs = sorption.sorbents(system.sorption, model, temperature_c, pressure_bar)
+    problem = _Solve(model, B, fixed_idx, buffer_rows, gas, sorbs)
     ss_mixes = []                             # solid solutions with two or more endmembers available
     for ss in system.solid_solutions:
         idx = [phase_index[e] for e in ss.endmembers if e in phase_index and phase_index[e] in allowed_set]
@@ -598,11 +636,14 @@ def equilibrate(system: System, temperature_c: float, bulk: dict[str, float], *,
 
     # warm start; ``on`` holds the mixtures present (gas phase, solid solutions) and their moles
     on: dict = {}
+    sorb_cur = None
     if isinstance(guess, EquilibriumState):
         u0 = np.array(guess.speciation.ln_activities, dtype=float)
         ln_w0 = math.log(guess.water_kg)
         n_prev = dict(guess.minerals)
         ionic0 = guess.speciation.ionic_strength
+        if guess._sorb_x is not None and len(guess._sorb_x) == problem.n_sorb:
+            sorb_cur = np.array(guess._sorb_x)
         if guess.gas and gas is not None:
             on[gas] = sum(guess.gas.values())
         for mx in ss_mixes:
@@ -665,7 +706,7 @@ def equilibrate(system: System, temperature_c: float, bulk: dict[str, float], *,
         else:
             try:
                 last = problem.solve(assemblage, u_cur, ln_w_cur, initial_n(assemblage), ionic_cur,
-                                     tol=tol, mixes=list(on), amounts=list(on.values()))
+                                     tol=tol, mixes=list(on), amounts=list(on.values()), sorb_x=sorb_cur)
             except (SpeciationError, np.linalg.LinAlgError) as exc:
                 # across a redox jump the last state can be a poor start: try once from the
                 # bulk composition itself before giving up on this assemblage
@@ -715,6 +756,7 @@ def equilibrate(system: System, temperature_c: float, bulk: dict[str, float], *,
             solved[key] = last
         total_iter += last["iterations"]
         u_cur, ln_w_cur, ionic_cur = last["u"], last["ln_w"], last["ionic"]
+        sorb_cur = last["sorb"]
         n = last["n"]
         n_prev = {model.ph_names[a]: float(n[k]) for k, a in enumerate(assemblage)}
         for mx, amt in zip(list(on), last["mix"]):
@@ -806,5 +848,14 @@ def equilibrate(system: System, temperature_c: float, bulk: dict[str, float], *,
             gas_moles = moles
         else:
             solid[mx.name] = moles
+    sorbed, at, potential = {}, 0, None
+    for sb in sorbs:
+        v = last["sorb"][at:at + sb.nvar]
+        amounts_sb = sb.evaluate(last["u"], v, last["ionic"])[0]
+        sorbed.update({nm: float(a) for nm, a in zip(sb.names, amounts_sb)})
+        if isinstance(sb, sorption.Surface):
+            potential = sb.potential_mv(v, temperature_c)
+        at += sb.nvar
     return EquilibriumState(spec, math.exp(last["ln_w"]), present, dict(bulk), total_iter,
-                            open_names, gas=gas_moles, _u=last["u"], solid_solutions=solid)
+                            open_names, gas=gas_moles, _u=last["u"], solid_solutions=solid,
+                            sorbed=sorbed, _sorb_x=np.array(last["sorb"]), surface_potential_mv=potential)

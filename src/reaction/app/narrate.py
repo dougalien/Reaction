@@ -1,6 +1,8 @@
 """Plain-language summary of a result.  Every number in it is read from the result's own tables."""
 from __future__ import annotations
 
+import re
+
 from .names import pretty_mineral
 
 ELEMENT_WORDS = {"Mg": "magnesium", "Ca": "calcium", "S": "sulfur", "C": "carbon", "K": "potassium",
@@ -223,6 +225,35 @@ def _split_clause(result: dict, run: dict) -> str:
     return text + "."
 
 
+def _sorption_clause(result: dict, run: dict) -> str:
+    """The exchanger's make-up at the end (equivalent fractions) and the surface potential of the ferric oxide."""
+    sc = result["scenario"]
+    sorbed = run.get("sorbed") or {}
+    bits = []
+    cec = sc.get("exchange_meq", 0.0) / 1000.0
+    if cec > 0:
+        last = max((i for i in range(len(run["properties"]["pH"])) if run["properties"]["pH"][i] is not None),
+                   default=None)
+        if last is not None:
+            shares = []
+            for k, line in sorbed.items():
+                m = re.fullmatch(r"(.+?)X(\d*)", k)
+                if m and not k.startswith("Hfo_") and line[last]:
+                    z = int(m.group(2) or 1)
+                    shares.append((line[last] * z / cec, m.group(1)))
+            shares = [(f, ion) for f, ion in sorted(shares, reverse=True) if f >= 0.005]
+            if shares:
+                bits.append("the exchange sites end up holding " + ", ".join(
+                    f"{100 * f:.0f}% {ion}" for f, ion in shares) + " (by charge)")
+    pot = [v for v in run["properties"].get("surface_potential_mV", []) if v is not None]
+    if pot:
+        bits.append(f"the ferric oxide surface potential goes from {pot[0]:+.0f} to {pot[-1]:+.0f} mV")
+    if not bits:
+        return ""
+    text = "; ".join(bits)
+    return text[0].upper() + text[1:] + "."
+
+
 def _isotope_clause(run: dict) -> str:
     """How the fluid's δ18O, δ34S and 87Sr/86Sr change from the first solved point to the last."""
     iso = run.get("isotopes") or {}
@@ -286,6 +317,9 @@ def story(result: dict) -> list[str]:
         split = _split_clause(result, run)
         if split:
             sentence = sentence.rstrip() + " " + split
+        sorb = _sorption_clause(result, run)
+        if sorb:
+            sentence = sentence.rstrip() + " " + sorb
         iso = _isotope_clause(run)
         if iso:
             sentence = sentence.rstrip() + " " + iso

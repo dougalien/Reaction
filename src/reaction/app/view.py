@@ -16,11 +16,13 @@ from .names import ELEMENT_NAMES, build_index, resolve
 PROPERTIES = {
     "pH": "pH", "ionic_strength": "Ionic strength (mol/kg)", "water_kg": "Solvent mass (kg)",
     "log_aw": "log water activity", "log_fO2": "log fO2", "Eh": "Eh (V)",
+    "surface_potential_mV": "Surface potential (mV)",
 }
 PROPERTY_WORDS = {"ph": "pH", "ionic strength": "ionic_strength", "ionic_strength": "ionic_strength",
                   "water activity": "log_aw", "activity of water": "log_aw", "water mass": "water_kg",
                   "solvent mass": "water_kg", "fo2": "log_fO2", "log fo2": "log_fO2",
-                  "oxygen fugacity": "log_fO2", "eh": "Eh", "redox potential": "Eh"}
+                  "oxygen fugacity": "log_fO2", "eh": "Eh", "redox potential": "Eh",
+                  "surface potential": "surface_potential_mV", "psi": "surface_potential_mV"}
 MAX_ITEMS = 8
 UNITS = ("mol", "mmol", "umol", "mg")
 
@@ -29,7 +31,7 @@ def unit_group(item: dict) -> str:
     g = item["group"]
     if g in ("species", "elements"):
         return "conc"
-    if g in ("minerals", "gas"):
+    if g in ("minerals", "gas", "sorbed"):
         return "mineral"
     if g == "saturation":
         return "si"
@@ -155,6 +157,17 @@ def resolve_item(text: str, result: dict, prefer: str | None = None) -> dict | N
         for k, v in cat.get("phases", {}).items():
             if low_clean in (v["label"].lower(), k.replace("_", " "), k.replace("_", " ").replace("vapour", "vapor")):
                 return {"group": "phases", "key": k}
+    if run0.get("sorbed"):                            # "CaX2", "Ca on exchange sites", "sorbed Mg"
+        sorbed = cat.get("sorbed", {})
+        for k, v in sorbed.items():
+            words = v["label"].lower()
+            if low_clean in (k.lower(), words, words.split(" (")[0]):
+                return {"group": "sorbed", "key": k}
+        m = re.fullmatch(r"(?:exchanged|sorbed|adsorbed)\s+(\S+)", low_clean)
+        if m:
+            hits = [k for k, v in sorbed.items() if v["label"].lower().startswith(m.group(1) + " on ")]
+            if hits:
+                return {"group": "sorbed", "key": min(hits, key=len)}
     if run0.get("isotopes"):                          # "d18O quartz", "δ13C DIC", "strontium ratio"
         key = _isotope_item(low_clean, run0["isotopes"], cat.get("isotopes", {}))
         if key:
