@@ -37,6 +37,8 @@ def unit_group(item: dict) -> str:
         return f"kinetic:{item['key'].split(':')[0]}"
     if g == "composition":
         return "composition"
+    if g == "phases":
+        return "phases:share" if item["key"] == "vapour_share" else "phases:salinity"
     return f"property:{item['key']}"
 
 
@@ -147,6 +149,10 @@ def resolve_item(text: str, result: dict, prefer: str | None = None) -> dict | N
             label = cat.get("kinetic", {}).get(k, {}).get("label", "").lower()
             if kind == what and (stem == name.lower() or label.startswith(stem)):
                 return {"group": "kinetic", "key": k}
+    if "vapour_share" in run0.get("phases", {}):      # "vapour share", "brine salinity"
+        for k, v in cat.get("phases", {}).items():
+            if low_clean in (v["label"].lower(), k.replace("_", " "), k.replace("_", " ").replace("vapour", "vapor")):
+                return {"group": "phases", "key": k}
     if run0.get("composition"):                       # "anorthite in plagioclase"
         for k, v in cat.get("composition", {}).items():
             if low_clean in (v["label"].lower(), "{1} in {0}".format(*k.lower().split(":", 1))):
