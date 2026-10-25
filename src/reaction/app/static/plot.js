@@ -166,7 +166,8 @@ class LinePlot {
     src.forEach((el, i) => {
       const cs = getComputedStyle(el);
       let style = "";
-      for (const p of ["stroke", "fill", "stroke-width", "stroke-dasharray", "font-size"]) {
+      for (const p of ["stroke", "fill", "stroke-width", "stroke-dasharray", "font-size", "font-weight",
+        "font-style", "opacity", "paint-order", "stroke-linejoin"]) {
         style += `${p}:${cs.getPropertyValue(p)};`;
       }
       style += `font-family:${cs.fontFamily};`;

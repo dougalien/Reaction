@@ -116,8 +116,11 @@ Since 2026-10-25 a run can start from any fluid (preset or a pasted analysis, ch
 compared run against run, in two results windows. Since P3 (also 2026-10-25) the redox state is on the card,
 the silicates are the Berman (1988) dataset that OBIGT uses, and basalt glass reacts with seawater at 350 C to
 the greenschist assemblage (albite, chlorite, epidote, actinolite, sulfides), static and flow-through, down to
-a water/rock ratio of 1 or below. Next: diagrams, the gas phase, phase separation, kinetics, solid solutions
-and isotopes.
+a water/rock ratio of 1 or below. Since P4 the results window draws Eh-pH, log fO2-pH and activity diagrams
+(a(cation)/a(H+) against a(SiO2), aluminium conserved) at any temperature and pressure, from the same logK as
+the runs, with the open run's path on top and the rest of the fluid held at the run's values; boundaries closer
+than the logK uncertainty at that (T, P) are hatched. Next: the gas phase, phase separation, kinetics, solid
+solutions and isotopes.
 
 ## Pressure and temperature are free variables
 

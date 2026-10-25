@@ -41,6 +41,7 @@ async function onState(s) {
   run.style.display = s.run.state === "running" ? "" : "none";
   pill(run, `calculating ${Math.round(s.run.progress * 100)}%`, "warn");
   draw();
+  drawDiagram();
 }
 
 connect(onState, (up) => pill($("pill-link"), up ? "connected" : "reconnecting", up ? "ok" : "bad"));
@@ -251,3 +252,61 @@ $("dl-csv").addEventListener("click", () => {
   download(`${result.id}.csv`, rows.join("\n"), "text/csv");
 });
 $("dl-svg").addEventListener("click", () => download(`${result.id}.svg`, plot.svgText(), "image/svg+xml"));
+
+/* ---- the diagram panel ------------------------------------------------------------------------ */
+const dplot = new DiagramPlot($("dia-plot"));
+let diaKey = null, diaData = null;
+const REL_TEXT = { good: "good", caution: "approximate", poor: "unreliable" };
+
+async function drawDiagram() {
+  const spec = snap && snap.diagram;
+  $("dia").style.display = spec ? "" : "none";
+  if (spec && !result) $("empty").style.display = "none";
+  if (!spec) { diaKey = null; return; }
+  const run = win().current || "";
+  const key = JSON.stringify(spec) + "|" + run;
+  diaControls(spec);
+  if (key === diaKey) return;
+  diaKey = key;
+  const r = await fetch("/api/diagram?run=" + encodeURIComponent(run));
+  const data = await r.json();
+  if (key !== diaKey) return;
+  $("dia-err").style.display = data.error ? "" : "none";
+  $("dia-err").textContent = data.error || "";
+  if (data.error || data.none) return;
+  diaData = data;
+  $("dia-title").textContent = data.title;
+  const held = data.spec.kind === "activity" ? "Minerals only; aluminium is conserved." :
+    `Dissolved species of ${data.spec.element} at an activity of 10${sup(data.log_a)}.`;
+  $("dia-held").textContent = held;
+  const rel = data.reliability;
+  $("dia-key").innerHTML = `<span style="color:var(--warn)">▨</span> hatched: the boundary is within ${rel.band} log units, ` +
+    `the uncertainty of logK here (water ionization ${REL_TEXT[rel.level]} at this temperature and pressure)` +
+    (data.fields.some((f) => f.extrapolated) ? "; * dotted: data extrapolated" : "") +
+    (Object.keys(data.water || {}).length ? "; dashed: water stability limits" : "") +
+    (Object.keys(data.path || {}).length ? "; black: the run's path, filled dots within 10 C of the diagram" : "");
+  $("dia-notes").replaceChildren(...data.notes.map((n) => h("li", {}, n)));
+  dplot.set(data);
+}
+
+function diaControls(spec) {
+  document.querySelectorAll("#dia-kind button").forEach((b) => b.classList.toggle("on", b.dataset.kind === spec.kind));
+  const act = spec.kind === "activity";
+  $("dia-el-wrap").style.display = act ? "none" : "";
+  $("dia-a-wrap").style.display = act ? "none" : "";
+  $("dia-cat-wrap").style.display = act ? "" : "none";
+  setIfIdle($("dia-el"), spec.element || "");
+  setIfIdle($("dia-cat"), spec.cation || "K+");
+  setIfIdle($("dia-t"), spec.t_c === null || spec.t_c === undefined ? "" : spec.t_c);
+  setIfIdle($("dia-p"), spec.p_bar === null || spec.p_bar === undefined ? "" : spec.p_bar);
+  setIfIdle($("dia-a"), spec.log_a);
+  setIfIdle($("dia-with"), (spec.with || []).join(" "));
+}
+
+function diaSend(request) { return api("/api/diagram", { request }); }
+document.querySelectorAll("#dia-kind button").forEach((b) => b.addEventListener("click", () => diaSend({ kind: b.dataset.kind })));
+[["dia-el", "element"], ["dia-t", "t_c"], ["dia-p", "p_bar"], ["dia-a", "log_a"], ["dia-with", "with"], ["dia-cat", "cation"]]
+  .forEach(([id, key]) => $(id).addEventListener("change", (ev) => diaSend({ [key]: ev.target.value })));
+$("dia-close").addEventListener("click", () => api("/api/diagram", { close: true }));
+$("dia-svg").addEventListener("click", () => diaData &&
+  download(diaData.title.replace(/[^A-Za-z0-9]+/g, "-") + ".svg", dplot.svgText(), "image/svg+xml"));

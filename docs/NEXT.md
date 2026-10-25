@@ -42,7 +42,12 @@ P3 (seawater and basalt at 350 C) was done on 2026-10-25 as pull requests #9 to 
   in the ratio test) instead of failing the point. Seawater + 1 kg basalt glass at 350 C, 11 steps: static
   2 s, flow-through 8 s, no failed points; it gives albite, chlorite, epidote, actinolite, pyrrhotite.
 
-277 tests pass with the data folder present. The data folder needs `OBIGT/Berman/` (run
+P4 (diagrams) was done on 2026-10-25: `reaction/diagram.py` (predominance on a grid, balanced on the element;
+water and quartz-saturation lines; an uncertainty band from the water-ionization check), `app/diagrams.py`
+(requests in words: "Eh-pH diagram for Fe at 300 C", "fO2-pH diagram of iron with sulfur", "activity diagram
+for K"; the run's path and fluid), a panel in the results window (`static/diagram.js`).
+
+287 tests pass with the data folder present. The data folder needs `OBIGT/Berman/` (run
 `scripts/fetch_references.ps1` again); without it the old minerals are used and every run says so.
 
 ## First things to do, in this order

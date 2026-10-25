@@ -69,9 +69,38 @@
       <div class="hint" style="margin-top:6px">Click to add or remove a curve. Anything on the same axis must share a unit, so picking another kind replaces the current ones. You can also ask in the chat window.</div>
     </section>
   </div>
+  <section id="dia" class="panel" style="display:none">
+    <div class="row" style="justify-content:space-between;align-items:flex-start">
+      <div>
+        <h2 id="dia-title"></h2>
+        <div id="dia-held" class="small muted"></div>
+      </div>
+      <div class="row">
+        <button id="dia-svg" title="The diagram as a vector image">Download diagram</button>
+        <button id="dia-close" class="ghost" title="Close the diagram">Close</button>
+      </div>
+    </div>
+    <div class="row small" style="margin:10px 0 8px;gap:10px;align-items:flex-end">
+      <div class="seg" id="dia-kind" role="group" aria-label="Kind of diagram">
+        <button data-kind="eh_ph">Eh–pH</button><button data-kind="fo2_ph">log fO2–pH</button><button data-kind="activity">Activity</button>
+      </div>
+      <label class="f" id="dia-el-wrap" style="width:90px">Element<input id="dia-el" spellcheck="false"></label>
+      <label class="f" id="dia-cat-wrap" style="width:110px">Cation<select id="dia-cat">
+        <option value="K+">K+</option><option value="Na+">Na+</option><option value="Ca+2">Ca2+</option><option value="Mg+2">Mg2+</option></select></label>
+      <label class="f" style="width:110px">Temperature, C<input id="dia-t" placeholder="run's last"></label>
+      <label class="f" style="width:100px">Pressure, bar<input id="dia-p" placeholder="saturation"></label>
+      <label class="f" id="dia-a-wrap" style="width:110px">log a, dissolved<input id="dia-a"></label>
+      <label class="f" style="width:130px">With elements<input id="dia-with" placeholder="e.g. S C" spellcheck="false"></label>
+    </div>
+    <div id="dia-err" class="errbox" style="display:none;margin-bottom:8px"></div>
+    <div id="dia-key" class="hint" style="margin-bottom:4px"></div>
+    <div id="dia-plot" class="plotwrap" style="height:520px"></div>
+    <details style="margin-top:8px"><summary>How this diagram was drawn</summary><ul id="dia-notes"></ul></details>
+  </section>
 </main>
 <script src="/static/common.js"></script>
 <script src="/static/plot.js"></script>
+<script src="/static/diagram.js"></script>
 <script src="/static/results.js"></script>
 </body>
 </html>

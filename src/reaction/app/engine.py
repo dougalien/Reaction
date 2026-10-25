@@ -393,7 +393,9 @@ class Engine:
             minerals[name] = minerals.get(name, 0.0) + moles
         return {"pH": spec.ph, "ionic_strength": spec.ionic_strength, "water_kg": state.water_kg,
                 "log_fO2": spec.log_fo2, "Eh": spec.eh_volts,
-                "log_aw": spec.log_a_water, "species": species, "elements": elements,
+                "log_aw": spec.log_a_water, "species": species,
+                "log_a": {n: spec.species[n].log_activity for n in spec.basis_names
+                          if n in spec.species and n not in (WATER, PROTON)}, "elements": elements,
                 "minerals": minerals, "saturation": dict(spec.saturation),
                 "warnings": list(spec.warnings)}
 
@@ -449,6 +451,7 @@ def _pack(rows: list[dict | None]) -> dict:
                if any(r and math.isfinite(r.get(k, math.nan)) for r in rows)},   # only with redox
         },
         "species": column(lambda r, k: r["species"].get(k, 0.0), species_keys),
+        "log_a": column(lambda r, k: r.get("log_a", {}).get(k), sorted({k for r in good for k in r.get("log_a", {})})),
         "elements": column(lambda r, k: r["elements"].get(k, 0.0), element_keys),
         "minerals": column(lambda r, k: r["minerals"].get(k, 0.0), mineral_keys),
         "saturation": column(lambda r, k: r["saturation"].get(k), sat_keys),

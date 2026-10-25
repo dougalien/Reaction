@@ -546,3 +546,13 @@ def test_an_axis_the_new_run_does_not_vary_is_explained_after_the_run(session):
     assert wait(lambda: session.engine_stub.calls and session.run_state["state"] == "idle")
     assert wait(lambda: any("does not change" in m["text"] for m in session.chat))
     assert session.view["x"] == "temperature_c"
+
+
+def test_diagram_requests_in_the_chat_open_and_close_it(session):
+    session.handle_chat("Eh-pH diagram for iron at 300 C")
+    assert session.diagram["kind"] == "eh_ph" and session.diagram["element"] == "Fe"
+    assert session.diagram["t_c"] == 300
+    assert "Eh-pH diagram for Fe at 300 C" in session.chat[-1]["text"]
+    assert session.snapshot()["diagram"] == session.diagram
+    session.handle_chat("close the diagram")
+    assert session.diagram is None
