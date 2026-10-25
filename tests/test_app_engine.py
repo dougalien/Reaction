@@ -126,3 +126,32 @@ def test_flow_through_leaves_calcite_behind_where_it_would_redissolve(engine):
     ft = engine.run(card)["modes"]["flow_through"]["minerals"]["calcite"]
     assert all(b >= a * (1 - 1e-9) for a, b in zip(ft, ft[1:]))
     assert ft[-1] > 0
+
+
+@pytest.mark.parametrize("key", ["rainwater", "vent_fluid", "formation_brine"])
+def test_every_preset_fluid_runs(engine, key):
+    card = Scenario(fluid=key, t_start_c=25.0, t_end_c=300.0, steps=6, p_start_bar=500.0,
+                    p_end_bar=500.0, mode="static")
+    res = engine.run(card)
+    assert all(v is not None for v in res["modes"]["static"]["properties"]["pH"])
+    assert res["fluid"]["key"] == key and res["fluid"]["analysis"]
+
+
+def test_vent_fluid_precipitates_silica_on_heating(engine):
+    res = engine.run(Scenario(fluid="vent_fluid", t_start_c=25.0, t_end_c=300.0, steps=6,
+                              p_start_bar=500.0, p_end_bar=500.0, mode="static"))
+    assert res["modes"]["static"]["minerals"]["quartz"][0] > 1e-3          # 17 mmol/kg silica
+    assert any("Charge balance closed on Cl" in n for n in res["notes"])
+
+
+def test_charge_balance_closes_on_the_chosen_ion(engine):
+    card = Scenario(fluid="custom", analysis="Na 100 mmol/kg\nCl 80 mmol/kg\nCa 5 mmol/kg", ph=7.0)
+    sp, notes = engine.starting_fluid(card)
+    assert abs(sp.charge_imbalance) < 1e-10
+    assert sp.totals["Cl-"] > 0.08 / (1 - 6.4e-3) and "Cl⁻" in notes[0]
+    card.charge_balance = "Na+"
+    sp, notes = engine.starting_fluid(card)
+    assert abs(sp.charge_imbalance) < 1e-10 and sp.totals["Na+"] < 0.1
+    card.charge_balance = "none"
+    sp, notes = engine.starting_fluid(card)
+    assert sp.charge_imbalance > 0.01 and "out of charge balance" in notes[0]

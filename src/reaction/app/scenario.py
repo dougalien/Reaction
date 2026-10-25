@@ -15,11 +15,14 @@ from dataclasses import asdict, dataclass, field, fields
 from typing import Any
 
 from ..thermo import water
-from .fluids import PRESETS
+from . import analysis
+from .analysis import DEFAULT_UNIT
+from .fluids import CUSTOM, CUSTOM_LABEL, PRESETS, FluidPreset, label as fluid_label
 
 MODES = ("static", "flow_through", "both")
 MODE_LABELS = {"static": "Static", "flow_through": "Flow-through", "both": "Both"}
 ACTIVITY_MODELS = ("bdot", "davies")
+FLUID_FIELDS = ("analysis", "units", "ph", "fluid_t_c", "charge_balance")   # what a custom fluid is
 
 T_MIN, T_MAX = 0.0, 600.0            # degrees C
 P_MIN, P_MAX = 1.0, 5000.0           # bar (the range the HKF equations are calibrated for)
@@ -46,6 +49,13 @@ class Scenario:
     mode: str = "static"
     blocked_minerals: list[str] = field(default_factory=lambda: list(DEFAULT_BLOCKED))
     activity_model: str = "bdot"
+    # a custom fluid (fluid = "custom"): the analysis as typed, its default unit, the pH and the
+    # temperature they were measured at, and how to close the charge balance
+    analysis: str = ""
+    units: str = DEFAULT_UNIT
+    ph: float | None = None
+    fluid_t_c: float = 25.0
+    charge_balance: str = "auto"
 
     # ---- editing --------------------------------------------------------------------------
     def to_dict(self) -> dict[str, Any]:
@@ -78,6 +88,16 @@ class Scenario:
         problems: list[str] = []
         new = Scenario.from_dict(self.to_dict())
         known = {f.name for f in fields(Scenario)}
+        # editing any part of a preset fluid turns it into a custom fluid that starts from the preset
+        asked = _coerce("fluid", changes["fluid"]) if "fluid" in changes else self.fluid
+        edits_fluid = any(k in changes for k in FLUID_FIELDS)
+        start = asked if asked in PRESETS and edits_fluid else self.fluid
+        if (asked == CUSTOM or edits_fluid) and start in PRESETS:
+            changes.pop("fluid", None)
+            p = PRESETS[start]
+            new.analysis, new.units, new.ph = p.analysis, p.units, p.ph
+            new.fluid_t_c, new.charge_balance = p.measured_t_c, p.charge_balance
+            new.fluid = CUSTOM
         for key, value in changes.items():
             if key not in known or key == "kind":
                 problems.append(f"'{key}' is not something the card can change")
@@ -109,16 +129,29 @@ class Scenario:
     def display_title(self) -> str:
         if self.title.strip():
             return self.title.strip()
-        label = PRESETS[self.fluid].label if self.fluid in PRESETS else self.fluid
-        return f"{label} run"
+        return f"{fluid_label(self.fluid)} run"
+
+    def fluid_spec(self) -> FluidPreset:
+        """The starting fluid, preset or custom, in one shape."""
+        if self.fluid in PRESETS:
+            return PRESETS[self.fluid]
+        return FluidPreset(CUSTOM, CUSTOM_LABEL, "A fluid entered as an analysis.", self.fluid_t_c,
+                           self.analysis, self.ph if self.ph is not None else float("nan"),
+                           "entered on the card", units=self.units, charge_balance=self.charge_balance)
+
+    def fluid_analysis(self) -> analysis.Analysis:
+        spec = self.fluid_spec()
+        return analysis.parse(spec.analysis, spec.units)
 
     # ---- checking -------------------------------------------------------------------------
     def problems(self) -> list[str]:
         out: list[str] = []
         if self.kind != "path":
             out.append(f"only temperature-pressure path runs exist so far, not '{self.kind}'")
-        if self.fluid not in PRESETS:
-            out.append(f"unknown fluid '{self.fluid}' (known: {', '.join(PRESETS)})")
+        if self.fluid not in PRESETS and self.fluid != CUSTOM:
+            out.append(f"unknown fluid '{self.fluid}' (known: {', '.join(PRESETS)}, {CUSTOM})")
+        elif self.fluid == CUSTOM:
+            out.extend(self._fluid_problems())
         ranges_ok = True
         for name, vals, lo, hi, unit in (
                 ("temperature", (self.t_start_c, self.t_end_c), T_MIN, T_MAX, "C"),
@@ -143,6 +176,28 @@ class Scenario:
             out.append(f"activity_model must be one of {', '.join(ACTIVITY_MODELS)}")
         return out
 
+    def _fluid_problems(self) -> list[str]:
+        out: list[str] = []
+        if analysis.unit_key(self.units) is None:
+            out.append(f"unknown unit '{self.units}'")
+        got = self.fluid_analysis()
+        out.extend(got.problems)
+        if not got.entries:
+            out.append("the analysis is empty: give at least one solute, for example \"Na 100, Cl 150\"")
+        if self.ph is None or not math.isfinite(self.ph):
+            out.append("give the pH of the fluid")
+        elif not (0.0 <= self.ph <= 14.0):
+            out.append("pH must be between 0 and 14")
+        if not (0.0 <= self.fluid_t_c <= 300.0):
+            out.append("the analysis temperature must be between 0 and 300 C")
+        cb = self.charge_balance
+        if cb not in ("auto", "none") and cb not in got.species:
+            names = ", ".join(got.species) or "none yet"
+            out.append(f"charge balance on '{cb}' needs that ion in the analysis (ions given: {names})")
+        elif cb not in ("auto", "none") and analysis.SOLUTES[cb][0] == 0:
+            out.append(f"{cb} has no charge, so it cannot close the charge balance")
+        return out
+
     def _first_boiling_point(self) -> tuple[float, float, float] | None:
         """First place along the path (checked finely, not just at the steps) where water is steam."""
         n = 201
@@ -158,7 +213,7 @@ class Scenario:
         return None
 
     def describe(self) -> str:
-        label = PRESETS[self.fluid].label if self.fluid in PRESETS else self.fluid
+        label = fluid_label(self.fluid)
         how = {"static": "static", "flow_through": "flow-through",
                "both": "static and flow-through"}.get(self.mode, self.mode)
         tail = f"({how}, {self.steps} steps)"
@@ -177,8 +232,27 @@ class Scenario:
 
 
 def _coerce(key: str, value: Any) -> Any:
-    if key in ("t_start_c", "t_end_c", "p_start_bar", "p_end_bar"):
+    if key in ("t_start_c", "t_end_c", "p_start_bar", "p_end_bar", "fluid_t_c"):
         return float(value)
+    if key == "ph":
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return None
+        return float(value)
+    if key == "analysis":
+        return str(value)
+    if key == "units":
+        unit = analysis.unit_key(str(value))
+        if unit is None:
+            raise ValueError(f"unknown unit '{value}' (try {', '.join(analysis.UNIT_LABELS.values())})")
+        return unit
+    if key == "charge_balance":
+        text = str(value).strip()
+        if text.lower() in ("auto", "none", ""):
+            return text.lower() or "none"
+        hit = analysis.lookup(text)
+        if hit is None:
+            raise ValueError(f"'{text}' is not an ion I know")
+        return hit[0]
     if key == "steps":
         return int(round(float(value)))
     if key == "blocked_minerals":
@@ -211,7 +285,10 @@ def _rejoin_comma_names(parts: list[str]) -> list[str]:
 # What the language model is told about the card.
 FIELD_HELP = {
     "title": "short name for the run (text); leave out unless the user gives one",
-    "fluid": f"starting fluid, one of: {', '.join(PRESETS)}",
+    "fluid": f"starting fluid, one of: {', '.join(PRESETS)}, or {CUSTOM} for an analysis the user gives",
+    "ph": "pH of the fluid (number); changing it makes the fluid custom",
+    "fluid_t_c": "temperature the fluid's analysis and pH were measured at, degrees C",
+    "charge_balance": "auto (adjust the main ion that is short), none, or an ion name such as Cl-",
     "t_start_c": "temperature the run starts at, degrees C (0 to 600)",
     "t_end_c": "temperature the run ends at, degrees C; equal to the start means temperature is held fixed",
     "p_start_bar": "pressure the run starts at, bar (1 to 5000)",

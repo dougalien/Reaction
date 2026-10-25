@@ -36,6 +36,23 @@
         <label class="f">Fluid<select id="f-fluid"></select></label>
         <label class="f">Steps<input id="f-steps" type="number" min="2" max="200" step="1"></label>
       </div>
+      <div id="fluid-desc" class="hint" style="margin-top:4px"></div>
+      <div id="custom" style="display:none;margin-top:8px">
+        <label class="f">Analysis <span class="hint">one solute per line: name, amount, unit if not the default</span>
+          <textarea id="f-analysis" rows="6" spellcheck="false" placeholder="Na 10768&#10;Ca2+ 10.3 mmol/kg&#10;SiO2 12"></textarea></label>
+        <div class="grid2" style="margin-top:6px">
+          <label class="f">Default unit<select id="f-units">
+            <option value="mg/kg">mg/kg</option><option value="mg/l">mg/L</option>
+            <option value="mmol/kg">mmol/kg</option><option value="mol/kg">mol/kg</option>
+            <option value="mmolal">mmol/kg water</option><option value="molal">mol/kg water</option>
+            <option value="meq/l">meq/L</option></select></label>
+          <label class="f">pH<input id="f-ph" type="number" min="0" max="14" step="any"></label>
+          <label class="f">Measured at (&deg;C)<input id="f-fluid_t_c" type="number" min="0" max="300" step="any"></label>
+          <label class="f">Charge balance<select id="f-charge_balance"></select></label>
+        </div>
+        <div class="hint" style="margin-top:4px">Per kg means per kg of solution; mg/L is read at 1 kg/L. Auto balance adjusts the main ion of the side that is short.</div>
+      </div>
+      <details id="fluid-read" style="margin-top:6px"><summary id="fluid-sum" class="small"></summary><div id="fluid-table"></div></details>
       <div class="small muted" style="margin:10px 0 4px">Path: a straight line from start to end</div>
       <div class="grid2">
         <label class="f">Temperature start (&deg;C)<input id="f-t_start_c" type="number" min="0" max="600" step="any"></label>

@@ -22,11 +22,10 @@ from ..database.model import Kind
 from ..equilibrium import System
 from ..network import PROTON, WATER
 from ..path import PathPoint, ReactionPath
-from ..speciation import speciate
+from ..speciation import PH, Molal, Speciation, speciate
 from ..thermo import validity
 from ..thermo.eosdb import load_eos_database
-from . import config
-from .fluids import preset
+from . import analysis, config
 from .names import pretty_mineral, pretty_species
 from .scenario import ALWAYS_EXCLUDED, MODE_LABELS, Scenario
 
@@ -107,9 +106,9 @@ class Engine:
         progress = progress or (lambda f, m: None)
         started = time.time()
         db = self.db
-        fluid = preset(sc.fluid)
+        fluid = sc.fluid_spec()
         progress(0.0, f"Speciating {fluid.label.lower()}")
-        sp0 = speciate(db, fluid.measured_t_c, fluid.constraints, activity_model=sc.activity_model)
+        sp0, fluid_notes = self.starting_fluid(sc)
         basis = [b for b in sp0.basis_names if b not in (WATER, PROTON)]
         system = System(db, basis, activity_model=sc.activity_model)
         bulk0 = dict(sp0.component_totals)
@@ -117,7 +116,7 @@ class Engine:
         modes = ["static", "flow_through"] if sc.mode == "both" else [sc.mode]
         rels = self.reliability(points)
 
-        notes: list[str] = []
+        notes: list[str] = list(fluid_notes)
         runs: dict[str, dict] = {}
         for k, mode in enumerate(modes):
             def tick(i, n, k=k):
@@ -159,6 +158,7 @@ class Engine:
             "database": f"{db.title}; ion sizes from EQ3/6 data0.cmp",
             "fluid": {"key": fluid.key, "label": fluid.label, "description": fluid.description,
                       "measured_t_c": fluid.measured_t_c, "source": fluid.source,
+                      "analysis": [e.line() for e in sc.fluid_analysis().entries], "ph": fluid.ph,
                       "totals_molal": {pretty_species(k, db.species[k].charge if k in db.species else None):
                                        _sig(v) for k, v in sp0.totals.items()}},
             "axes": axes,
@@ -173,6 +173,44 @@ class Engine:
             "notes": seen,
             "elapsed_s": round(time.time() - started, 1),
         }
+
+    def starting_fluid(self, sc: Scenario) -> tuple[Speciation, list[str]]:
+        """Speciate the card's fluid at its measurement temperature, closing the charge balance as the
+        card asks.  Returns the speciation and sentences about what was adjusted."""
+        db = self.db
+        fluid = sc.fluid_spec()
+        read = analysis.parse(fluid.analysis, fluid.units)
+        if read.problems:
+            raise ValueError("; ".join(read.problems))
+        molal, _ = analysis.molalities(read.entries)
+        constraints = {name: Molal(m) for name, m in molal.items()}
+        constraints[PROTON] = PH(fluid.ph)
+
+        def solve(balance_on=None):
+            return speciate(db, fluid.measured_t_c, constraints, balance_on=balance_on,
+                            activity_model=sc.activity_model)
+
+        notes = list(read.notes)
+        sp = solve()
+        equivalents = sum(abs(analysis.SOLUTES[n][0]) * m for n, m in molal.items()) or 1.0
+        off = sp.charge_imbalance / equivalents * 2.0         # relative to the mean of the two sides
+        ion = fluid.charge_balance
+        if ion == "auto":
+            ion = analysis.balance_ion(molal, sp.charge_imbalance) if abs(off) > 1e-6 else None
+        if ion in (None, "none"):
+            if abs(off) > 0.05:
+                notes.append(f"The analysis is out of charge balance by {100 * abs(off):.0f}% "
+                             f"({'cations' if off > 0 else 'anions'} in excess) and was used as given.")
+            return sp, notes
+        sp = solve(ion)
+        before, after = molal[ion], sp.totals[ion]
+        change = (after - before) / before
+        z = db.species[ion].charge if ion in db.species else None
+        notes.append(f"Charge balance closed on {pretty_species(ion, z)}: {before:.4g} to {after:.4g} "
+                     f"mol/kg ({100 * change:+.1f}%).")
+        if abs(change) > 0.10:
+            notes.append(f"That is a large change to {pretty_species(ion, z)}; check the analysis.")
+        return sp, notes
 
     # ---- the march along the path ---------------------------------------------------------------
     def _march(self, system: System, bulk0: dict, points: list[tuple[float, float]], sc: Scenario,
