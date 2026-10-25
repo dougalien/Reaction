@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 
@@ -21,10 +22,13 @@ def external_dir() -> Path:
 
 
 def workspace_dir() -> Path:
-    """Folder where saved runs and the chat session live (``workspace/`` in the repository)."""
+    """Folder where saved runs and the chat session live (``workspace/`` in the repository, or
+    ``%LOCALAPPDATA%\\Reaction\\workspace`` for the packaged Reaction.exe, which has no repository)."""
     env = os.environ.get("REACTION_WORKSPACE")
     if env:
         return Path(env)
+    if getattr(sys, "frozen", False):
+        return external_dir().parent / "workspace"
     return Path(__file__).resolve().parents[3] / "workspace"
 
 
