@@ -30,6 +30,7 @@ REACTANT_UNITS = {"g": ("g", 1.0), "gram": ("g", 1.0), "grams": ("g", 1.0), "mg"
                   "mmol": ("mol", 1e-3), "umol": ("mol", 1e-6)}
 MAX_REACTANTS = 6
 MAX_UNCERTAINTY_RUNS = 200
+FOLLOW_PHASES = ("whole", "brine", "vapour")
 DEFAULT_UNCERTAINTY_RUNS = 20
 TIME_UNITS = {"seconds": 1.0, "minutes": 60.0, "hours": 3600.0, "days": 86400.0,
               "years": 365.25 * 86400.0}
@@ -102,6 +103,9 @@ class Scenario:
     # solid solutions (plagioclase, carbonate, chlorite, olivine ...; see solidsolution.py) may form
     # instead of their pure endmembers; a name in blocked_minerals leaves that one out
     solid_solutions: bool = False
+    # phase separation (NaCl-H2O): "whole" follows the whole fluid; "brine" lets the vapour leave where the
+    # fluid splits (boiling off), "vapour" lets the brine stay behind (the vapour rises on)
+    follow_phase: str = "whole"
 
     # ---- editing --------------------------------------------------------------------------
     def to_dict(self) -> dict[str, Any]:
@@ -283,6 +287,8 @@ class Scenario:
             out.append(f"the number of uncertainty runs must be between 0 (none) and {MAX_UNCERTAINTY_RUNS}")
         elif 0 < self.uncertainty_runs < 5:
             out.append("uncertainty bands need at least 5 runs (20 or more for a stable range)")
+        if self.follow_phase not in FOLLOW_PHASES:
+            out.append(f"follow_phase must be one of {', '.join(FOLLOW_PHASES)}")
         if self.mode not in MODES:
             out.append(f"mode must be one of {', '.join(MODES)}")
         if self.activity_model not in ACTIVITY_MODELS:
@@ -339,6 +345,9 @@ class Scenario:
                                                    f"({self._how()}")
         if self.solid_solutions:
             text = text.replace(f" ({self._how()}", f", with solid solutions ({self._how()}")
+        if self.follow_phase != "whole":
+            what = "the brine as vapour boils off" if self.follow_phase == "brine" else "the vapour, leaving the brine"
+            text = text.replace(f" ({self._how()}", f", following {what} ({self._how()}")
         if self.uncertainty_runs:
             text = text.replace(f" ({self._how()}", f", with a log K uncertainty range from {self.uncertainty_runs} "
                                                    f"runs ({self._how()}")
@@ -493,6 +502,13 @@ def _coerce(key: str, value: Any) -> Any:
                 return False
             raise ValueError(f"'{value}' is not yes or no")
         return bool(value)
+    if key == "follow_phase":
+        low = str(value).strip().lower()
+        low = {"vapor": "vapour", "liquid": "brine", "all": "whole", "fluid": "whole", "both": "whole",
+               "none": "whole", "": "whole"}.get(low, low)
+        if low not in FOLLOW_PHASES:
+            raise ValueError(f"'{value}' is not whole, brine or vapour")
+        return low
     if key == "methane_sulfate":
         low = str(value).strip().lower().replace("-", "_").replace(" ", "_")
         low = {"held_apart": "apart", "separate": "apart", "no": "apart", "equilibrate": "react",
@@ -584,6 +600,9 @@ FIELD_HELP = {
                  "what is there at the start",
     "kinetics": "false (default): reactants are added steadily and react completely; true: minerals and "
                 "basalt glass react at measured rates over the duration (time becomes the axis)",
+    "follow_phase": "where a saline fluid splits into brine and vapour: whole (default) follows the whole "
+                    "fluid; brine lets the vapour boil off at each step; vapour follows the vapour and leaves "
+                    "the brine behind",
     "solid_solutions": "false (default): minerals are pure; true: ideal solid solutions (plagioclase, alkali "
                        "feldspar, carbonate, chlorite, epidote, garnet, olivine, pyroxenes, biotite, actinolite) "
                        "form in place of their endmembers",

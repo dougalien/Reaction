@@ -294,9 +294,12 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
         ch["mode"] = "static"
     out.mode_mentioned = "mode" in ch
     plotting = re.match(r"\s*(?:plot|show|display|hide|remove|drop)\b", low)   # names in a plot request
+    # "follow the brine" names a phase of the fluid, not the formation-brine preset
+    named = re.sub(r"\b(?:follow(?:ing)?|leav(?:e|ing)) the brine\b|\bbrine (?:stays|is left) behind\b|"
+                   r"\bbrine salinity\b", " ", low)
     for key, p in ([] if plotting else PRESETS.items()):
-        if key in low or p.label.lower() in low or (key == "vent_fluid" and re.search(r"\bvent\b|black smoker", low)) \
-                or (key == "formation_brine" and re.search(r"\bbrine\b", low)) or (key == "rainwater" and re.search(r"\brain\b", low)):
+        if key in named or p.label.lower() in named or (key == "vent_fluid" and re.search(r"\bvent\b|black smoker", named)) \
+                or (key == "formation_brine" and re.search(r"\bbrine\b", named)) or (key == "rainwater" and re.search(r"\brain\b", named)):
             ch["fluid"] = key
     mix = _MIX.search(low)
     if mix:
@@ -348,6 +351,9 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
         ch["solid_solutions"] = not re.search(r"\b(no|without|turn off|switch off|disable)\b[^.]*\bsolid[- ]solution", low)
     elif re.search(r"\bpure (?:minerals|endmembers|phases) only\b|\bonly pure minerals\b", low):
         ch["solid_solutions"] = False
+    follow = _follow_phase(low)
+    if follow:
+        ch["follow_phase"] = follow
     held = re.search(rf"\bat\s*{_NUM}{_DEG}", low)
     if ch.get("evaporate", 1.0) > 1.0 and held and "t_end_c" in ch and "t_start_c" not in ch \
             and float(held.group(1)) == ch["t_end_c"]:
@@ -424,6 +430,9 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
                          "davies": "Davies activity coefficients"}[ch["activity_model"]])
         if "solid_solutions" in ch:
             bits.append("solid solutions can form" if ch["solid_solutions"] else "pure minerals only")
+        if "follow_phase" in ch:
+            bits.append({"whole": "the whole fluid followed", "brine": "following the brine as vapour boils off",
+                         "vapour": "following the vapour, leaving the brine"}[ch["follow_phase"]])
         if "uncertainty_runs" in ch:
             bits.append(f"a log K uncertainty range from {ch['uncertainty_runs']} runs" if ch["uncertainty_runs"]
                         else "no uncertainty range")
@@ -486,6 +495,22 @@ def _brine_options(low: str) -> dict:
         elif re.search(r"\bno evaporation\b|\bwithout evaporat", low):
             out["evaporate"] = 1.0
     return out
+
+
+def _follow_phase(low: str) -> str | None:
+    """Which phase to follow where the fluid splits: "follow the brine", "let the vapour boil off",
+    "follow the vapor", "leave the brine behind", "follow the whole fluid"."""
+    vap = r"(?:vapou?r|steam|gas)"
+    if re.search(r"\bfollow(?:ing)? the (?:whole|bulk|entire) fluid\b|\b(?:don't|do not|no|stop) "
+                 r"(?:separat\w*|boil(?:ing)? off|following the (?:brine|vapou?r))\b", low):
+        return "whole"
+    if re.search(rf"\bfollow(?:ing)? the (?:brine|liquid)\b|\b{vap} (?:boils|boiling) off\b|\bboil(?:s|ing)? off "
+                 rf"the {vap}\b|\blet the {vap} (?:boil off|go|escape|leave)\b", low):
+        return "brine"
+    if re.search(rf"\bfollow(?:ing)? the {vap}\b|\b(?:leave|leaving) the brine behind\b|\bbrine "
+                 r"(?:stays|is left) behind\b", low):
+        return "vapour"
+    return None
 
 
 def _uncertainty_options(low: str) -> dict:

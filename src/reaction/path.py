@@ -131,7 +131,8 @@ class ReactionPath:
                  flow_through: bool = False,
                  no_precipitation: bool = False,
                  saturation_tol: float = 1e-6,
-                 kinetic_tol: float = 0.03):
+                 kinetic_tol: float = 0.03,
+                 separate: Callable[[float, EquilibriumState], dict[str, float] | None] | None = None):
         self.system, self.bulk0 = system, dict(bulk)
         self.reactants = list(reactants)
         self._temperature = temperature if callable(temperature) else (lambda xi, t=temperature: t)
@@ -144,6 +145,10 @@ class ReactionPath:
         self.no_precipitation = no_precipitation
         self.saturation_tol = saturation_tol
         self.kinetic_tol = kinetic_tol
+        # phase separation: given (xi, state), the moles of each component of the fluid phase that leaves
+        # (the vapour when the brine is followed), or None; taken away like the flow-through gas
+        self.separate = separate
+        self._split_off: dict[str, float] = {}
         self._transferred: set[str] = set()
         self._removed: dict[str, float] = {}
         self._removed_members: dict[str, float] = {}    # endmembers of the solid solutions left behind
@@ -172,6 +177,8 @@ class ReactionPath:
             for comp, c in r.composition.items():
                 bulk[comp] = bulk.get(comp, 0.0) + c * done
         ss_names = {ss.name for ss in self.system.solid_solutions}
+        for comp, moles in self._split_off.items():
+            bulk[comp] = bulk.get(comp, 0.0) - moles
         for name, moles in [*((k, v) for k, v in self._removed.items() if k not in ss_names),
                             *self._removed_members.items()]:
             for comp, c in _composition_row(self.system, name).items():
@@ -416,7 +423,10 @@ class ReactionPath:
         try:
             st1, reacted = self._solve(xi1, st0)
         except SpeciationError:
-            if xi0 is None or depth > 25:
+            # halve the step a limited number of times per point: where the chemistry has no answer,
+            # halving both halves again and again would take 2**depth solves
+            self._halvings += 1
+            if xi0 is None or depth > 25 or self._halvings > 40:
                 raise
             mid = 0.5 * (xi0 + xi1)
             st_mid, _ = self._advance(xi0, st0, mid, depth + 1)
@@ -481,15 +491,17 @@ class ReactionPath:
         Without ``on_failure`` a point where no equilibrium is found raises.  With it, the failure
         is reported there, that point is None and the path goes on from the last solved point."""
         self._transferred, self._removed, self._stopped = set(), {}, {}
-        self._removed_members = {}
+        self._removed_members, self._split_off = {}, {}
         n_kin = {r.name: 0.0 for r in self.kinetic}
         self._span = (0.0, n_kin, 0.0, n_kin)
         self._dt_hint = None
+        self._halvings = 0
         points: list[PathPoint | None] = []
         xi_prev, state = None, None
         for i, xi in enumerate(xis):
             if progress:
                 progress(i, len(xis))
+            self._halvings = 0
             try:
                 if self.kinetic and state is not None:
                     new, reacted, n_kin = self._kinetic_step(xi_prev, state, n_kin, xi)
@@ -506,6 +518,21 @@ class ReactionPath:
                 for name, moles in new.gas.items():
                     self._removed[name] = self._removed.get(name, 0.0) + moles
                 new, reacted = self._solve(xi, new)
+            leaving = self.separate(xi, new) if self.separate is not None else None
+            if leaving:
+                for comp, moles in leaving.items():
+                    self._split_off[comp] = self._split_off.get(comp, 0.0) + moles
+                try:
+                    try:
+                        new, reacted = self._solve(xi, new)
+                    except SpeciationError:           # much of the fluid has gone: start afresh
+                        new, reacted = self._solve(xi, None)
+                except SpeciationError as exc:
+                    if on_failure is None:
+                        raise
+                    on_failure(xi, exc)
+                    points.append(None)
+                    continue
             state, xi_prev = new, xi
             points.append(PathPoint(xi, self._temperature(xi), state.speciation.pressure_bar,
                                     state, reacted, tuple(sorted(self._transferred)),

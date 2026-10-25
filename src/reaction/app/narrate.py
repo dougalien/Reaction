@@ -215,6 +215,11 @@ def _split_clause(result: dict, run: dict) -> str:
         text += "; beyond that the brine dries out to vapour and halite"
     elif i1 < len(state) - 1 and state[i1 + 1] == "one phase":
         text += f"; it is one fluid again from {point_text(result, i1 + 1)}"
+    follow = result["scenario"].get("follow_phase", "whole")
+    if follow == "brine":
+        text += ". From there the calculation follows the brine as the vapour boils off"
+    elif follow == "vapour":
+        text += ". From there the calculation follows the vapour and leaves the brine behind"
     return text + "."
 
 
