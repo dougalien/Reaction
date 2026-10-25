@@ -63,21 +63,24 @@ def bulk_from_speciation(spec: Speciation, kilograms: float = 1.0) -> dict[str, 
     return {name: kilograms * value for name, value in spec.component_totals.items()}
 
 
-def _composition_row(system: System, name: str, temperature_c: float) -> dict[str, float]:
-    model = system.model(temperature_c)
-    if name in model.ph_names:
-        row = model.nu_ph[model.ph_names.index(name)]
-    elif name in model.dep_names:
-        row = model.nu[model.dep_names.index(name)]
+def _composition_row(system: System, name: str) -> dict[str, float]:
+    """Moles of each basis component in one mole of ``name``.  Stoichiometry does not depend on
+    temperature or pressure, so it comes from the network itself: building an aqueous model here
+    would need a pressure, and there is no default one above the critical temperature."""
+    net = system.net
+    if name in net.phase_names:
+        row = net.nu_phase[net.phase_names.index(name)]
+    elif name in net.dep_names:
+        row = net.nu_dep[net.dep_names.index(name)]
     else:
         raise EquilibriumError(f"{name!r} is not a phase or species of this basis")
-    return {model.names[j]: float(c) for j, c in enumerate(row) if abs(c) > 1e-12}
+    return {net.basis[j]: float(c) for j, c in enumerate(row) if abs(c) > 1e-12}
 
 
-def mineral_reactant(system: System, name: str, amount: float, *, temperature_c: float = 25.0,
+def mineral_reactant(system: System, name: str, amount: float, *,
                      rates=(1.0, 0.0, 0.0)) -> Reactant:
     """A pure mineral (or gas, or aqueous species) as a reactant, from its formation reaction."""
-    return Reactant(name, _composition_row(system, name, temperature_c), amount, rates, name)
+    return Reactant(name, _composition_row(system, name), amount, rates, name)
 
 
 class ReactionPath:

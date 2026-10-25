@@ -206,27 +206,36 @@ class Engine:
 
     def _advance(self, system: System, ctx: _Context, t_c: float, p_bar: float, sc: Scenario,
                  depth: int = 0):
-        """Move the system to (t_c, p_bar); on a failed solve, go there in two half steps."""
+        """Move the system to (t_c, p_bar): solve there, then in flow-through leave the minerals behind."""
+        state = self._solve(system, ctx, t_c, p_bar, sc, depth)
+        if ctx.cumulative is not None:                       # flow-through: leave the minerals behind
+            for name, moles in state.minerals.items():
+                ctx.cumulative[name] = ctx.cumulative.get(name, 0.0) + moles
+                for comp, c in _composition_row(system, name).items():
+                    ctx.bulk[comp] = ctx.bulk.get(comp, 0.0) - c * moles
+        ctx.state, ctx.t_c, ctx.p_bar = state, t_c, p_bar
+        return state
+
+    def _solve(self, system: System, ctx: _Context, t_c: float, p_bar: float, sc: Scenario,
+               depth: int = 0) -> EquilibriumState:
+        """Equilibrium of ``ctx.bulk`` at (t_c, p_bar), leaving ``ctx`` unchanged.  On a failed solve,
+        the halfway point is solved first only as a starting guess: nothing is left behind there,
+        so a convergence failure never adds an extra flow-through step."""
         model = system.model(t_c, p_bar)
         blocked = {b.lower() for b in sc.blocked_minerals} | set(ALWAYS_EXCLUDED)
         eligible = [name for name, kind in zip(model.ph_names, model.ph_kind)
                     if kind == Kind.MINERAL and name.lower() not in blocked]
         start = [] if ctx.state is None or ctx.cumulative is not None else list(ctx.state.minerals)
         try:
-            state = equilibrate(system, t_c, ctx.bulk, pressure_bar=p_bar, minerals=start,
-                                eligible=eligible, guess=ctx.state)
+            return equilibrate(system, t_c, ctx.bulk, pressure_bar=p_bar, minerals=start,
+                               eligible=eligible, guess=ctx.state)
         except SpeciationError:
             if ctx.state is None or ctx.t_c is None or depth >= 6:
                 raise
-            self._advance(system, ctx, 0.5 * (ctx.t_c + t_c), 0.5 * (ctx.p_bar + p_bar), sc, depth + 1)
-            return self._advance(system, ctx, t_c, p_bar, sc, depth + 1)
-        if ctx.cumulative is not None:                       # flow-through: leave the minerals behind
-            for name, moles in state.minerals.items():
-                ctx.cumulative[name] = ctx.cumulative.get(name, 0.0) + moles
-                for comp, c in _composition_row(system, name, t_c).items():
-                    ctx.bulk[comp] = ctx.bulk.get(comp, 0.0) - c * moles
-        ctx.state, ctx.t_c, ctx.p_bar = state, t_c, p_bar
-        return state
+            t_mid, p_mid = 0.5 * (ctx.t_c + t_c), 0.5 * (ctx.p_bar + p_bar)
+            mid = self._solve(system, ctx, t_mid, p_mid, sc, depth + 1)
+            nearer = _Context(ctx.bulk, mid, t_mid, p_mid, ctx.cumulative)
+            return self._solve(system, nearer, t_c, p_bar, sc, depth + 1)
 
     def _record(self, db, state: EquilibriumState, ctx: _Context) -> dict:
         spec = state.speciation

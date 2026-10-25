@@ -61,21 +61,19 @@ def build_case(db: ThermoDatabase, inp: Eq6Input, csv: Eq6Csv) -> Eq6Setup:
         raise Unsupported(f"mineral subset suppression {inp.subset_suppression}")
     no_minerals = any(opt == "All" for opt, _ in inp.subset_suppression)
 
-    t0 = base
     # non-basis species (O2(aq), H2(aq)) are reported apart from the basis totals: add their
     # contribution to the components they are made of
     for sp_name in inp.non_basis:
         amount = inp.totals.get(sp_name, (0.0, 0.0))[0]
         if amount:
-            for comp, c in _composition_row(system, sp_name, t0).items():
+            for comp, c in _composition_row(system, sp_name).items():
                 bulk[comp] = bulk.get(comp, 0.0) + c * amount
     reactants: list[Reactant] = []
     for r in inp.reactants:
         if r.forward_law != "Relative rate equation":
             raise Unsupported(f"reactant {r.name}: rate law {r.forward_law}")
         if r.kind in ("Pure mineral", "Gas species", "Aqueous species"):
-            reactants.append(mineral_reactant(system, r.name, r.remaining, temperature_c=t0,
-                                              rates=r.rkb))
+            reactants.append(mineral_reactant(system, r.name, r.remaining, rates=r.rkb))
             if r.kind != "Pure mineral":
                 reactants[-1].mineral = None
         elif r.kind == "Special reactant":
