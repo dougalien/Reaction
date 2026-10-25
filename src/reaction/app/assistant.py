@@ -161,7 +161,8 @@ def interpret(text: str, card: Scenario, plotted: list[str], history: list[dict]
         if any(k in rules.scenario_changes for k in group):
             for k in group:
                 got.scenario_changes.pop(k, None)
-    for key in (*T_KEYS, *P_KEYS, "mode", "fluid", "steps", "analysis", "units", "ph", "reactants"):
+    for key in (*T_KEYS, *P_KEYS, "mode", "fluid", "steps", "analysis", "units", "ph", "reactants",
+                "mix_with", "mix_ratio", "mix_t_c"):
         if key in rules.scenario_changes:
             got.scenario_changes[key] = rules.scenario_changes[key]
     if got.x_axis == "unchanged":
@@ -212,8 +213,26 @@ def _guard(changes: dict, text: str) -> dict:
 # ---- plain rules ------------------------------------------------------------------------------------
 _NUM = r"(-?\d+(?:\.\d+)?)"
 _DEG = r"\s*(?:°|deg(?:rees?)?)?\s*c(?![a-z])"
-RUN_WORDS = re.compile(r"\b(run|go|start|simulate|calculate|compute|react|titrate|heat|warm|cool|decompress|"
+RUN_WORDS = re.compile(r"\b(run|go|start|simulate|calculate|compute|react|titrate|mix|heat|warm|cool|decompress|"
                        r"compress|depressuri[sz]e|pressuri[sz]e|do it|what happens)\b", re.I)
+
+
+_FLUID_WORDS = r"seawater|sea water|vent fluid|vent|black smoker fluid|rainwater|rain|formation brine|brine"
+_MIX = re.compile(rf"\bmix(?:es|ed|ing)?\s+(?:(?:the\s+)?(?P<a>{_FLUID_WORDS})\b[^.;]*?\s+)?(?:with|into|and)\s+"
+                  rf"(?:(?:up\s+to\s+)?\d*\.?\d+\s*(?:kg|parts?)\s+(?:of\s+)?)?(?:the\s+)?(?P<b>{_FLUID_WORDS})\b")
+
+
+def _fluid_key(words: str) -> str | None:
+    w = words.strip()
+    if not w:
+        return None
+    if "vent" in w or "smoker" in w:
+        return "vent_fluid"
+    if "brine" in w:
+        return "formation_brine"
+    if "rain" in w:
+        return "rainwater"
+    return "seawater"
 
 
 _REACTANT = re.compile(
@@ -275,6 +294,33 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
         if key in low or p.label.lower() in low or (key == "vent_fluid" and re.search(r"\bvent\b|black smoker", low)) \
                 or (key == "formation_brine" and re.search(r"\bbrine\b", low)) or (key == "rainwater" and re.search(r"\brain\b", low)):
             ch["fluid"] = key
+    mix = _MIX.search(low)
+    if mix:
+        first, second = _fluid_key(mix.group("a") or ""), _fluid_key(mix.group("b"))
+        if second:
+            ch["mix_with"] = second
+            if first:
+                ch["fluid"] = first
+            elif ch.get("fluid") == second:
+                ch.pop("fluid")                        # "mix seawater ..." named only the second fluid
+            ratio = re.search(r"(?:up to|ratio(?: of)?|to)\s*(\d*\.?\d+)\s*(?:kg|:\s*1\b|parts?)", low[mix.end():]) \
+                or re.search(r"(\d*\.?\d+)\s*(?:kg|parts?)\s+(?:of\s+)?" + re.escape(mix.group("b")), low)
+            if ratio:
+                ch["mix_ratio"] = float(ratio.group(1))
+            hot = re.search(rf"{re.escape(mix.group('b'))}\s+(?:at\s+)?{_NUM}{_DEG}", low)
+            if hot:
+                ch["mix_t_c"] = float(hot.group(1))
+                for k in ("t_end_c", "temperature_c"):
+                    if ch.get(k) == ch["mix_t_c"]:
+                        ch.pop(k)
+            first_hot = mix.group("a") and re.search(rf"{re.escape(mix.group('a'))}\s+(?:at\s+)?{_NUM}{_DEG}", low)
+            if first_hot:
+                ch["t_start_c"] = float(first_hot.group(1))
+                for k in ("t_end_c", "temperature_c"):
+                    if ch.get(k) == ch["t_start_c"]:
+                        ch.pop(k)
+    elif re.search(r"\b(no|stop|without)\s+mixing\b", low):
+        ch["mix_with"] = ""
     pasted = analysis.parse(text, card.units, strict=False)
     if len(pasted.entries) >= 3:                       # a pasted water analysis
         ch["fluid"] = CUSTOM
@@ -289,7 +335,8 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
         out.run = False
     elif pasted.ph is not None and not re.search(r"\b(plot|show|hide)\b", low):
         ch["ph"] = pasted.ph
-    found = _REACTANT.findall(text)
+    found = [f for f in _REACTANT.findall(text)
+             if not re.fullmatch(_FLUID_WORDS, f[2].lower())]       # "with 10 kg of seawater" is mixing
     if found:
         ch["reactants"] = "; ".join(f"{amount} {unit} {name}" for amount, unit, name in found)
         held = re.search(rf"\bat\s*{_NUM}{_DEG}", low)
@@ -332,6 +379,10 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
             bits.append(f"pressure held at {ch['pressure_bar']:g} bar")
         if "mode" in ch:
             bits.append(ch["mode"].replace("_", "-"))
+        if ch.get("mix_with"):
+            bits.append(f"mixing in up to {ch.get('mix_ratio', card.mix_ratio):g} kg of "
+                        f"{ch['mix_with'].replace('_', ' ')} per kg"
+                        + (f" at {ch['mix_t_c']:g} C" if "mix_t_c" in ch else ""))
         if ch.get("reactants"):
             bits.append("adding " + ch["reactants"].replace(";", ","))
         elif "reactants" in ch:

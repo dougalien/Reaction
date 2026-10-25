@@ -201,3 +201,33 @@ def test_solved_state_carries_the_water_activity_it_was_solved_with(engine):
     state = equilibrate(System(engine.db, basis), 25.0, dict(sp.component_totals), pressure_bar=1.0)
     assert state._u[0] == pytest.approx(state.speciation.log_a_water * LN10, abs=1e-12)
     assert state.speciation.log_a_water < -0.005
+
+
+def test_mixing_vent_fluid_with_cold_seawater(engine):
+    card = Scenario(fluid="vent_fluid", t_start_c=350.0, p_start_bar=250.0, p_end_bar=250.0, steps=11,
+                    mode="both", mix_with="seawater", mix_ratio=10.0, mix_t_c=2.0)
+    res = engine.run(card)
+    assert res["varies"] == ["mixed", "mix_fraction", "temperature_c"]
+    temps = res["axes"]["temperature_c"]["values"]
+    assert temps[0] == 350.0 and temps[-1] == pytest.approx((350.0 + 10 * 2.0) / 11, rel=1e-5)
+    assert res["axes"]["mix_fraction"]["values"][-1] == pytest.approx(10 / 11, rel=1e-5)
+    st, ft = res["modes"]["static"], res["modes"]["flow_through"]
+    # chloride is in no mineral: what is dissolved at the end is the vent fluid's plus ten seawaters'
+    vent, _ = engine.starting_fluid(Scenario(fluid="vent_fluid"))
+    sea, _ = engine.starting_fluid(Scenario(fluid="seawater"))
+    cl_end = st["elements"]["Cl"][-1] * st["properties"]["water_kg"][-1]
+    assert cl_end == pytest.approx(vent.totals["Cl-"] + 10 * sea.totals["Cl-"], rel=1e-4)
+    # anhydrite forms where hot vent fluid meets seawater sulfate; cooling redissolves it unless it
+    # was left behind
+    assert max(v for v in st["minerals"]["anhydrite"] if v is not None) > 1e-3
+    assert st["minerals"]["anhydrite"][-1] < 1e-9 < ft["minerals"]["anhydrite"][-1]
+
+
+def test_mixing_without_its_own_temperature_follows_the_path(engine):
+    card = Scenario(t_start_c=25.0, t_end_c=25.0, p_start_bar=1.0, p_end_bar=1.0, steps=5,
+                    mix_with="rainwater", mix_ratio=4.0)
+    res = engine.run(card)
+    assert res["varies"] == ["mixed", "mix_fraction"]
+    assert set(res["axes"]["temperature_c"]["values"]) == {25.0}
+    na = res["modes"]["static"]["species"]["Na+"]
+    assert na[-1] < na[0] / 4

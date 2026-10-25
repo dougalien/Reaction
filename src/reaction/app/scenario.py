@@ -64,6 +64,12 @@ class Scenario:
     # minerals or aqueous species added steadily along the path, per kg of the starting fluid's water:
     # [{"name": "albite", "amount": 10.0, "unit": "g"}]; reacted in full by the last step
     reactants: list[dict] = field(default_factory=list)
+    # mixing: a second (preset) fluid added steadily until there are ``mix_ratio`` kg of its water per kg
+    # of the first fluid's water.  With ``mix_t_c`` the temperature follows the mixing (equal heat
+    # capacities: the mass-weighted mean of the start temperature and ``mix_t_c``) instead of the path.
+    mix_with: str = ""
+    mix_ratio: float = 1.0
+    mix_t_c: float | None = None
 
     # ---- editing --------------------------------------------------------------------------
     def to_dict(self) -> dict[str, Any]:
@@ -120,18 +126,33 @@ class Scenario:
     @property
     def varies(self) -> list[str]:
         out = []
-        if abs(self.t_end_c - self.t_start_c) > 1e-9:
+        t_end = self.tp(1.0)[0]
+        if abs(t_end - self.t_start_c) > 1e-9:
             out.append("temperature_c")
         if abs(self.p_end_bar - self.p_start_bar) > 1e-9:
             out.append("pressure_bar")
         return out
 
+    @property
+    def mixing(self) -> bool:
+        return bool(self.mix_with)
+
+    @property
+    def mix_follows_temperature(self) -> bool:
+        return self.mixing and self.mix_t_c is not None
+
+    def tp(self, f: float) -> tuple[float, float]:
+        """(temperature in C, pressure in bar) at the fraction ``f`` (0 to 1) of the way along the path."""
+        p = self.p_start_bar + (self.p_end_bar - self.p_start_bar) * f
+        if self.mix_follows_temperature:
+            m = self.mix_ratio * f
+            return (self.t_start_c + self.mix_t_c * m) / (1.0 + m), p
+        return self.t_start_c + (self.t_end_c - self.t_start_c) * f, p
+
     def points(self) -> list[tuple[float, float]]:
         """(temperature in C, pressure in bar) at each step, evenly spaced along the path."""
         n = max(int(self.steps), 2)
-        return [(self.t_start_c + (self.t_end_c - self.t_start_c) * i / (n - 1),
-                 self.p_start_bar + (self.p_end_bar - self.p_start_bar) * i / (n - 1))
-                for i in range(n)]
+        return [self.tp(i / (n - 1)) for i in range(n)]
 
     @property
     def display_title(self) -> str:
@@ -174,8 +195,15 @@ class Scenario:
                 out.append(f"the amount of {r.get('name', 'a reactant')} must be positive")
         if len(self.reactants) > MAX_REACTANTS:
             out.append(f"at most {MAX_REACTANTS} reactants")
+        if self.mixing:
+            if self.mix_with not in PRESETS:
+                out.append(f"can only mix with a named fluid ({', '.join(PRESETS)}) so far")
+            if not (0.0 < self.mix_ratio <= 1000.0):
+                out.append("the mixing ratio must be above 0 and at most 1000 kg per kg")
+            if self.mix_t_c is not None and not (T_MIN <= self.mix_t_c <= T_MAX):
+                out.append(f"the second fluid's temperature must be between {T_MIN:g} and {T_MAX:g} C")
         if ranges_ok:
-            if not self.varies and not self.reactants:
+            if not self.varies and not self.reactants and not self.mixing:
                 out.append("nothing changes along this path: give different start and end values "
                            "for temperature or pressure")
             boil = self._first_boiling_point()
@@ -215,9 +243,7 @@ class Scenario:
         """First place along the path (checked finely, not just at the steps) where water is steam."""
         n = 201
         for i in range(n):
-            f = i / (n - 1)
-            t = self.t_start_c + (self.t_end_c - self.t_start_c) * f
-            p = self.p_start_bar + (self.p_end_bar - self.p_start_bar) * f
+            t, p = self.tp(i / (n - 1))
             t_k = t + 273.15
             if t_k < water.T_CRIT:
                 psat = water.saturation_pressure_mpa(t_k) * water.BAR_PER_MPA
@@ -230,6 +256,11 @@ class Scenario:
         if self.reactants:
             added = ", ".join(f"{r['amount']:g} {r['unit']} {r['name']}" for r in self.reactants)
             text = text.replace(f" ({self._how()}", f", adding {added} ({self._how()}")
+        if self.mixing:
+            other = fluid_label(self.mix_with).lower()
+            hot = f" at {self.mix_t_c:g} °C" if self.mix_t_c is not None else ""
+            text = text.replace(f" ({self._how()}",
+                                f", mixed with up to {self.mix_ratio:g} kg of {other}{hot} per kg ({self._how()}")
         return text
 
     def _how(self) -> str:
@@ -238,6 +269,10 @@ class Scenario:
 
     def _describe_path(self) -> str:
         label = fluid_label(self.fluid)
+        if self.mix_follows_temperature:
+            p0, p1 = self.p_start_bar, self.p_end_bar
+            where = f"{p0:g} bar" if p0 == p1 else f"{p0:g} to {p1:g} bar"
+            return f"{label} at {self.t_start_c:g} °C and {where} ({self._how()}, {self.steps} steps)"
         how = {"static": "static", "flow_through": "flow-through",
                "both": "static and flow-through"}.get(self.mode, self.mode)
         tail = f"({how}, {self.steps} steps)"
@@ -256,8 +291,15 @@ class Scenario:
 
 
 def _coerce(key: str, value: Any) -> Any:
-    if key in ("t_start_c", "t_end_c", "p_start_bar", "p_end_bar", "fluid_t_c"):
+    if key in ("t_start_c", "t_end_c", "p_start_bar", "p_end_bar", "fluid_t_c", "mix_ratio"):
         return float(value)
+    if key == "mix_t_c":
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return None
+        return float(value)
+    if key == "mix_with":
+        text = str(value).strip().lower().replace("-", "_").replace(" ", "_")
+        return "" if text in ("", "none", "nothing") else text
     if key == "ph":
         if value is None or (isinstance(value, str) and not value.strip()):
             return None
@@ -354,6 +396,9 @@ FIELD_HELP = {
             "are removed and cannot redissolve; both = run the two for comparison",
     "blocked_minerals": "list of mineral names that may not precipitate (kinetically blocked)",
     "activity_model": "bdot (default, for brines) or davies",
+    "mix_with": f"a second fluid mixed in steadily ({', '.join(PRESETS)}), or empty for none",
+    "mix_ratio": "kg of the second fluid per kg of the first at the end of the run",
+    "mix_t_c": "temperature of the second fluid, degrees C; the mixture's temperature then follows the mixing",
     "reactants": "minerals or species added steadily along the path, per kg of water, e.g. "
                  "[{\"name\": \"albite\", \"amount\": 10, \"unit\": \"g\"}]",
 }

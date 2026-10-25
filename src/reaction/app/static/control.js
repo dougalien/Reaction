@@ -70,7 +70,18 @@ function renderFluid(s) {
   if (keys !== fluidKeys) {
     fluidKeys = keys;
     $("f-fluid").replaceChildren(...fluids.map((f) => h("option", { value: f.key }, f.label)));
+    $("f-mix_with").replaceChildren(h("option", { value: "" }, "None"),
+      ...fluids.filter((f) => f.key !== "custom").map((f) => h("option", { value: f.key }, f.label)));
   }
+  $("f-mix_with").value = c.mix_with;
+  for (const k of ["mix_ratio", "mix_t_c"]) {
+    $("f-" + k).disabled = !c.mix_with;
+    setIfIdle($("f-" + k), c[k] === null ? "" : c[k]);
+  }
+  $("mix-hint").textContent = !c.mix_with ? "" : c.mix_t_c === null
+    ? "Mixed in steadily; the temperature follows the path above."
+    : "Mixed in steadily; the temperature follows the mixing (mass-weighted, equal heat capacities), so the end temperature above is not used.";
+  $("f-t_end_c").disabled = c.mix_with && c.mix_t_c !== null;
   $("f-fluid").value = c.fluid;
   const custom = c.fluid === "custom";
   const f = fluids.find((x) => x.key === c.fluid);
@@ -117,7 +128,7 @@ for (const k of ["title", "p_start_bar", "p_end_bar", "t_start_c", "t_end_c", "s
   $("f-" + k).addEventListener("change", (ev) => edit(k, ev.target.value));
 }
 $("f-fluid").addEventListener("change", (ev) => edit("fluid", ev.target.value));
-for (const k of ["analysis", "units", "ph", "fluid_t_c", "charge_balance"]) {
+for (const k of ["analysis", "units", "ph", "fluid_t_c", "charge_balance", "mix_with", "mix_ratio", "mix_t_c"]) {
   $("f-" + k).addEventListener("change", (ev) => edit(k, ev.target.value));
 }
 $("f-activity_model").addEventListener("change", (ev) => edit("activity_model", ev.target.value));
