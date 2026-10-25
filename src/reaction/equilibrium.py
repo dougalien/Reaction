@@ -348,6 +348,9 @@ class _Solve:
         log_aw = 0.0                          # refined after the first pass
         iterations = 0
         sum_m = 0.0
+        relax, last_delta, outer_tol = 1.0, math.inf, 1e-11
+        if m.pitzer is not None:          # coefficients that depend on every molality: solver noise is larger
+            max_outer, outer_tol = max_outer * 8, 1e-9
         for outer in range(max_outer):
             lg_b_ln, lg_d_ln = lg_b * LN10, lg_d * LN10
             for inner in range(max_newton):
@@ -366,15 +369,26 @@ class _Solve:
             u_now[0] = log_aw * LN10
             m_dep, m_b = m.state(u_now, lg_b_ln, lg_d_ln)
             ionic_new, sum_m = m.ionic_and_sum(m_dep, m_b)
-            lg_b_new, lg_d_new = m.log_gammas(ionic_new)
-            log_aw_new = m.log_a_water(sum_m, ionic_new)
+            lg_b_new, lg_d_new, log_aw_new = m.activities(m_dep, m_b, ionic_new, sum_m)
             delta = max(abs(ionic_new - ionic), float(np.max(np.abs(lg_b_new - lg_b))),
                         float(np.max(np.abs(lg_d_new - lg_d))) if len(lg_d) else 0.0,
                         abs(log_aw_new - log_aw))
             if gas:
                 delta = max(delta, self.gas.update_phi(u_now))
-            ionic, lg_b, lg_d, log_aw = ionic_new, lg_b_new, lg_d_new, log_aw_new
-            if delta < 1e-11 and outer > 0:
+            if m.pitzer is not None:
+                # Pitzer coefficients feed back strongly on concentrated brines: under-relax the update
+                # when it stops shrinking
+                if delta > 0.7 * last_delta:
+                    relax = max(0.05, 0.5 * relax)
+                elif delta < 0.3 * last_delta:
+                    relax = min(1.0, 1.5 * relax)
+                last_delta = delta
+                lg_b, lg_d = lg_b + relax * (lg_b_new - lg_b), lg_d + relax * (lg_d_new - lg_d)
+                log_aw += relax * (log_aw_new - log_aw)
+                ionic = ionic_new
+            else:
+                ionic, lg_b, lg_d, log_aw = ionic_new, lg_b_new, lg_d_new, log_aw_new
+            if delta < outer_tol and outer > 0:
                 break
         else:
             raise EquilibriumError("activity coefficients did not converge")

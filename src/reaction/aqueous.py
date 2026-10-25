@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from . import activity
+from . import activity, pitzer
 from .constants import LN10
 from .database.model import ThermoDatabase
 from .network import Network
@@ -21,8 +21,8 @@ class AqueousModel:
     def __init__(self, db: ThermoDatabase, net: Network, temperature_c: float,
                  pressure_bar: float | None, activity_model: str = "bdot",
                  ph_scale: str = "nbs"):
-        if activity_model not in ("bdot", "davies", "ideal"):
-            raise ValueError("activity_model must be 'bdot', 'davies' or 'ideal'")
+        if activity_model not in ("bdot", "davies", "ideal", "pitzer"):
+            raise ValueError("activity_model must be 'bdot', 'davies', 'pitzer' or 'ideal'")
         if ph_scale not in ("nbs", "internal", "mesmer"):
             raise ValueError("ph_scale must be 'nbs', 'internal' or 'mesmer'")
         self.db, self.net = db, net
@@ -35,12 +35,20 @@ class AqueousModel:
         self.names = net.basis
         self.nbf = len(self.names)
         self.ib = {n: i for i, n in enumerate(self.names)}
-        self.nu = net.nu_dep[ev.dep_index]
-        self.dep_names = [net.dep_names[i] for i in ev.dep_index]
-        self.logk_dep = ev.logk_dep
-        self.z_dep = net.z_dep[ev.dep_index]
-        a0_dep = net.a0_dep[ev.dep_index]
-        self.type_dep = net.type_dep[ev.dep_index]
+        dep_index, logk_dep = ev.dep_index, ev.logk_dep
+        if activity_model == "pitzer":
+            # the Pitzer system's own complexes (NaCl, CaSO4, NaSO4- ...) are in its parameters
+            cols = np.array([b in pitzer.COMPONENTS for b in net.basis])
+            keep = [k for k, i in enumerate(dep_index)
+                    if net.dep_names[i] in pitzer.KEEP or np.any((net.nu_dep[i] != 0) & ~cols)]
+            dep_index, logk_dep = dep_index[keep], logk_dep[keep]
+        self.dep_index = dep_index
+        self.nu = net.nu_dep[dep_index]
+        self.dep_names = [net.dep_names[i] for i in dep_index]
+        self.logk_dep = logk_dep
+        self.z_dep = net.z_dep[dep_index]
+        a0_dep = net.a0_dep[dep_index]
+        self.type_dep = net.type_dep[dep_index]
         self.nu_ph = net.nu_phase[ev.phase_index]
         self.ph_names = [net.phase_names[i] for i in ev.phase_index]
         self.ph_kind = [net.phase_kind[i] for i in ev.phase_index]
@@ -60,12 +68,33 @@ class AqueousModel:
         self.a0_b = np.where(net.a0_basis > 0, net.a0_basis, activity.DEFAULT_ION_SIZE)
         self.a0_d = np.where(a0_dep > 0, a0_dep, activity.DEFAULT_ION_SIZE)
         self.cl_a0 = (db["Cl-"].a0 or 3.0) if "Cl-" in db else 3.0
+        self.pitzer = None
+        if activity_model == "pitzer":
+            solutes = [n for n, s in zip(self.names, self.solute) if s]
+            self.pitzer = pitzer.Pitzer(solutes + self.dep_names,
+                                        np.concatenate([self.z_b[self.solute], self.z_dep]),
+                                        temperature_c, self.A * LN10 / 3.0)
+            if temperature_c > pitzer.T_FITTED_C:
+                self.notes.append(f"the Pitzer parameters are fitted to about {pitzer.T_FITTED_C:.0f} C "
+                                  f"and are extrapolated here")
+
+    def activities(self, m_dep, m_b, ionic: float, sum_m: float):
+        """(log gamma of the basis, log gamma of the dependent species, log a(H2O)) for a solution."""
+        if self.pitzer is not None:
+            m = np.concatenate([m_b[self.solute], m_dep])
+            ln_g, ln_aw = self.pitzer.compute(m)
+            lg_b = np.zeros(self.nbf)
+            ns = int(np.sum(self.solute))
+            lg_b[self.solute] = ln_g[:ns] / LN10
+            return lg_b, ln_g[ns:] / LN10, ln_aw / LN10
+        lg_b, lg_d = self.log_gammas(ionic)
+        return lg_b, lg_d, self.log_a_water(sum_m, ionic)
 
     # ---- activity coefficients and water activity ------------------------------------
     def log_gammas(self, ionic: float):
         nbf, t_c = self.nbf, self.temperature_c
         lg_b, lg_d = np.zeros(nbf), np.zeros(len(self.dep_names))
-        if self.activity_model == "ideal":
+        if self.activity_model in ("ideal", "pitzer"):        # Pitzer needs the molalities: activities()
             return lg_b, lg_d
         A, B, bdot, model = self.A, self.B, self.bdot, self.activity_model
 

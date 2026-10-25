@@ -213,7 +213,7 @@ def _guard(changes: dict, text: str) -> dict:
 # ---- plain rules ------------------------------------------------------------------------------------
 _NUM = r"(-?\d+(?:\.\d+)?)"
 _DEG = r"\s*(?:°|deg(?:rees?)?)?\s*c(?![a-z])"
-RUN_WORDS = re.compile(r"\b(run|go|start|simulate|calculate|compute|react|titrate|mix|add|heat|warm|cool|decompress|"
+RUN_WORDS = re.compile(r"\b(run|go|start|simulate|calculate|compute|react|titrate|mix|add|heat|warm|cool|decompress|evaporate|"
                        r"compress|depressuri[sz]e|pressuri[sz]e|do it|what happens)\b", re.I)
 
 
@@ -341,6 +341,11 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
     ch.update(_redox(low))
     ch.update(_gas_options(low))
     ch.update(_kinetic_options(low))
+    ch.update(_brine_options(low))
+    held = re.search(rf"\bat\s*{_NUM}{_DEG}", low)
+    if ch.get("evaporate", 1.0) > 1.0 and held and "t_end_c" in ch and "t_start_c" not in ch \
+            and float(held.group(1)) == ch["t_end_c"]:
+        ch["temperature_c"] = ch.pop("t_end_c")              # "evaporate ... at 25 C" holds 25 C
     found = []
     for m in _REACTANT.finditer(text):                 # "with 10 g albite, 1 g calcite and 5 g quartz"
         found.append(m.groups())
@@ -406,6 +411,11 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
             bits.append("measured rates")
         elif "kinetics" in ch:
             bits.append("no kinetics (reactants react completely)")
+        if "evaporate" in ch:
+            bits.append(f"evaporated to {ch['evaporate']:g} times" if ch["evaporate"] > 1 else "no evaporation")
+        if "activity_model" in ch:
+            bits.append({"pitzer": "Pitzer activity coefficients", "bdot": "B-dot activity coefficients",
+                         "davies": "Davies activity coefficients"}[ch["activity_model"]])
         if "surface_area_cm2_per_g" in ch:
             bits.append(f"surface area {ch['surface_area_cm2_per_g']:g} cm2/g")
         if "ph" in ch and ch["ph"] is not None and "analysis" not in ch:
@@ -446,6 +456,24 @@ def _kinetic_options(low: str) -> dict:
     m = re.search(r"(?:surface area|area)\s*(?:of\s+)?(?:to\s+)?(\d*\.?\d+)\s*(cm2|cm\^2|m2|m\^2)\s*(?:/|per)\s*g", low)
     if m:
         out["surface_area_cm2_per_g"] = float(m.group(1)) * (1e4 if m.group(2).startswith("m") else 1.0)
+    return out
+
+
+def _brine_options(low: str) -> dict:
+    """Pitzer activity coefficients, and evaporation ("evaporate seawater 50 times", "to 20x")."""
+    out: dict = {}
+    if re.search(r"\bpitzer\b", low):
+        out["activity_model"] = "pitzer"
+    elif re.search(r"\bb[- ]?dot\b", low):
+        out["activity_model"] = "bdot"
+    elif re.search(r"\bdavies\b", low):
+        out["activity_model"] = "davies"
+    if re.search(r"\b(evaporat|concentrat)\w*", low):
+        m = re.search(r"(\d*\.?\d+)\s*(?:x\b|times|×|-?fold)", low)
+        if m:
+            out["evaporate"] = float(m.group(1))
+        elif re.search(r"\bno evaporation\b|\bwithout evaporat", low):
+            out["evaporate"] = 1.0
     return out
 
 

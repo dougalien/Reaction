@@ -291,8 +291,8 @@ def speciate(
     mg/L divided by the density first.  ``balance_on`` replaces that species'
     constraint by a charge-balance equation.
     """
-    if activity_model not in ("bdot", "davies", "ideal"):
-        raise ValueError("activity_model must be 'bdot', 'davies' or 'ideal'")
+    if activity_model not in ("bdot", "davies", "ideal", "pitzer"):
+        raise ValueError("activity_model must be 'bdot', 'davies', 'pitzer' or 'ideal'")
     if ph_scale not in ("nbs", "internal", "mesmer"):
         raise ValueError("ph_scale must be 'nbs', 'internal' or 'mesmer'")
     switches = dict(switches or {})
@@ -511,6 +511,9 @@ def speciate(
     lg_b, lg_d = log_gammas(ionic)
     u = pre_newton(u, lg_b * LN10, lg_d * LN10, log_aw)
     total_inner, converged = 0, False
+    relax, last_delta, outer_tol = 1.0, math.inf, 1e-11
+    if model.pitzer is not None:
+        max_outer, outer_tol = max_outer * 4, 1e-9
     for outer in range(max_outer):
         lg_b_ln, lg_d_ln = lg_b * LN10, lg_d * LN10
         u[0] = log_aw * LN10                     # ln a(H2O) enters every reaction involving water
@@ -538,13 +541,22 @@ def speciate(
         m_dep, m_b = state(u, lg_b_ln, lg_d_ln)
         ionic_new = 0.5 * (np.sum(m_b * z_b ** 2) + np.sum(m_dep * z_dep ** 2))
         sum_m_new = np.sum(m_b) + np.sum(m_dep)
-        lg_b_new, lg_d_new = log_gammas(ionic_new)
-        log_aw_new = log_a_water(sum_m_new, ionic_new)
+        lg_b_new, lg_d_new, log_aw_new = model.activities(m_dep, m_b, ionic_new, sum_m_new)
         delta = max(abs(ionic_new - ionic), np.max(np.abs(lg_b_new - lg_b)),
                     np.max(np.abs(lg_d_new - lg_d)) if len(lg_d) else 0.0,
                     abs(log_aw_new - log_aw))
-        ionic, sum_m, log_aw, lg_b, lg_d = ionic_new, sum_m_new, log_aw_new, lg_b_new, lg_d_new
-        if delta < 1e-11 and outer > 0:
+        if model.pitzer is not None:             # under-relaxed, as in equilibrium.py
+            if delta > 0.7 * last_delta:
+                relax = max(0.05, 0.5 * relax)
+            elif delta < 0.3 * last_delta:
+                relax = min(1.0, 1.5 * relax)
+            last_delta = delta
+            lg_b, lg_d = lg_b + relax * (lg_b_new - lg_b), lg_d + relax * (lg_d_new - lg_d)
+            log_aw += relax * (log_aw_new - log_aw)
+            ionic, sum_m = ionic_new, sum_m_new
+        else:
+            ionic, sum_m, log_aw, lg_b, lg_d = ionic_new, sum_m_new, log_aw_new, lg_b_new, lg_d_new
+        if delta < outer_tol and outer > 0:
             converged = True
             break
     if not converged:

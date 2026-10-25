@@ -22,7 +22,7 @@ from .fluids import CUSTOM, CUSTOM_LABEL, PRESETS, REDOX_CHOICES, FluidPreset, l
 
 MODES = ("static", "flow_through", "both")
 MODE_LABELS = {"static": "Static", "flow_through": "Flow-through", "both": "Both"}
-ACTIVITY_MODELS = ("bdot", "davies")
+ACTIVITY_MODELS = ("bdot", "davies", "pitzer")
 FLUID_FIELDS = ("analysis", "units", "ph", "fluid_t_c", "charge_balance", "redox",
                 "redox_value")                                       # what a custom fluid is
 REACTANT_UNITS = {"g": ("g", 1.0), "gram": ("g", 1.0), "grams": ("g", 1.0), "mg": ("g", 1e-3),
@@ -88,6 +88,9 @@ class Scenario:
     # dissolve or grow at those rates instead of all at once; the reactant amounts are then what is
     # there at the start, with ``surface_area_cm2_per_g`` of reactive surface per gram
     kinetics: bool = False
+    # evaporation: water is removed until the fluid is ``evaporate`` times more concentrated (1 = none),
+    # in steps evenly spaced in the logarithm of the concentration factor
+    evaporate: float = 1.0
     duration: float = 1.0
     duration_unit: str = "years"
     surface_area_cm2_per_g: float = 100.0
@@ -158,6 +161,10 @@ class Scenario:
     @property
     def mixing(self) -> bool:
         return bool(self.mix_with)
+
+    @property
+    def evaporating(self) -> bool:
+        return self.evaporate > 1.0
 
     @property
     def mix_follows_temperature(self) -> bool:
@@ -240,7 +247,8 @@ class Scenario:
             if self.mix_t_c is not None and not (T_MIN <= self.mix_t_c <= T_MAX):
                 out.append(f"the second fluid's temperature must be between {T_MIN:g} and {T_MAX:g} C")
         if ranges_ok:
-            if not self.varies and not self.reactants and not self.mixing and not self.kinetics:
+            if not self.varies and not self.reactants and not self.mixing and not self.kinetics \
+                    and not self.evaporating:
                 out.append("nothing changes along this path: give different start and end values "
                            "for temperature or pressure")
             boil = self._first_boiling_point()
@@ -259,6 +267,10 @@ class Scenario:
                 out.append(f"the duration unit must be one of {', '.join(TIME_UNITS)}")
             if not (0.0 < self.surface_area_cm2_per_g <= 1e7):
                 out.append("the surface area must be above 0 and at most 10,000,000 cm2 per g")
+        if not (1.0 <= self.evaporate <= 10000.0):
+            out.append("the evaporation factor must be between 1 (none) and 10000")
+        elif self.evaporating and self.kinetics:
+            out.append("evaporation and kinetics cannot be combined yet; turn one of them off")
         if self.mode not in MODES:
             out.append(f"mode must be one of {', '.join(MODES)}")
         if self.activity_model not in ACTIVITY_MODELS:
@@ -310,6 +322,9 @@ class Scenario:
             verb = (f"reacting with {added} for {self.duration:g} {self.duration_unit} at measured rates"
                     if self.kinetics else f"adding {added}")
             text = text.replace(f" ({self._how()}", f", {verb} ({self._how()}")
+        if self.evaporating:
+            text = text.replace(f" ({self._how()}", f", evaporated to {self.evaporate:g} times its concentration "
+                                                   f"({self._how()}")
         if self.mixing:
             other = fluid_label(self.mix_with).lower()
             hot = f" at {self.mix_t_c:g} °C" if self.mix_t_c is not None else ""
@@ -404,7 +419,7 @@ def _coerce(key: str, value: Any) -> Any:
             return None
         return float(value)
     if key in ("t_start_c", "t_end_c", "p_start_bar", "p_end_bar", "fluid_t_c", "mix_ratio", "duration",
-               "surface_area_cm2_per_g"):
+               "surface_area_cm2_per_g", "evaporate"):
         return float(value)
     if key == "duration_unit":
         low = str(value).strip().lower()
@@ -533,7 +548,10 @@ FIELD_HELP = {
     "mode": "static = minerals stay in contact with the fluid; flow_through = each step's minerals "
             "are removed and cannot redissolve; both = run the two for comparison",
     "blocked_minerals": "list of mineral names that may not precipitate (kinetically blocked)",
-    "activity_model": "bdot (default, for brines) or davies",
+    "activity_model": "bdot (default, to about seawater salinity), davies (dilute), or pitzer (brines and "
+                      "evaporites, to saturation with halite; parameters to about 200 C)",
+    "evaporate": "concentration factor to evaporate the fluid to (1 = no evaporation; 10 = a tenth of the "
+                 "water left)",
     "mix_with": f"a second fluid mixed in steadily ({', '.join(PRESETS)}), or empty for none",
     "mix_ratio": "kg of the second fluid per kg of the first at the end of the run",
     "mix_t_c": "temperature of the second fluid, degrees C; the mixture's temperature then follows the mixing",
