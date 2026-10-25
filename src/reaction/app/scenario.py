@@ -31,6 +31,10 @@ REACTANT_UNITS = {"g": ("g", 1.0), "gram": ("g", 1.0), "grams": ("g", 1.0), "mg"
 MAX_REACTANTS = 6
 MAX_UNCERTAINTY_RUNS = 200
 FOLLOW_PHASES = ("whole", "brine", "vapour")
+ISOTOPE_KEYS = {"d18o": "d18O", "18o": "d18O", "o18": "d18O", "d13c": "d13C", "13c": "d13C", "c13": "d13C",
+                "d34s": "d34S", "34s": "d34S", "s34": "d34S", "sr": "Sr", "sr_ppm": "Sr", "srppm": "Sr",
+                "sr_mg_per_kg": "Sr", "87sr/86sr": "87Sr/86Sr", "87sr": "87Sr/86Sr", "sr87": "87Sr/86Sr",
+                "sr_ratio": "87Sr/86Sr"}
 DEFAULT_UNCERTAINTY_RUNS = 20
 TIME_UNITS = {"seconds": 1.0, "minutes": 60.0, "hours": 3600.0, "days": 86400.0,
               "years": 365.25 * 86400.0}
@@ -106,6 +110,11 @@ class Scenario:
     # phase separation (NaCl-H2O): "whole" follows the whole fluid; "brine" lets the vapour leave where the
     # fluid splits (boiling off), "vapour" lets the brine stay behind (the vapour rises on)
     follow_phase: str = "whole"
+    # isotopes (see isotopes.py): d18O, d13C, d34S and 87Sr/86Sr along the run; ``isotope_inputs`` sets the
+    # starting values of "fluid", "mix" (the second fluid) or a reactant by its card name:
+    # {"fluid": {"d18O": -5.0}, "basalt glass": {"Sr": 120.0, "87Sr/86Sr": 0.7030}}; the rest are defaults
+    isotopes: bool = False
+    isotope_inputs: dict = field(default_factory=dict)
 
     # ---- editing --------------------------------------------------------------------------
     def to_dict(self) -> dict[str, Any]:
@@ -348,6 +357,8 @@ class Scenario:
         if self.follow_phase != "whole":
             what = "the brine as vapour boils off" if self.follow_phase == "brine" else "the vapour, leaving the brine"
             text = text.replace(f" ({self._how()}", f", following {what} ({self._how()}")
+        if self.isotopes:
+            text = text.replace(f" ({self._how()}", f", with isotopes ({self._how()}")
         if self.uncertainty_runs:
             text = text.replace(f" ({self._how()}", f", with a log K uncertainty range from {self.uncertainty_runs} "
                                                    f"runs ({self._how()}")
@@ -493,7 +504,26 @@ def _coerce(key: str, value: Any) -> Any:
         if not isinstance(value, (list, tuple)):
             raise TypeError("expected a list of mineral names")
         return [str(v).strip().lower() for v in value if str(v).strip()]
-    if key in ("gas_phase", "kinetics", "solid_solutions"):
+    if key == "isotope_inputs":
+        if not isinstance(value, dict):
+            raise TypeError("expected {source: {d18O: value, ...}}")
+        out = {}
+        for source, vals in value.items():
+            if not isinstance(vals, dict):
+                raise TypeError(f"expected values for {source} as {{d18O: value, ...}}")
+            here = {}
+            for k, v in vals.items():
+                key_ = ISOTOPE_KEYS.get(str(k).strip().lower().replace("δ", "d").replace(" ", ""))
+                if key_ is None:
+                    raise ValueError(f"'{k}' is not one of d18O, d13C, d34S, Sr, 87Sr/86Sr")
+                here[key_] = float(v)
+                if key_ == "87Sr/86Sr" and not 0.69 < here[key_] < 0.80:
+                    raise ValueError(f"87Sr/86Sr {v} is outside 0.69 to 0.80")
+                if key_ == "Sr" and here[key_] < 0:
+                    raise ValueError("Sr cannot be negative")
+            out[str(source).strip().lower()] = here
+        return out
+    if key in ("gas_phase", "kinetics", "solid_solutions", "isotopes"):
         if isinstance(value, str):
             low = value.strip().lower()
             if low in ("true", "yes", "on", "1", "allowed", "allow"):
@@ -603,6 +633,10 @@ FIELD_HELP = {
     "follow_phase": "where a saline fluid splits into brine and vapour: whole (default) follows the whole "
                     "fluid; brine lets the vapour boil off at each step; vapour follows the vapour and leaves "
                     "the brine behind",
+    "isotopes": "false (default); true: d18O, d13C, d34S and 87Sr/86Sr of the fluid and minerals along the run",
+    "isotope_inputs": "starting isotope values, e.g. {\"fluid\": {\"d18O\": -5}, \"basalt glass\": {\"Sr\": 120, "
+                      "\"87Sr/86Sr\": 0.703}}; d values in permil (VSMOW, VPDB, VCDT), Sr in mg/kg of fluid or ppm "
+                      "of a solid",
     "solid_solutions": "false (default): minerals are pure; true: ideal solid solutions (plagioclase, alkali "
                        "feldspar, carbonate, chlorite, epidote, garnet, olivine, pyroxenes, biotite, actinolite) "
                        "form in place of their endmembers",

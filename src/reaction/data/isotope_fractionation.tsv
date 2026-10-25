@@ -1,0 +1,94 @@
+# Equilibrium isotope fractionation: 1000 ln alpha(phase - reference) = a 1e8/T^3 + b 1e6/T^2 + c 1e3/T + d, T in K.
+# O: reference water; mineral rows are Vho et al. (2020) quartz-water minus quartz-mineral (their C = 0).
+# C: reference CO2 (gas or aqueous), Ohmoto and Rye (1979; after Bottinga 1968, 1969 and Mook et al. 1974).
+# S: reference H2S, Ohmoto and Rye (1979) for sulfides; sulfate after Ohmoto and Lasaga (1982).
+# t_max_c: upper end of the calibration where the source gives one (empty: none given).
+system	phase	a	b	c	d	t_max_c	source
+O	calcite	0	3.72	-3.48	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	aragonite	0	3.83	-4.56	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	dolomite	0	3.87	-3.12	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	magnesite	0	3.73	-3.12	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	siderite	0	3.81	-3.24	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	ankerite	0	3.70	-3.04	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	albite	0	3.78	-3.86	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	anorthite	0	3.40	-4.46	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	K-feldspar	0	3.91	-4.41	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	muscovite	0	3.26	-4.39	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	paragonite	0	3.49	-4.88	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	phlogopite	0	2.94	-5.12	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	annite	0	3.19	-5.62	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	biotite	0	3.21	-6.00	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	clinochlore	0	3.35	-5.50	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	chamosite	0	3.42	-5.11	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	epidote	0	3.54	-5.56	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	zoisite	0	3.30	-5.15	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	prehnite	0	3.46	-4.63	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	lawsonite	0	2.18	-3.54	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	tremolite	0	3.30	-5.48	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	actinolite	0	3.30	-5.44	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	glaucophane	0	3.38	-5.25	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	hornblende	0	3.21	-5.70	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	diopside	0	3.08	-5.07	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	hedenbergite	0	3.25	-5.49	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	jadeite	0	3.48	-4.42	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	enstatite	0	3.35	-5.56	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	ferrosilite	0	3.39	-5.48	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	forsterite	0	2.61	-6.17	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	fayalite	0	2.91	-6.36	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	lizardite	0	3.27	-5.29	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	chrysotile	0	1.68	-4.66	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	brucite	0	2.36	-6.95	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	talc	0	3.83	-5.22	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	pyrophyllite	0	4.05	-4.00	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	kaolinite	0	3.60	-4.29	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	illite	0	3.37	-4.24	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	magnetite	0	1.77	-7.33	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	hematite	0	2.79	-9.19	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	goethite	0	2.38	-6.37	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	gibbsite	0	2.94	-5.16	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	boehmite	0	2.23	-7.07	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	diaspore	0	2.22	-7.11	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	corundum	0	1.13	-8.87	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	rutile	0	2.61	-7.01	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	ilmenite	0	1.74	-7.50	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	titanite	0	3.06	-5.74	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	anhydrite	0	4.17	-3.28	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	barite	0	3.59	-4.05	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	apatite	0	2.47	-4.47	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	grossular	0	2.74	-5.24	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	andradite	0	2.94	-5.68	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	almandine	0	2.82	-5.31	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	pyrope	0	2.93	-5.72	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	spessartine	0	2.82	-5.37	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	wollastonite	0	2.75	-4.85	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	analcime	0	3.64	-3.32	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	wairakite	0	2.05	-3.92	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	stilbite	0	3.57	-2.77	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	zircon	0	2.55	-4.56	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	spinel	0	0.86	-8.18	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	kyanite	0	3.71	-5.20	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	sillimanite	0	4.05	-5.24	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	andalusite	0	3.78	-5.05	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	cordierite	0	3.45	-4.91	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	staurolite	0	3.65	-5.58	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	chloritoid	0	3.34	-5.33	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	quartz	0	4.11	-3.33	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+C	calcite	-8.914	8.557	-18.11	8.24	600	Ohmoto and Rye 1979, in Geochemistry of Hydrothermal Ore Deposits, 2nd ed.
+C	dolomite	-8.914	8.737	-18.11	8.44	600	Ohmoto and Rye 1979, in Geochemistry of Hydrothermal Ore Deposits, 2nd ed.
+C	HCO3-	0	-2.16	20.16	-35.7	290	Ohmoto and Rye 1979, in Geochemistry of Hydrothermal Ore Deposits, 2nd ed.
+C	CO2	0	0	0	0		Ohmoto and Rye 1979, in Geochemistry of Hydrothermal Ore Deposits, 2nd ed.
+C	CH4	4.194	-5.21	-8.93	4.36	700	Ohmoto and Rye 1979, in Geochemistry of Hydrothermal Ore Deposits, 2nd ed.
+C	CO	0	-2.84	-17.56	9.1	330	Ohmoto and Rye 1979, in Geochemistry of Hydrothermal Ore Deposits, 2nd ed.
+C	graphite	-6.637	6.921	-22.89	9.32	700	Ohmoto and Rye 1979, in Geochemistry of Hydrothermal Ore Deposits, 2nd ed.
+S	sulfate	0	6.463	0	0.56		Ohmoto and Lasaga 1982, Geochim. Cosmochim. Acta 46, 1727
+S	H2S	0	0	0	0		Ohmoto and Rye 1979, in Geochemistry of Hydrothermal Ore Deposits, 2nd ed.
+S	pyrite	0	0.4	0	0		Ohmoto and Rye 1979, in Geochemistry of Hydrothermal Ore Deposits, 2nd ed.
+S	pyrrhotite	0	0.1	0	0		Ohmoto and Rye 1979, in Geochemistry of Hydrothermal Ore Deposits, 2nd ed.
+S	sphalerite	0	0.1	0	0		Ohmoto and Rye 1979, in Geochemistry of Hydrothermal Ore Deposits, 2nd ed.
+S	chalcopyrite	0	-0.05	0	0		Ohmoto and Rye 1979, in Geochemistry of Hydrothermal Ore Deposits, 2nd ed.
+S	galena	0	-0.63	0	0		Ohmoto and Rye 1979, in Geochemistry of Hydrothermal Ore Deposits, 2nd ed.
+S	covellite	0	-0.4	0	0		Ohmoto and Rye 1979, in Geochemistry of Hydrothermal Ore Deposits, 2nd ed.
+S	chalcocite	0	-0.75	0	0		Ohmoto and Rye 1979, in Geochemistry of Hydrothermal Ore Deposits, 2nd ed.
+S	molybdenite	0	0.45	0	0		Ohmoto and Rye 1979, in Geochemistry of Hydrothermal Ore Deposits, 2nd ed.
+S	acanthite	0	-0.8	0	0		Ohmoto and Rye 1979, in Geochemistry of Hydrothermal Ore Deposits, 2nd ed.
+S	SO2	0	4.70	0	-0.5		Ohmoto and Rye 1979, in Geochemistry of Hydrothermal Ore Deposits, 2nd ed.

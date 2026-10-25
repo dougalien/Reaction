@@ -126,9 +126,27 @@ blank; the near-critical points fail as before. A failing step is halved at most
 (before, a failure could halve both halves 25 deep). Judgment calls: gases with the water (they partition
 roughly evenly per kg water near the critical point); the vapour leaves its minerals behind.
 
-Next: P7c isotopes.
+P7c isotopes (part one, done): `isotopes.py` and `data/isotope_fractionation.tsv`, switched on with the card's
+`isotopes` (chat "with isotopes"; starting values in `isotope_inputs`, chat "fluid d18O -5", "basalt glass
+87Sr/86Sr 0.7030"). At each point the carriers of O, C and S (water, DIC, methane, sulfate, sulfide, each
+mineral) are in equilibrium at that temperature, and the inventory Σ n δ is carried along: reactants add
+their own δ, matter that leaves takes the δ of the carriers that shrank, evaporation removes vapour at the
+mean of the step's start and end (Horita and Wesolowski 1994 liquid-vapour). Oxygen: the internally
+consistent database of Vho, Lanari and Rubatto (2020, CC BY), 70 minerals relative to quartz with their
+quartz-water; carbon: Ohmoto and Rye (1979); sulfur: Ohmoto and Rye (1979) for sulfides, Ohmoto and Lasaga
+(1982) for sulfate. Minerals without a row use a named analogue (listed in a note). 87Sr/86Sr is a tracer
+carried with the fluid: starting fluid plus the Sr that dissolving rock adds (basalt glass 115 ppm, 0.7027);
+minerals keep none; it leaves in proportion to the chloride when a phase separates. Checked: seawater with
+100 g basalt at 350 C gives the analytic Sr mix exactly and keeps the system's δ34S at 21.0; evaporation to a
+tenth at 25 C is within 1.5% of Rayleigh. Results window: an Isotopes tab; the story gives the fluid's change.
+Judgment calls: H isotopes are left for part two (mineral-water D/H factors are scattered and
+composition-dependent and need checking against the papers); defaults for fluids other than seawater are
+illustrative and named in a note; aqueous O is all at the water's δ18O; carbonate ion is taken as
+bicarbonate; HCO3- (to 290 C) and CO (to 330 C) are extrapolated above their range with a note.
 
-343 tests pass with the data folder present. The data folder needs `OBIGT/Berman/` (run
+Next: P7c part two (D/H), or the roadmap's next item.
+
+348 tests pass with the data folder present. The data folder needs `OBIGT/Berman/` (run
 `scripts/fetch_references.ps1` again); without it the old minerals are used and every run says so.
 
 ## First things to do, in this order
@@ -156,7 +174,7 @@ Next: P7c isotopes.
    - *Solver core*: keep extending the Newton plus active-set approach, or move to Gibbs-energy minimization
      (cleaner for phase appearance and solid solutions). Decide before the basalt work.
 5. Later: ~~kinetics~~ (done in P6; aragonite to calcite needs aragonite's rate, not in the PK table),
-   solid solutions, isotopes (O, H, C, S, Sr as a layer on the solved speciation).
+   ~~solid solutions~~ (P7b), isotopes (O, C, S, Sr done in P7c; H still to do).
 
 ## Known technical gaps
 

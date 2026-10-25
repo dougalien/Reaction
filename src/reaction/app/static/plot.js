@@ -163,8 +163,9 @@ class LinePlot {
         let d = Infinity;
         s.x.forEach((v, i) => { if (v !== null && Math.abs(v - x[best]) < d) { d = Math.abs(v - x[best]); k = i; } });
       }
-      const range = s.lo && s.lo[k] !== null && s.hi[k] !== null ? ` <span class="muted">(${fmtVal(s.lo[k])} to ${fmtVal(s.hi[k])})</span>` : "";
-      html += `<div><span style="color:${s.color}">■</span> ${s.label}: ${fmtVal(s.y[k])}${range}</div>`;
+      const fv = opts.hoverFixed ? (v) => (v === null || v === undefined ? "–" : v.toFixed(opts.hoverFixed)) : fmtVal;
+      const range = s.lo && s.lo[k] !== null && s.hi[k] !== null ? ` <span class="muted">(${fv(s.lo[k])} to ${fv(s.hi[k])})</span>` : "";
+      html += `<div><span style="color:${s.color}">■</span> ${s.label}: ${fv(s.y[k])}${range}</div>`;
     });
     this.tip.innerHTML = html;
     this.tip.style.display = "block";

@@ -223,6 +223,32 @@ def _split_clause(result: dict, run: dict) -> str:
     return text + "."
 
 
+def _isotope_clause(run: dict) -> str:
+    """How the fluid's δ18O, δ34S and 87Sr/86Sr change from the first solved point to the last."""
+    iso = run.get("isotopes") or {}
+
+    def ends(key):
+        vals = [v for v in iso.get(key, []) if v is not None]
+        return (vals[0], vals[-1]) if vals else None
+
+    bits = []
+    for key, what, fmt in (("d18O:water", "δ18O of the water", "{:+.1f}‰"),
+                           ("d34S:sulfate", "δ34S of the dissolved sulfate", "{:+.1f}‰"),
+                           ("d34S:sulfide", "δ34S of the dissolved sulfide", "{:+.1f}‰"),
+                           ("87Sr/86Sr:fluid", "87Sr/86Sr of the fluid", "{:.5f}")):
+        e = ends(key)
+        if e is None:
+            continue
+        a, b = e
+        if fmt.endswith("‰") and abs(b - a) < 0.05 or not fmt.endswith("‰") and abs(b - a) < 5e-6:
+            continue
+        bits.append(f"{what} goes from {fmt.format(a + 0.0)} to {fmt.format(b + 0.0)}".replace("-0.0‰", "0.0‰")
+                    .replace("+0.0‰", "0.0‰"))
+    if not bits:
+        return ""
+    return "Isotopes: " + "; ".join(bits) + "."
+
+
 def story(result: dict) -> list[str]:
     sc = result["scenario"]
     blocked = {b.lower() for b in sc["blocked_minerals"]}
@@ -260,6 +286,9 @@ def story(result: dict) -> list[str]:
         split = _split_clause(result, run)
         if split:
             sentence = sentence.rstrip() + " " + split
+        iso = _isotope_clause(run)
+        if iso:
+            sentence = sentence.rstrip() + " " + iso
         paras.append(sentence.strip())
 
     if len(modes) == 2:

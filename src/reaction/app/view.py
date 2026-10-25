@@ -39,6 +39,8 @@ def unit_group(item: dict) -> str:
         return "composition"
     if g == "phases":
         return "phases:share" if item["key"] == "vapour_share" else "phases:salinity"
+    if g == "isotopes":
+        return "isotopes:" + item["key"].split(":")[0]
     return f"property:{item['key']}"
 
 
@@ -153,6 +155,10 @@ def resolve_item(text: str, result: dict, prefer: str | None = None) -> dict | N
         for k, v in cat.get("phases", {}).items():
             if low_clean in (v["label"].lower(), k.replace("_", " "), k.replace("_", " ").replace("vapour", "vapor")):
                 return {"group": "phases", "key": k}
+    if run0.get("isotopes"):                          # "d18O quartz", "δ13C DIC", "strontium ratio"
+        key = _isotope_item(low_clean, run0["isotopes"], cat.get("isotopes", {}))
+        if key:
+            return {"group": "isotopes", "key": key}
     if run0.get("composition"):                       # "anorthite in plagioclase"
         for k, v in cat.get("composition", {}).items():
             if low_clean in (v["label"].lower(), "{1} in {0}".format(*k.lower().split(":", 1))):
@@ -173,4 +179,27 @@ def resolve_item(text: str, result: dict, prefer: str | None = None) -> dict | N
         for cand in (word, t, t.capitalize()):
             if cand and cand in cat["elements"]:
                 return {"group": "elements", "key": cand}
+    return None
+
+
+def _isotope_item(text: str, keys, cat: dict) -> str | None:
+    """The isotope line a phrase names: "d18O water", "δ34S pyrite", "delta 13C calcite", "87Sr/86Sr"."""
+    low = text.replace("δ", "d").replace("delta ", "d").replace("delta", "d")
+    if re.search(r"87\s*sr|strontium (?:isotope|ratio)|\bsr (?:isotope|ratio)", low):
+        return "87Sr/86Sr:fluid" if "87Sr/86Sr:fluid" in keys else None
+    m = re.match(r"\s*d\s*(18\s*o|13\s*c|34\s*s)\b\s*(?:of\s+(?:the\s+)?)?(.*)", low)
+    if not m:
+        return None
+    what = "d" + m.group(1).replace(" ", "").upper()
+    rest = m.group(2).strip()
+    alias = {"": {"d18O": "water", "d13C": "DIC", "d34S": "sulfate"}[what], "fluid": "water", "dic": "DIC",
+             "carbon": "DIC", "methane": "CH4", "ch4": "CH4", "h2s": "sulfide"}
+    carrier = alias.get(rest, rest)
+    for k in keys:
+        w, c = k.split(":", 1)
+        if w != what:
+            continue
+        label = cat.get(k, {}).get("label", "").lower()
+        if c.lower() == carrier.lower() or label.endswith(" " + carrier.lower()):
+            return k
     return None
