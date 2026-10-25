@@ -3,8 +3,7 @@
 const $ = (id) => document.getElementById(id);
 let snap = null, waiting = false, chatCount = 0;
 
-const FLUIDS = [["seawater", "Seawater"]];
-FLUIDS.forEach(([k, l]) => $("f-fluid").append(h("option", { value: k }, l)));
+let fluidKeys = "";
 
 function pill(el, text, kind) { el.textContent = text; el.className = "pill " + (kind || ""); }
 
@@ -12,7 +11,7 @@ function render(s) {
   snap = s;
   const c = s.card;
   setIfIdle($("f-title"), c.title);
-  $("f-fluid").value = c.fluid;
+  renderFluid(s);
   $("f-activity_model").value = c.activity_model;
   for (const k of ["p_start_bar", "p_end_bar", "t_start_c", "t_end_c", "steps"]) setIfIdle($("f-" + k), c[k]);
   document.querySelectorAll("#modeseg button").forEach((b) => b.classList.toggle("on", b.dataset.mode === c.mode));
@@ -58,6 +57,39 @@ function render(s) {
   $("pill-engine").title = e.message;
 }
 
+function renderFluid(s) {
+  const c = s.card, read = s.fluid_read || { lines: [] }, fluids = s.fluids || [];
+  const keys = fluids.map((f) => f.key).join();
+  if (keys !== fluidKeys) {
+    fluidKeys = keys;
+    $("f-fluid").replaceChildren(...fluids.map((f) => h("option", { value: f.key }, f.label)));
+  }
+  $("f-fluid").value = c.fluid;
+  const custom = c.fluid === "custom";
+  const f = fluids.find((x) => x.key === c.fluid);
+  $("fluid-desc").textContent = custom ? "" :
+    (f ? f.description + " Editing it below starts a custom fluid from it." : "");
+  $("custom").style.display = "block";
+  {
+    setIfIdle($("f-analysis"), read.analysis);
+    $("f-units").value = read.units;
+    setIfIdle($("f-ph"), read.ph === null ? "" : read.ph);
+    setIfIdle($("f-fluid_t_c"), read.measured_t_c);
+    const ions = read.lines.filter((l) => l.charge !== 0).map((l) => l.species);
+    const opts = [["auto", "Auto"], ["none", "None (use as given)"], ...ions.map((i) => [i, "On " + i])];
+    if (!opts.some(([v]) => v === read.charge_balance)) opts.push([read.charge_balance, "On " + read.charge_balance]);
+    $("f-charge_balance").replaceChildren(...opts.map(([v, l]) => h("option", { value: v }, l)));
+    $("f-charge_balance").value = read.charge_balance;
+  }
+  const n = read.lines.length;
+  $("fluid-sum").textContent = n ? `As read: ${n} solute${n > 1 ? "s" : ""}, pH ${read.ph ?? "not given"} at ${read.measured_t_c} °C, ` +
+    `${fmtVal(read.tds_mg_per_kg)} mg/kg dissolved solids` : "Nothing read yet";
+  const rows = read.lines.map((l) => h("tr", {}, h("td", {}, l.written), h("td", {}, `${l.value} ${l.unit}`),
+    h("td", { class: "muted" }, l.molal === null ? "" : fmtVal(l.molal) + " mol/kg water")));
+  $("fluid-table").replaceChildren(h("table", { class: "small", style: "margin-top:4px;border-spacing:10px 1px" }, ...rows),
+    ...read.notes.map((t) => h("div", { class: "hint" }, t)));
+}
+
 connect(render, (up) => pill($("pill-link"), up ? "connected" : "reconnecting", up ? "ok" : "bad"));
 
 $("compose").addEventListener("submit", (ev) => {
@@ -78,6 +110,9 @@ for (const k of ["title", "p_start_bar", "p_end_bar", "t_start_c", "t_end_c", "s
   $("f-" + k).addEventListener("change", (ev) => edit(k, ev.target.value));
 }
 $("f-fluid").addEventListener("change", (ev) => edit("fluid", ev.target.value));
+for (const k of ["analysis", "units", "ph", "fluid_t_c", "charge_balance"]) {
+  $("f-" + k).addEventListener("change", (ev) => edit(k, ev.target.value));
+}
 $("f-activity_model").addEventListener("change", (ev) => edit("activity_model", ev.target.value));
 document.querySelectorAll("#modeseg button").forEach((b) => b.addEventListener("click", () => edit("mode", b.dataset.mode)));
 $("add-blocked").addEventListener("keydown", (ev) => {

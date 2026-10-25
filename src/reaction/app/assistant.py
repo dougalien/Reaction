@@ -14,8 +14,8 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 
-from . import config
-from .fluids import PRESETS
+from . import analysis, config
+from .fluids import CUSTOM, PRESETS
 from .scenario import FIELD_HELP, Scenario
 
 SCHEMA = {
@@ -26,7 +26,9 @@ SCHEMA = {
             "type": "object",
             "properties": {
                 "title": {"type": "string"},
-                "fluid": {"type": "string", "enum": list(PRESETS)},
+                "fluid": {"type": "string", "enum": [*PRESETS, CUSTOM]},
+                "ph": {"type": "number"},
+                "fluid_t_c": {"type": "number"},
                 "t_start_c": {"type": "number"},
                 "t_end_c": {"type": "number"},
                 "steps": {"type": "integer"},
@@ -57,6 +59,7 @@ Rules:
 - A run follows a straight line from a start point to an end point in temperature and pressure. To hold
   pressure fixed at X, set both p_start_bar and p_end_bar to X; likewise for temperature. Either or both
   may change (heating, cooling, compression, decompression).
+- A pasted water analysis is read by the calculator itself; do not copy it into the card.
 - Only these path runs exist so far. If the user asks for something else, say so briefly in reply.
 - "show" lists species, minerals, or properties to plot exactly as the user wrote them (for example
   "CaCl+", "anhydrite", "pH", "SO4--"). "hide" lists ones to remove. "axis" is log, linear or unchanged.
@@ -124,7 +127,7 @@ def interpret(text: str, card: Scenario, plotted: list[str], history: list[dict]
               model: Ollama | None) -> Interpretation:
     """The model's reading of ``text`` if it works, otherwise the rules' reading."""
     rules = interpret_rules(text, card)
-    if model is None:
+    if model is None or "analysis" in rules.scenario_changes:     # a pasted analysis is read exactly
         return rules
     system = SYSTEM.format(
         fields="\n".join(f"- {k}: {v}" for k, v in FIELD_HELP.items()),
@@ -158,7 +161,7 @@ def interpret(text: str, card: Scenario, plotted: list[str], history: list[dict]
         if any(k in rules.scenario_changes for k in group):
             for k in group:
                 got.scenario_changes.pop(k, None)
-    for key in (*T_KEYS, *P_KEYS, "mode", "fluid", "steps"):
+    for key in (*T_KEYS, *P_KEYS, "mode", "fluid", "steps", "analysis", "units", "ph"):
         if key in rules.scenario_changes:
             got.scenario_changes[key] = rules.scenario_changes[key]
     if got.x_axis == "unchanged":
@@ -193,6 +196,8 @@ def _guard(changes: dict, text: str) -> dict:
             if key in (*T_KEYS, "steps") and not said(value):
                 continue
             if key in P_KEYS and not said(value, (1.0, 10.0, 1000.0, 10000.0, 1.01325)):
+                continue
+            if key in ("ph", "fluid_t_c") and not said(value):
                 continue
         except (TypeError, ValueError):
             continue
@@ -260,9 +265,24 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
     elif re.search(r"\bstatic\b|\bclosed\b|\bbatch\b", low):
         ch["mode"] = "static"
     out.mode_mentioned = "mode" in ch
-    for key in PRESETS:
-        if key in low:
+    for key, p in PRESETS.items():
+        if key in low or p.label.lower() in low or (key == "vent_fluid" and re.search(r"\bvent\b|black smoker", low)) \
+                or (key == "formation_brine" and re.search(r"\bbrine\b", low)) or (key == "rainwater" and re.search(r"\brain\b", low)):
             ch["fluid"] = key
+    pasted = analysis.parse(text, card.units, strict=False)
+    if len(pasted.entries) >= 3:                       # a pasted water analysis
+        ch["fluid"] = CUSTOM
+        ch["analysis"] = "\n".join(e.line() for e in pasted.entries)
+        if pasted.unit:
+            ch["units"] = pasted.unit
+        ch["ph"] = pasted.ph                           # None asks for it rather than keeping an old pH
+        names = ", ".join(e.written for e in pasted.entries)
+        out.reply = f"Read a custom fluid with {len(pasted.entries)} solutes ({names})."
+        if pasted.ph is None:
+            out.question = "What is its pH?"
+        out.run = False
+    elif pasted.ph is not None and not re.search(r"\b(plot|show|hide)\b", low):
+        ch["ph"] = pasted.ph
     out.run = bool(RUN_WORDS.search(low)) and not re.search(r"\b(don't|do not|dont)\s+run\b", low)
 
     # plot requests: "plot A instead of B", "show A", "hide B", "remove B"
@@ -298,7 +318,12 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
             bits.append(f"pressure held at {ch['pressure_bar']:g} bar")
         if "mode" in ch:
             bits.append(ch["mode"].replace("_", "-"))
-        out.reply = "Set " + ", ".join(bits) + "." if bits else ""
+        if "ph" in ch and ch["ph"] is not None and "analysis" not in ch:
+            bits.append(f"pH {ch['ph']:g}")
+        if "analysis" not in ch:
+            out.reply = "Set " + ", ".join(bits) + "." if bits else ""
+        elif bits:
+            out.reply += " Set " + ", ".join(bits) + "."
     return out
 
 

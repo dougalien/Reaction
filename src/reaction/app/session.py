@@ -10,7 +10,9 @@ import traceback
 from pathlib import Path
 
 from .assistant import Interpretation, Ollama, interpret
+from . import analysis
 from .engine import Engine, EngineUnavailable
+from .fluids import CUSTOM, CUSTOM_LABEL, PRESETS
 from .narrate import story
 from .scenario import Scenario
 from .view import apply_patch, default_view, resolve_item, sanitize
@@ -101,7 +103,17 @@ class Session:
                     advice = advisories(self.card)
                 except Exception:                      # advice is a courtesy, never a reason to fail
                     advice = []
+            spec = self.card.fluid_spec()
             return {"version": self.version, "card": self.card.to_dict(),
+                    "fluids": [{"key": p.key, "label": p.label, "description": p.description,
+                                "source": p.source} for p in PRESETS.values()]
+                    + [{"key": CUSTOM, "label": CUSTOM_LABEL,
+                        "description": "Type or paste an analysis, one solute per line."}],
+                    "fluid_read": {**analysis.preview(spec.analysis, spec.units),
+                                   "analysis": spec.analysis, "units": spec.units,
+                                   "ph": spec.ph if spec.ph == spec.ph else None,   # NaN is not JSON
+                                   "measured_t_c": spec.measured_t_c,
+                                   "charge_balance": spec.charge_balance},
                     "card_problems": self.card.problems(), "advisories": advice,
                     "chat": self.chat[-KEEP_CHAT:],
                     "run": dict(self.run_state), "runs": self.list_runs(), "current": self.current,
