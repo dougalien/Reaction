@@ -20,7 +20,7 @@ PROPERTY_WORDS = {"ph": "pH", "ionic strength": "ionic_strength", "ionic_strengt
                   "water activity": "log_aw", "activity of water": "log_aw", "water mass": "water_kg",
                   "solvent mass": "water_kg"}
 MAX_ITEMS = 8
-UNITS = ("mol", "mmol", "umol")
+UNITS = ("mol", "mmol", "umol", "mg")
 
 
 def unit_group(item: dict) -> str:
@@ -43,7 +43,8 @@ def default_view(result: dict) -> dict:
     if not items:
         biggest = sorted(first["species"], key=lambda k: -max(v or 0.0 for v in first["species"][k]))[:3]
         items = [{"group": "species", "key": k} for k in biggest]
-    return {"items": items, "log": True, "modes": modes, "unit": "mmol", "x": result["x"]["key"]}
+    return {"items": items, "log": True, "modes": modes, "unit": "mmol", "x": result["x"]["key"],
+            "compare": None}
 
 
 def _present(item: dict, result: dict) -> bool:
@@ -57,7 +58,9 @@ def _present(item: dict, result: dict) -> bool:
 def sanitize(view: dict, result: dict | None) -> dict:
     """Drop anything the result cannot plot and enforce one unit group."""
     out = {"items": [], "log": bool(view.get("log", True)), "modes": [], "unit": view.get("unit", "mmol"),
-           "x": view.get("x", "temperature_c")}
+           "x": view.get("x", "temperature_c"), "compare": view.get("compare") or None}
+    if out["compare"] is not None and not isinstance(out["compare"], str):
+        out["compare"] = None
     if out["unit"] not in UNITS:
         out["unit"] = "mmol"
     if result is None:
@@ -84,6 +87,8 @@ def apply_patch(view: dict, patch: dict[str, Any], result: dict | None) -> dict:
     for key in ("log", "modes", "unit", "x"):
         if key in patch and patch[key] is not None:
             new[key] = patch[key]
+    if "compare" in patch:
+        new["compare"] = patch["compare"] or None
     if "replace" in patch:
         new["items"] = [dict(i) for i in patch["replace"]]
     for item in patch.get("remove", []):

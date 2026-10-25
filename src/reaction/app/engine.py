@@ -415,10 +415,18 @@ def _catalog(db, runs: dict[str, dict], sc: Scenario) -> dict:
         for k in run["species"]:
             sp = db.species.get(k)
             z = sp.charge if sp is not None else None
-            species[k] = {"label": pretty_species(k, z), "charge": z}
+            species[k] = {"label": pretty_species(k, z), "charge": z, "mw": _mw(db, k)}
         for k in run["elements"]:
-            elements[k] = {"label": k}
+            elements[k] = {"label": k, "mw": db.elements.get(k)}
         for group in ("minerals", "saturation"):
             for k in run[group]:
-                minerals[k] = {"label": pretty_mineral(k), "blocked": k.lower() in blocked}
+                minerals[k] = {"label": pretty_mineral(k), "blocked": k.lower() in blocked, "mw": _mw(db, k)}
     return {"species": species, "elements": elements, "minerals": minerals}
+
+
+def _mw(db, name: str) -> float | None:
+    """Formula weight (g/mol) for the mass units of the results window."""
+    try:
+        return _sig(db.molecular_weight(name))
+    except (KeyError, TypeError):
+        return None

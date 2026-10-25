@@ -141,11 +141,15 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/run":
             return self._json({"started": s.start_run()})
         if path == "/api/current":
-            return self._json({"ok": s.set_current(str(body.get("id", "")))})
+            return self._json({"ok": s.set_current(str(body.get("id", "")), _window(body))})
         if path == "/api/view":
-            s.set_view(dict(body.get("patch", {})))
+            s.set_view(dict(body.get("patch", {})), _window(body))
             return self._json({"ok": True})
         self._error(404, "not found")
+
+
+def _window(body: dict) -> str:
+    return "2" if str(body.get("window", "1")) == "2" else "1"
 
 
 class _Server(ThreadingHTTPServer):

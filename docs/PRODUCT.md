@@ -111,8 +111,10 @@ basalt) and earlier runs.
 Decided while building it: the scenario format is the flat card above; the plot library is our own SVG
 chart; the app needs no packages beyond numpy and scipy.
 
-Seawater along a temperature-pressure path is the only run kind so far. The next steps are the seawater-basalt reaction (needs the
-solver hardened for redox and many minerals), then the gas seep, kinetics, solid solutions and isotopes.
+Since 2026-10-25 a run can start from any fluid (preset or a pasted analysis, charge-balanced), add reactants
+(water/rock, titration) and mix in a second fluid, along any temperature-pressure line; results can be
+compared run against run, in two results windows. The next steps are the seawater-basalt reaction (needs
+redox and basalt glass), then the gas seep, kinetics, solid solutions and isotopes.
 
 ## Pressure and temperature are free variables
 

@@ -1,7 +1,8 @@
 "use strict";
 
 /* A small line plot: linear or log y axis, gaps for missing points, hover readout, SVG export.
-   Series share one x array.  series = [{label, color, dash, y: [...]}]. */
+   Series share one x array unless they carry their own (a compared run).
+   series = [{label, color, dash, y: [...], x?: [...]}]. */
 class LinePlot {
   constructor(host) {
     this.host = host;
@@ -37,7 +38,7 @@ class LinePlot {
     const { x, series, opts } = d;
     const m = { l: 70, r: 18, t: 12, b: 46 };
     const pw = w - m.l - m.r, ph = hgt - m.t - m.b;
-    const xs = x.filter((v) => v !== null);
+    const xs = [x, ...series.map((s) => s.x || [])].flat().filter((v) => v !== null && isFinite(v));
     const x0 = Math.min(...xs), x1 = Math.max(...xs);
 
     let ys = [];
@@ -98,9 +99,10 @@ class LinePlot {
     // a solid one exactly is still visible
     [...series].sort((a, b) => (a.dash ? 1 : 0) - (b.dash ? 1 : 0)).forEach((s) => {
       let path = "", pen = false;
+      const sxs = s.x || x;
       s.y.forEach((v, i) => {
-        if (v === null || !isFinite(v) || (opts.log && v <= 0) || x[i] === null) { pen = false; return; }
-        path += `${pen ? "L" : "M"}${f(sx(x[i]))},${f(sy(v))}`;
+        if (v === null || !isFinite(v) || (opts.log && v <= 0) || sxs[i] === null || sxs[i] === undefined) { pen = false; return; }
+        path += `${pen ? "L" : "M"}${f(sx(sxs[i]))},${f(sy(v))}`;
         pen = true;
       });
       const stroke = s.dash ? `color-mix(in srgb, ${s.color} 55%, var(--ink))` : s.color;
@@ -135,7 +137,12 @@ class LinePlot {
       html += `<div class="muted">thermodynamics: ${opts.strip[best] === "poor" ? "unreliable" : "approximate"}</div>`;
     }
     series.forEach((s) => {
-      html += `<div><span style="color:${s.color}">■</span> ${s.label}: ${fmtVal(s.y[best])}</div>`;
+      let k = best;
+      if (s.x) {          // its own grid: the point nearest the cursor's x
+        let d = Infinity;
+        s.x.forEach((v, i) => { if (v !== null && Math.abs(v - x[best]) < d) { d = Math.abs(v - x[best]); k = i; } });
+      }
+      html += `<div><span style="color:${s.color}">■</span> ${s.label}: ${fmtVal(s.y[k])}</div>`;
     });
     this.tip.innerHTML = html;
     this.tip.style.display = "block";
