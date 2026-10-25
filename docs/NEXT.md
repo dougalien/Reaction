@@ -54,8 +54,9 @@ folder (`tests/conftest.py`, `tests/test_eq36_cases.py`).
 
 - **Solver against EQ6** (`python scripts/eq6_report.py`): `micro`, `rwtitr`, `swtitr` exact. `methane` 49 of
   1203 numbers outside tolerance (mostly EQ6's reporting at xi = 0 before reactants convert, plus uranium
-  phases at boundaries), `pyrsw` 17 of 935. Not run: `dedolo` (alias minerals with identical data, e.g.
-  Dolomite and Dolomite-ord, end in "could not add the supersaturated mineral"), `microft` and `heatswfl`
+  phases at boundaries), `pyrsw` 17 of 935, `dedolo` 3 of 236 (EQ6 reports the reactant unconverted at
+  xi = 0, plus 4 nmol of calcite; alias minerals such as Dolomite and Dolomite-ord now swap by the phase
+  rule instead of failing). Not run: `microft` and `heatswfl`
   (flow-through in the general path class; the app's heating runner has its own), special basis switches
   (`heatqf`, `j13wtitr`, `j13wsf`), solid solutions (`heatsw`, `rwssdiag`, `pptmins`, `j13wtuff`), ion
   exchangers (`swxrca`, `swxrcaft`), kinetics (`crisqtz`, `pptcal`, `pptqtz`, `pptqtza`).

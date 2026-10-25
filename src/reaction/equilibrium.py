@@ -24,7 +24,7 @@ import numpy as np
 from .aqueous import AqueousModel
 from .constants import LN10, WATER_MOLES_PER_KG
 from .database.model import Kind, ThermoDatabase
-from .network import PROTON, WATER, Network, NetworkError
+from .network import OXYGEN, PROTON, WATER, Network, NetworkError
 from .speciation import Speciation, SpeciationError, _globalized_step, make_speciation
 
 
@@ -267,6 +267,45 @@ class _Solve:
                     sum_m=sum_m, log_aw=log_aw, lg_b=lg_b, lg_d=lg_d, iterations=iterations)
 
 
+def _dependence(nu_ph: np.ndarray, assemblage: list[int], phase: int,
+                unk: list[int]) -> np.ndarray | None:
+    """Coefficients lam with nu(phase) = sum_k lam_k nu(assemblage[k]) over the unknown
+    activities, or None when the phase's saturation condition is independent of theirs."""
+    if not assemblage:
+        return None
+    rows = nu_ph[np.ix_(assemblage, unk)]
+    target = nu_ph[phase, unk]
+    lam, *_ = np.linalg.lstsq(rows.T, target, rcond=None)
+    miss = float(np.max(np.abs(rows.T @ lam - target))) if len(unk) else 0.0
+    return lam if miss <= 1e-9 * max(1.0, float(np.max(np.abs(target)))) else None
+
+
+def _phase_rule_swap(nu_ph, assemblage, add, unk, n_prev, ph_names):
+    """(mineral that leaves, moles of the newcomer, lam) when ``add`` cannot join the assemblage
+    without making the saturation conditions dependent; (None, 0, None) when it can join.  The
+    leaving mineral is picked by the ratio test, so every amount stays non-negative."""
+    lam = _dependence(nu_ph, assemblage, add, unk)
+    if lam is None or not np.any(np.abs(lam) > 1e-12):      # independent, or no condition at all
+        return None, 0.0, None
+    amounts = [max(n_prev.get(ph_names[a], 0.0), 0.0) for a in assemblage]
+    ratios = [(amounts[k] / lam[k], k) for k in range(len(assemblage)) if lam[k] > 1e-12]
+    if ratios:
+        theta, k = min(ratios)
+    else:
+        k = int(np.argmax(np.abs(lam)))
+        theta = 0.0
+    return assemblage[k], theta, lam
+
+
+def _independent(nu_ph, assemblage: list[int], unk: list[int]) -> list[int]:
+    """The assemblage with any mineral whose saturation condition depends on earlier ones left out."""
+    kept: list[int] = []
+    for a in assemblage:
+        if _dependence(nu_ph, kept, a, unk) is None:
+            kept.append(a)
+    return kept
+
+
 def equilibrate(system: System, temperature_c: float, bulk: dict[str, float], *,
                 pressure_bar: float | None = None,
                 fixed: dict[str, float] | None = None,
@@ -326,6 +365,11 @@ def equilibrate(system: System, temperature_c: float, bulk: dict[str, float], *,
             allowed_set.add(a)
 
     problem = _Solve(model, B, fixed_idx, buffer_rows)
+    # minerals given starting amounts (a reactant that has just been converted) win ties against
+    # earlier minerals with the same saturation condition
+    hinted = [a for a in assemblage if model.ph_names[a] in (amounts or {})]
+    assemblage = _independent(model.nu_ph, hinted + [a for a in assemblage if a not in hinted],
+                              problem.unk)
 
     # warm start
     if isinstance(guess, EquilibriumState):
@@ -352,6 +396,10 @@ def equilibrate(system: System, temperature_c: float, bulk: dict[str, float], *,
         return np.array([n_prev.get(model.ph_names[a], hints.get(model.ph_names[a], 0.0))
                          for a in assem], dtype=float)
 
+    # log Q/K per mole of solute components in the formula: unscaled, a clay or an amphibole looks far
+    # more supersaturated than calcite for the same driving force per atom, and is tried first
+    solute_cols = [j for j in range(1, nb) if names[j] not in (PROTON, OXYGEN)]
+    formula_size = np.maximum(np.abs(model.nu_ph[:, solute_cols]).sum(axis=1), 1.0)
     scale_b = max(float(np.max(np.abs(B[1:]))) if nb > 1 else 1.0, 1e-30)
     n_floor = 1e-12 * scale_b
     seen: set[frozenset] = set()
@@ -384,11 +432,24 @@ def equilibrate(system: System, temperature_c: float, bulk: dict[str, float], *,
             assemblage = [a for k, a in enumerate(assemblage) if k != worst]
             continue
         si = (model.nu_ph @ last["u"]) / LN10 - model.logk_ph
-        candidates = [(si[a], a) for a in allowed
+        candidates = [(si[a] / formula_size[a], a) for a in allowed
                       if a not in assemblage and a not in blocked and si[a] > 1e-7]
         if candidates:
             _, add = max(candidates)
-            assemblage = assemblage + [add]
+            leave, theta, lam = _phase_rule_swap(model.nu_ph, assemblage, add, problem.unk, n_prev,
+                                                 model.ph_names)
+            if leave is None:
+                assemblage = assemblage + [add]
+            else:
+                # the new mineral's saturation condition is a combination of those already present
+                # (Dolomite against Dolomite-ord, gypsum against anhydrite): adding it would break
+                # the phase rule, so it replaces one of them, as in a simplex pivot
+                for k, a in enumerate(assemblage):
+                    name = model.ph_names[a]
+                    n_prev[name] = n_prev.get(name, 0.0) - theta * lam[k]
+                n_prev.pop(model.ph_names[leave], None)
+                n_prev[model.ph_names[add]] = theta
+                assemblage = [a for a in assemblage if a != leave] + [add]
             continue
         stuck = [model.ph_names[a] for a in blocked if a in allowed_set and a not in assemblage
                  and si[a] > 1e-6]
