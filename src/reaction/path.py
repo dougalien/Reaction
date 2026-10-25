@@ -150,12 +150,16 @@ class ReactionPath:
 
     def _peak(self, mineral: str, xi0: float, st0: EquilibriumState, xi1: float) -> float:
         """Reaction progress in [xi0, xi1] where the amount of ``mineral`` is largest (Brent's method:
-        the amount rises, then falls, smoothly or with a kink where another mineral appears)."""
+        the amount rises, then falls, smoothly or with a kink where another mineral appears).  A point
+        the solver cannot settle counts as no mineral, so the search moves away from it."""
         seen = [(xi0, st0)]
 
         def loss(xi):                             # warm start from the nearest point solved so far
             guess = min(seen, key=lambda pair: abs(pair[0] - xi))[1]
-            state = self._solve(xi, guess)[0]
+            try:
+                state = self._solve(xi, guess)[0]
+            except SpeciationError:
+                return 0.0
             seen.append((xi, state))
             return -state.minerals.get(mineral, 0.0)
 

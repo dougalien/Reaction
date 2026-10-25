@@ -71,10 +71,10 @@ basalt) and earlier runs.
 |---|---|
 | Water properties, HKF, logK from 0 to about 400 C, 1 kbar | done (M2), validated |
 | Speciation, B-dot/Davies, redox, pH scales | done (M1/M1.5), validated against 41 EQ3NR cases |
-| Closed-system equilibrium with minerals | works for carbonate/sulfate/hydroxide systems (seawater heating, EQ6 `micro`); unreliable at redox fronts with mineral reactants (EQ6 `methane`, `pyrsw`) |
-| Reaction path with reactants, T path, fixed fugacity | prototype, same limits |
+| Closed-system equilibrium with minerals | works for carbonate/sulfate/hydroxide systems and for seawater-basalt silicate assemblages with redox (Berman minerals); EQ6 `methane` and `pyrsw` still differ at redox fronts |
+| Reaction path with reactants, T path, fixed fugacity | done in the app: minerals, species, basalt glass; static and flow-through |
 | Flow-through (products left behind as they would redissolve) | done, in the general path class; the app uses it (EQ6 `microft` matches) |
-| Fluid mixing, titration | titration cases (`rwtitr`, `swtitr`) match EQ6; mixing not done |
+| Fluid mixing, titration | titration cases (`rwtitr`, `swtitr`) match EQ6; mixing done in the app |
 | Kinetics (rate laws, time axis, surface area) | not started |
 | Solid solutions | not started; affects solver design |
 | Gas phases and methane chemistry | partial; needs a decision about redox coupling |
@@ -113,8 +113,11 @@ chart; the app needs no packages beyond numpy and scipy.
 
 Since 2026-10-25 a run can start from any fluid (preset or a pasted analysis, charge-balanced), add reactants
 (water/rock, titration) and mix in a second fluid, along any temperature-pressure line; results can be
-compared run against run, in two results windows. The next steps are the seawater-basalt reaction (needs
-redox and basalt glass), then the gas seep, kinetics, solid solutions and isotopes.
+compared run against run, in two results windows. Since P3 (also 2026-10-25) the redox state is on the card,
+the silicates are the Berman (1988) dataset that OBIGT uses, and basalt glass reacts with seawater at 350 C to
+the greenschist assemblage (albite, chlorite, epidote, actinolite, sulfides), static and flow-through, down to
+a water/rock ratio of 1 or below. Next: diagrams, the gas phase, phase separation, kinetics, solid solutions
+and isotopes.
 
 ## Pressure and temperature are free variables
 

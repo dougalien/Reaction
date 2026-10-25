@@ -270,3 +270,37 @@ def test_iron_oxides_react_once_the_redox_state_is_tracked(engine):
                     reactants=[{"name": "magnetite", "amount": 0.1, "unit": "g"}])
     res = engine.run(card)
     assert "hematite" in res["modes"]["static"]["minerals"] or "goethite" in res["modes"]["static"]["minerals"]
+
+
+def test_basalt_glass_components_balance_charge_and_redox(engine):
+    from reaction.app import rocks
+    from reaction.equilibrium import System
+    sp, _ = engine.starting_fluid(Scenario())
+    basis = list(sp.basis_names) + ["SiO2", "Al+3", "Fe+2", "Mn+2", "HPO4-2"]
+    system = System(engine.db, [b for b in basis if b not in ("H2O", "H+")])
+    comp, notes = rocks.components_per_gram(rocks.ROCKS["basalt_glass"], engine.db, system.basis)
+    charge = sum(engine.db.species[k].charge * v for k, v in comp.items())
+    assert charge == pytest.approx(0.0, abs=1e-12)                 # a neutral solid
+    assert comp["O2(g)"] == pytest.approx(0.25 * 0.10 * comp["Fe+2"], rel=1e-9)   # its ferric iron
+    assert any("Ti" in n for n in notes)
+    no_redox = [b for b in system.basis if b != "O2(g)"]
+    comp2, notes2 = rocks.components_per_gram(rocks.ROCKS["basalt_glass"], engine.db, no_redox)
+    assert "O2(g)" not in comp2 and any("Fe(II)" in n for n in notes2)
+
+
+def test_seawater_altering_basalt_glass_at_350_c(engine):
+    """The greenschist assemblage of hydrothermally altered ocean crust, static and flow-through,
+    down to a water/rock ratio of 1."""
+    card = Scenario(fluid="seawater", t_start_c=350.0, t_end_c=350.0, p_start_bar=500.0, p_end_bar=500.0,
+                    steps=11, mode="both", reactants=[{"name": "basalt glass", "amount": 1000.0, "unit": "g"}])
+    res = engine.run(card)
+    assert not any("No equilibrium" in n for n in res["notes"])
+    assert res["axes"]["water_rock"]["values"][-1] == pytest.approx(1.0)
+    for mode in ("static", "flow_through"):
+        end = {k: v[-1] for k, v in res["modes"][mode]["minerals"].items()}
+        for mineral in ("albite", "clinochlore", "epidote", "tremolite"):
+            assert end.get(mineral, 0.0) > 0.01, (mode, mineral)
+    fo2 = res["modes"]["static"]["properties"]["log_fO2"]
+    assert fo2[0] > -2 and fo2[-1] < -30                       # the rock reduces the seawater
+    st = res["modes"]["static"]["minerals"]
+    assert st["anhydrite"][0] > 0.005 and st["anhydrite"][-1] < 1e-9   # anhydrite gives way

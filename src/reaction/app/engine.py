@@ -25,7 +25,7 @@ from ..path import PathPoint, ReactionPath, Reactant, mineral_reactant
 from ..speciation import PH, Couple, Eh, LogFO2, Molal, Pe, Speciation, speciate
 from ..thermo import validity
 from ..thermo.eosdb import DEFAULT_MASTERS, load_eos_database
-from . import analysis, config
+from . import analysis, config, rocks
 from .fluids import AIR_LOG_FO2, preset
 from .names import pretty_mineral, pretty_species
 from .scenario import ALWAYS_EXCLUDED, MODE_LABELS, Scenario
@@ -113,7 +113,11 @@ class Engine:
         basis = [b for b in sp0.basis_names if b not in (WATER, PROTON)]
         added = self._reactant_names(sc)
         for name in added.values():                      # components the fluid does not carry yet
-            for el in db.species[name].elements:
+            elements = (rocks.elements_per_gram(rocks.ROCKS[name[5:]])[0] if name.startswith("rock:")
+                        else db.species[name].elements)
+            for el in elements:
+                if name.startswith("rock:") and (el == "Fe3" or DEFAULT_MASTERS.get(el) is None):
+                    continue                             # ferric iron goes with Fe; Ti is left out
                 master = DEFAULT_MASTERS.get(el)
                 if el in ("H", "O"):
                     continue
@@ -216,20 +220,35 @@ class Engine:
             if name not in db.species:
                 hits = lower.get(name.lower(), [])
                 minerals = [h for h in hits if db.species[h].kind == Kind.MINERAL]
+                rock = rocks.find(name)
+                if not hits and rock is not None:
+                    if r["unit"] != "g":
+                        raise ValueError(f"give {rock.label.lower()} in grams")
+                    out[r["name"]] = f"rock:{rock.key}"
+                    continue
                 if not hits:
-                    raise ValueError(f"'{name}' is not a mineral or species in the database")
+                    raise ValueError(f"'{name}' is not a mineral, rock or species in the database")
                 name = (minerals or hits)[0]
             if db.species[name].kind not in (Kind.MINERAL, Kind.AQUEOUS, Kind.BASIS):
                 raise ValueError(f"{name} cannot be a reactant (only minerals and dissolved species)")
             out[r["name"]] = name
         return out
 
-    def _reactants(self, system: System, sc: Scenario, names: dict[str, str], steps: int) -> list:
+    def _reactants(self, system: System, sc: Scenario, names: dict[str, str], steps: int,
+                   notes: list[str] | None = None) -> list:
         """Each reactant added at a steady rate, all of it by the last step (reaction progress counts
         the steps)."""
         out = []
         for r in sc.reactants:
             name = names[r["name"]]
+            if name.startswith("rock:"):                 # dissolves congruently, never precipitates
+                rock = rocks.ROCKS[name[5:]]
+                comp, rock_notes = rocks.components_per_gram(rock, self.db, system.basis)
+                if notes is not None:
+                    notes.extend(n for n in rock_notes if n not in notes)
+                out.append(Reactant(rock.label, comp, r["amount"],
+                                    (r["amount"] / max(steps - 1, 1), 0.0, 0.0)))
+                continue
             if name not in system.net.phase_names and name not in system.net.dep_names:
                 raise ValueError(f"{name} cannot be added: its formula needs the redox state of the "
                                  f"fluid, which is not tracked; set the redox state on the card")
@@ -338,7 +357,7 @@ class Engine:
         blocked = {b.lower() for b in sc.blocked_minerals} | set(ALWAYS_EXCLUDED)
         suppress = [name for name, kind in zip(system.net.phase_names, system.net.phase_kind)
                     if kind == Kind.MINERAL and name.lower() in blocked]
-        reactants = self._reactants(system, sc, self._reactant_names(sc), n)
+        reactants = self._reactants(system, sc, self._reactant_names(sc), n, notes)
         if mix is not None:          # the second fluid, per kg of its water, as one more reactant
             composition = {k: v for k, v in mix.component_totals.items() if k in system.basis}
             reactants.append(Reactant(f"mix:{sc.mix_with}", composition, sc.mix_ratio,
