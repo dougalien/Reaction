@@ -36,6 +36,7 @@ from ..solidsolution import table as solid_solution_table
 from ..sorption import Sorption, exchanger_loading
 from ..speciation import PH, Couple, Eh, LogFO2, Molal, Pe, Speciation, speciate
 from ..thermo import validity
+from ..transport import Column
 from ..thermo.eosdb import DEFAULT_MASTERS, load_eos_database
 from .. import isotopes
 from . import analysis, config, rocks
@@ -145,6 +146,8 @@ class Engine:
         if problems:
             raise ValueError("; ".join(problems))
         progress = progress or (lambda f, m: None)
+        if sc.transport:
+            return self._transport(sc, progress)
         started = time.time()
         db = self.db
         fluid = sc.fluid_spec()
@@ -258,11 +261,136 @@ class Engine:
             "elapsed_s": round(time.time() - started, 1),
         }
 
+    def _transport(self, sc: Scenario, progress: Progress) -> dict:
+        """A column run (see transport.py): the fluid at the outlet against pore volumes, and every cell at the
+        end against distance, each as one 'mode' with its own axes."""
+        started = time.time()
+        db = self.db
+        fluid = sc.fluid_spec()
+        sp0, fluid_notes, added, inflow, system, bulk0 = self._prepare(sc, progress)
+        inflow = inflow or sp0
+        notes: list[str] = list(fluid_notes)
+        cells = sc.cell_points()
+        n = len(cells)
+        # the rock in each cell, per kg of pore water, brought to equilibrium with the pore fluid first
+        fill, amounts = dict(bulk0), {}
+        for r in self._reactants(system, sc, added, 2, notes):
+            for comp, c in r.composition.items():
+                fill[comp] = fill.get(comp, 0.0) + c * r.amount
+            if r.mineral and db.species[r.mineral].kind == Kind.MINERAL:
+                amounts[r.mineral] = amounts.get(r.mineral, 0.0) + r.amount
+        entering = {k: v for k, v in inflow.component_totals.items() if k in system.basis}
+        for b in system.basis:
+            entering.setdefault(b, TRACE)
+        blocked = {b.lower() for b in sc.blocked_minerals} | {b.lower() for b in ALWAYS_EXCLUDED}
+        column = Column(system, cells, fill, entering, dispersion=sc.mixing_fraction, minerals=list(amounts),
+                        amounts=amounts, suppress=blocked, guess=sp0)
+        progress(0.0, f"Filling {n} cells")
+        shifts = sc.shifts
+        res = column.run(shifts, snapshots=(0,), progress=lambda s, total: progress(s / total, f"Shift {s} of {total}"))
+
+        def rows(states, where):
+            return [None if st is None else self._record(db, PathPoint(0.0, t, p, st, {}))
+                    for st, (t, p) in zip(states, where)]
+        outlet_at = [cells[-1]] * len(res.outlet)
+        outlet = _pack(rows(res.outlet, outlet_at))
+        profile = _pack(rows(res.profile, cells))
+        start = _pack(rows(res.snapshots[0], cells))
+        rel_cells = self.reliability(cells)
+        dx = sc.column_m / n
+        pv_axis = {"key": "pore_volumes", "label": "Pore volumes", "unit": "of the column",
+                   "values": [_sig(v) for v in res.pore_volumes]}
+        dist_axis = {"key": "distance", "label": "Distance from the inlet", "unit": "m",
+                     "values": [_sig((i + 0.5) * dx) for i in range(n)]}
+        prof_axes = {"distance": dist_axis}
+        for key, (label, unit) in AXES.items():
+            vals = [pt[0] if key == "temperature_c" else pt[1] for pt in cells]
+            if max(vals) - min(vals) > 1e-9:
+                prof_axes[key] = {"key": key, "label": label, "unit": unit, "values": [_sig(v) for v in vals]}
+        outlet.update(axes={"pore_volumes": pv_axis}, varies=["pore_volumes"],
+                      reliability={"levels": [rel_cells[-1].level] * len(res.outlet)})
+        for run in (start, profile):
+            run.update(axes=prof_axes, varies=list(prof_axes), reliability={"levels": [r.level for r in rel_cells]})
+        runs = {"outlet": outlet, "start": start, "profile": profile}
+        for name, run, where in (("outlet", outlet, outlet_at), ("start", start, cells), ("profile", profile, cells)):
+            notes.extend(run.pop("warnings"))
+            _phase_split(run, where)
+            if name != "start":
+                notes.extend(phase_notes(run, where, "the outlet" if name == "outlet" else "the column"))
+
+        k_mix = math.ceil(3.0 * sc.mixing_fraction - 1e-12) if sc.mixing_fraction > 0 else 0
+        notes.append(f"Transport as in PHREEQC's TRANSPORT: {n} cells of {dx:.3g} m; each of the {shifts} shifts "
+                     f"moves the pore water one cell on, and the dispersivity ({sc.dispersivity_m:g} m) mixes "
+                     f"neighbouring cells by {sc.mixing_fraction:.3g} of the difference per shift"
+                     + (f" (in {k_mix} mixes, half before and half after the shift)" if k_mix > 1 else "")
+                     + ". Minerals, gas and sorbed matter stay in their cell; every cell returns to equilibrium "
+                     "at its own temperature and pressure after each move. Kinetics is not used: the column is "
+                     "at local equilibrium.")
+        if sc.reactants:
+            notes.append("The reactants were put into every cell and brought to equilibrium with the pore fluid "
+                         "before the flow started (a rock such as basalt glass is replaced by what it alters to).")
+        if res.failures:
+            first = res.failures[0]
+            notes.append(f"No equilibrium was found {len(res.failures)} times (first in cell {first[1] + 1} at "
+                         f"shift {first[0]}: {first[2]}); those cells kept their last state, with their matter "
+                         f"still counted.")
+        if sc.exchange_meq > 0 or sc.hfo_g > 0:
+            notes.append("Sorption uses PHREEQC's constants (phreeqc.dat): Gaines-Thomas exchange and the Dzombak "
+                         "and Morel (1990) diffuse-layer model for hydrous ferric oxide; the exchanger and the "
+                         "surface start in equilibrium with the pore fluid.")
+        notes = [x for x in notes if not x.startswith("water density")]
+        notes.extend(reliability_notes(cells, rel_cells, sc.varies))
+        notes.extend(fluid.caveats)
+        seen: list[str] = []
+        for x in notes:
+            if x not in seen:
+                seen.append(x)
+        progress(1.0, "Done")
+        axes = {"pore_volumes": pv_axis, **prof_axes}
+        start_elements: dict[str, float] = {}
+        for name, st in inflow.species.items():
+            sp = db.species.get(name)
+            for el, k in (sp.elements.items() if sp is not None else ()):
+                if el not in ("H", "O"):
+                    start_elements[el] = start_elements.get(el, 0.0) + k * st.molality
+        return {
+            "id": _dt.datetime.now().strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:4],
+            "created": _dt.datetime.now().isoformat(timespec="seconds"),
+            "scenario": sc.to_dict(),
+            "title": sc.display_title,
+            "summary": sc.describe(),
+            "database": f"{db.title}; ion sizes from EQ3/6 data0.cmp",
+            "fluid": {"key": fluid.key, "label": fluid.label, "description": fluid.description,
+                      "measured_t_c": fluid.measured_t_c, "source": fluid.source,
+                      "analysis": [e.line() for e in sc.fluid_analysis().entries], "ph": fluid.ph,
+                      "totals_molal": {pretty_species(k, db.species[k].charge if k in db.species else None):
+                                       _sig(v) for k, v in inflow.totals.items()}},
+            "transport": {"cells": n, "shifts": shifts, "column_m": sc.column_m, "dx_m": dx,
+                          "temperatures": [_sig(t) for t, _ in cells], "pressures": [_sig(p) for _, p in cells],
+                          "pore_fluid": sc.pore_fluid or sc.fluid, "failures": len(res.failures)},
+            "axes": axes,
+            "varies": ["pore_volumes"],
+            "x": pv_axis,
+            "reliability": outlet["reliability"],
+            "start_elements": {k: _sig(v) for k, v in start_elements.items()},
+            "catalog": _catalog(db, runs, sc),
+            "modes": runs,
+            "notes": seen,
+            "elapsed_s": round(time.time() - started, 1),
+        }
+
     def _prepare(self, sc: Scenario, progress: Progress):
         """The starting fluid, the reactants' names, the second fluid, the system and its bulk."""
         db = self.db
         progress(0.0, f"Speciating {sc.fluid_spec().label.lower()}")
         sp0, fluid_notes = self.starting_fluid(sc)
+        inflow = None
+        if sc.transport and sc.pore_fluid and sc.pore_fluid != sc.fluid:
+            # a column first filled with another fluid: that one is the start, the card's fluid flows in
+            inflow = sp0
+            sp0, pore_notes = self.starting_fluid(Scenario(fluid=sc.pore_fluid, activity_model=sc.activity_model,
+                                                           methane_sulfate=sc.methane_sulfate))
+            fluid_notes = fluid_notes + [f"Pore fluid: {n}" for n in pore_notes]
         basis = [b for b in sp0.basis_names if b not in (WATER, PROTON)]
         added = self._reactant_names(sc)
         for name in added.values():                      # components the fluid does not carry yet
@@ -287,6 +415,9 @@ class Engine:
             mix, mix_notes = self.starting_fluid(Scenario(fluid=sc.mix_with, activity_model=sc.activity_model))
             fluid_notes += [f"Second fluid: {n}" for n in mix_notes]
             basis += [b for b in mix.basis_names if b not in basis and b not in (WATER, PROTON)]
+        if inflow is not None:
+            mix = inflow
+            basis += [b for b in inflow.basis_names if b not in basis and b not in (WATER, PROTON)]
         hold = [b for b in basis if db.species[b].kind != Kind.BASIS]     # CH4, held apart
         blocked = {b.lower() for b in sc.blocked_minerals}
         mixes = [ss for ss in solid_solution_table() if ss.name not in blocked] if sc.solid_solutions else []

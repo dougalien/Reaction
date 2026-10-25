@@ -55,16 +55,17 @@ def default_view(result: dict) -> dict:
     if not items:
         biggest = sorted(first["species"], key=lambda k: -max(v or 0.0 for v in first["species"][k]))[:3]
         items = [{"group": "species", "key": k} for k in biggest]
+    if "varies" in first:                    # a column: its modes have axes of their own, the outlet first
+        modes = [m for m in modes if result["modes"][m].get("varies") == first["varies"]]
     return {"items": items, "log": True, "modes": modes, "unit": "mmol", "x": result["x"]["key"],
             "compare": None}
 
 
 def _present(item: dict, result: dict) -> bool:
-    run = next(iter(result["modes"].values()))
     g, k = item["group"], item["key"]
     if g == "property":
         return k in PROPERTIES
-    return k in run.get(g, {})
+    return any(k in run.get(g, {}) for run in result["modes"].values())
 
 
 def sanitize(view: dict, result: dict | None) -> dict:
@@ -77,11 +78,16 @@ def sanitize(view: dict, result: dict | None) -> dict:
         out["unit"] = "mmol"
     if result is None:
         return out
-    # the horizontal axis must be a quantity that actually changes along the path
-    if out["x"] not in result.get("varies", []):
-        out["x"] = result["x"]["key"]
     avail = list(result["modes"])
-    out["modes"] = [m for m in view.get("modes", avail) if m in avail] or avail
+    modes = [m for m in view.get("modes", avail) if m in avail] or avail
+    lead = result["modes"][modes[0]]
+    if "varies" in lead:                     # a column: only modes drawn on the same axes go together
+        modes = [m for m in modes if result["modes"][m].get("varies") == lead["varies"]]
+    out["modes"] = modes
+    # the horizontal axis must be a quantity that actually changes along the path
+    varies = lead.get("varies", result.get("varies", []))
+    if out["x"] not in varies:
+        out["x"] = varies[0] if "varies" in lead else result["x"]["key"]
     group = None
     for item in view.get("items", []):
         if not _present(item, result) or item in out["items"]:

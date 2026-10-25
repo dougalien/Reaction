@@ -18,8 +18,21 @@ async function load(id) {
   }
   return cache.get(id);
 }
-const MODE_LABEL = { static: "Static", flow_through: "Flow-through" };
-const DASH = { static: "", flow_through: "7 5" };
+const MODE_LABEL = { static: "Static", flow_through: "Flow-through", outlet: "At the outlet",
+  start: "Column at the start", profile: "Column at the end" };
+const DASH = { static: "", flow_through: "7 5", outlet: "", start: "7 5", profile: "" };
+
+/* The first mode shown, and the axes it is drawn against: a column run's modes carry their own
+   (pore volumes at the outlet, distance along the column), so only modes on the same axes overlay. */
+function lead(res = result) {
+  const id = (win().view.modes || []).find((m) => res.modes[m]) || Object.keys(res.modes)[0];
+  return res.modes[id];
+}
+function frame(res = result) {
+  const r = lead(res);
+  return { axes: r.axes || res.axes, varies: r.varies || res.varies || ["temperature_c"],
+    rel: r.reliability || res.reliability };
+}
 const UNIT_SCALE = { mol: 1, mmol: 1e3, umol: 1e6, mg: 1e3 };
 const UNIT_TEXT = { mol: "mol", mmol: "mmol", umol: "µmol", mg: "mg" };
 const TABS = [["species", "Species"], ["elements", "Elements"], ["minerals", "Mineral amounts"],
@@ -137,7 +150,7 @@ function currentSeries() {
         csv: `${labelOf(item)}${modes.length > 1 ? " " + MODE_LABEL[m].toLowerCase() : ""} [${yLabel([item], view)}]`,
       });
     });
-    const ox = other && other.axes && other.axes[view.x];
+    const ox = other && frame(other).axes[view.x];
     if (!ox) return;
     // the compared run, in the modes shown here if it has them, otherwise in its own
     const shared = modes.filter((m) => other.modes[m]);
@@ -163,8 +176,9 @@ function drawPickers(view) {
   $("cmp-pick").replaceChildren(h("option", { value: "" }, "Nothing"),
     ...runs.filter((r) => r.id !== win().current).map(opt));
   $("cmp-pick").value = view.compare || "";
-  const ox = other && other.axes && other.axes[view.x];
-  $("cmp-note").textContent = other && !ox ? `That run has no ${result.axes[view.x].label.toLowerCase()} axis, so it cannot be overlaid here.` : "";
+  const fx = frame().axes[view.x];
+  const ox = other && frame(other).axes[view.x];
+  $("cmp-note").textContent = other && !ox && fx ? `That run has no ${fx.label.toLowerCase()} axis, so it cannot be overlaid here.` : "";
 }
 $("run-pick").addEventListener("change", (ev) => api("/api/current", { id: ev.target.value, window: W }));
 $("cmp-pick").addEventListener("change", (ev) => setView({ compare: ev.target.value || null }));
@@ -185,23 +199,30 @@ function draw() {
   document.title = `Reaction${W === "2" ? " (2)" : ""}: ` + (result.title || result.scenario.title);
 
   // horizontal axis: only a quantity that changes along the path, and a choice if both do
-  const varies = result.varies || ["temperature_c"];
-  const xkey = varies.includes(view.x) ? view.x : result.x.key;
-  const xax = result.axes ? result.axes[xkey] : result.x;
+  const fr = frame();
+  const varies = fr.varies;
+  const xkey = varies.includes(view.x) ? view.x : varies[0];
+  const xax = fr.axes ? fr.axes[xkey] : result.x;
   const xb = $("xaxis");
   xb.style.display = varies.length > 1 ? "" : "none";
   xb.replaceChildren(...varies.map((k) => h("button", {
-    class: k === xkey ? "on" : "", onclick: () => setView({ x: k }) }, result.axes[k].label)));
+    class: k === xkey ? "on" : "", onclick: () => setView({ x: k }) }, fr.axes[k].label)));
 
   const modeIds = Object.keys(result.modes);
   const m = $("modes");
   m.style.display = modeIds.length > 1 ? "" : "none";
+  const sameAxes = (a, b) => JSON.stringify(result.modes[a].varies || null) === JSON.stringify(result.modes[b].varies || null);
   m.replaceChildren(...modeIds.map((id) => h("button", {
     class: view.modes.includes(id) ? "on" : "",
     onclick: () => {
+      const run = result.modes[id];
+      if (view.modes.length && !sameAxes(id, view.modes[0])) {     // other axes: show that one alone
+        setView({ modes: [id], x: run.varies[0] });
+        return;
+      }
       const next = view.modes.includes(id) ? view.modes.filter((x) => x !== id) : [...view.modes, id];
       if (next.length) setView({ modes: next });
-    } }, MODE_LABEL[id])));
+    } }, MODE_LABEL[id] || id)));
 
   const items = view.items;
   const g = items.length ? items[0].group : "";
@@ -225,9 +246,9 @@ function draw() {
     h("span", { class: "sw", style: s.dash
       ? `border-color:color-mix(in srgb, ${s.color} 55%, var(--ink));border-top-style:dashed;border-top-width:2px`
       : `border-color:${s.color}` }), s.label)));
-  const rel = result.reliability ? result.reliability.levels : [];
+  const rel = fr.rel ? fr.rel.levels : [];
   const anyRisk = rel.some((l) => l !== "good");
-  const other = varies.length > 1 ? result.axes[varies.find((k) => k !== xkey)] : null;
+  const other = varies.length > 1 ? fr.axes[varies.find((k) => k !== xkey)] : null;
   $("reliab").style.display = anyRisk ? "" : "none";
   const banded = Object.values(result.modes).find((r) => r.band_runs);
   $("bandnote").style.display = banded && series.some((s) => s.lo) ? "" : "none";
@@ -244,7 +265,7 @@ function draw() {
 }
 
 function candidates() {
-  const run = result.modes[Object.keys(result.modes)[0]];
+  const run = lead();
   const peak = (arr) => Math.max(0, ...arr.filter((v) => v !== null));
   if (tab === "species") {
     return Object.keys(run.species).sort((a, b) => peak(run.species[b]) - peak(run.species[a]))
@@ -280,7 +301,7 @@ function candidates() {
 }
 
 function drawPicker() {
-  const run0 = result.modes[Object.keys(result.modes)[0]];
+  const run0 = lead();
   const shown = TABS.filter(([id]) => (id !== "kinetic" && id !== "composition" && id !== "phases" && id !== "isotopes" && id !== "sorbed") ||
     (id === "phases" ? "vapour_share" in (run0.phases || {}) : Object.keys(run0[id] || {}).length));
   if (!shown.some(([id]) => id === tab)) tab = "species";
@@ -308,8 +329,9 @@ function download(name, text, type) {
 $("dl-csv").addEventListener("click", () => {
   const series = currentSeries().filter((s) => !s.compare);
   const q = (s) => `"${s.replace(/"/g, '""')}"`;
-  const keys = [...new Set([...(result.varies || []), "temperature_c", "pressure_bar"])];
-  const cols = keys.filter((k) => result.axes[k]).map((k) => result.axes[k]);
+  const fr = frame();
+  const keys = [...new Set([...fr.varies, "temperature_c", "pressure_bar"])];
+  const cols = keys.filter((k) => fr.axes[k]).map((k) => fr.axes[k]);
   const cell = (v) => (v === null || v === undefined ? "" : v);
   const head = series.flatMap((s) => (s.lo ? [q(s.csv), q(s.csv + " 5%"), q(s.csv + " 95%")] : [q(s.csv)]));
   const rows = [[...cols.map((a) => q(`${a.label} (${a.unit})`)), ...head].join(",")];
