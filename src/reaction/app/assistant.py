@@ -162,7 +162,7 @@ def interpret(text: str, card: Scenario, plotted: list[str], history: list[dict]
             for k in group:
                 got.scenario_changes.pop(k, None)
     for key in (*T_KEYS, *P_KEYS, "mode", "fluid", "steps", "analysis", "units", "ph", "reactants",
-                "mix_with", "mix_ratio", "mix_t_c"):
+                "mix_with", "mix_ratio", "mix_t_c", "redox", "redox_value"):
         if key in rules.scenario_changes:
             got.scenario_changes[key] = rules.scenario_changes[key]
     if got.x_axis == "unchanged":
@@ -335,6 +335,7 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
         out.run = False
     elif pasted.ph is not None and not re.search(r"\b(plot|show|hide)\b", low):
         ch["ph"] = pasted.ph
+    ch.update(_redox(low))
     found = [f for f in _REACTANT.findall(text)
              if not re.fullmatch(_FLUID_WORDS, f[2].lower())]       # "with 10 kg of seawater" is mixing
     if found:
@@ -389,11 +390,35 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
             bits.append("no reactants")
         if "ph" in ch and ch["ph"] is not None and "analysis" not in ch:
             bits.append(f"pH {ch['ph']:g}")
+        if "redox" in ch:
+            bits.append({"air": "redox from equilibrium with air", "none": "redox not tracked",
+                         "log_fo2": f"log fO2 {ch.get('redox_value', 0):g}",
+                         "eh": f"Eh {ch.get('redox_value', 0):g} V",
+                         "pe": f"pe {ch.get('redox_value', 0):g}"}[ch["redox"]])
         if "analysis" not in ch:
             out.reply = "Set " + ", ".join(bits) + "." if bits else ""
         elif bits:
             out.reply += " Set " + ", ".join(bits) + "."
     return out
+
+
+def _redox(low: str) -> dict:
+    """The redox state named in a message: air, log fO2, Eh, pe, or not tracked."""
+    m = re.search(r"\b(?:(?:log\s*)?f\s?o2|oxygen fugacity)\s*(?:of|=|:|is|at|to)?\s*([-+]?\d+(?:\.\d+)?)", low)
+    if m:
+        return {"redox": "log_fo2", "redox_value": float(m.group(1))}
+    m = re.search(r"\beh\s*(?:of|=|:|is|at|to)?\s*([-+]?\d*\.?\d+)\s*(mv|v)?\b", low)
+    if m:
+        volts = float(m.group(1)) / (1000.0 if m.group(2) == "mv" else 1.0)
+        return {"redox": "eh", "redox_value": volts}
+    m = re.search(r"\bpe\s*(?:of|=|:|is|at|to)?\s*([-+]?\d*\.?\d+)\b", low)
+    if m:
+        return {"redox": "pe", "redox_value": float(m.group(1))}
+    if re.search(r"equilibri\w* with (?:the )?(?:air|atmosphere)|air[- ]saturated|oxygenated", low):
+        return {"redox": "air"}
+    if re.search(r"\b(?:no|ignore|without|don'?t track)\s+(?:the\s+)?redox\b|redox\s+(?:off|not tracked)", low):
+        return {"redox": "none"}
+    return {}
 
 
 def _clean(s: str) -> str:

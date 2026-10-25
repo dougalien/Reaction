@@ -186,8 +186,9 @@ def test_unknown_or_redox_reactants_are_refused_clearly(engine):
     base = dict(t_start_c=25.0, t_end_c=25.0, p_start_bar=1.0, p_end_bar=1.0, steps=4)
     with pytest.raises(ValueError, match="not a mineral"):
         engine.run(Scenario(**base, reactants=[{"name": "unobtainium", "amount": 1.0, "unit": "g"}]))
-    with pytest.raises(ValueError, match="oxidation state"):
-        engine.run(Scenario(**base, reactants=[{"name": "magnetite", "amount": 1.0, "unit": "g"}]))
+    with pytest.raises(ValueError, match="redox state"):        # the brine's redox is not tracked
+        engine.run(Scenario(**base, fluid="formation_brine",
+                            reactants=[{"name": "magnetite", "amount": 1.0, "unit": "g"}]))
 
 
 def test_solved_state_carries_the_water_activity_it_was_solved_with(engine):
@@ -231,3 +232,41 @@ def test_mixing_without_its_own_temperature_follows_the_path(engine):
     assert set(res["axes"]["temperature_c"]["values"]) == {25.0}
     na = res["modes"]["static"]["species"]["Na+"]
     assert na[-1] < na[0] / 4
+
+
+def test_redox_of_the_starting_fluids(engine):
+    sea, notes = engine.starting_fluid(Scenario(fluid="seawater"))
+    assert sea.log_fo2 == pytest.approx(-0.678, abs=1e-3) and any("air" in n for n in notes)
+    vent, _ = engine.starting_fluid(Scenario(fluid="vent_fluid"))
+    assert vent.species["H2"].molality == pytest.approx(0.5e-3 / (1 - 0.031), rel=0.02)   # the couple
+    sulfide = vent.species["H2S"].molality + vent.species["HS-"].molality
+    assert sulfide == pytest.approx(vent.totals["SO4-2"], rel=1e-3)      # all sulfur reduced
+    card = Scenario(fluid="custom", analysis="Na 10\nCl 10\nFe 1\nFe3+ 0.2", units="mmol/kg", ph=2.0,
+                    charge_balance="Cl-")
+    fe, _ = engine.starting_fluid(card)
+    assert fe.species["Fe+3"].molality > 0 and fe.totals["Fe+2"] == pytest.approx(1.2e-3, rel=1e-3)
+
+
+def test_a_reduced_fluid_heats_without_failed_steps(engine):
+    """The redox budget of a reduced fluid is negative; log fO2 moves by tens of units with
+    temperature and the solver must follow it."""
+    card = Scenario(fluid="vent_fluid", t_start_c=25.0, t_end_c=350.0, steps=12, p_start_bar=500.0,
+                    p_end_bar=500.0)
+    res = engine.run(card)
+    assert not any("No equilibrium" in n for n in res["notes"])
+    st = res["modes"]["static"]
+    assert st["minerals"]["pyrite"][0] > 1e-4                     # iron sulfide at 25 C
+    fo2 = st["properties"]["log_fO2"]
+    assert fo2[0] < -60 and fo2[-1] > fo2[0] and "log_fO2" in res["modes"]["static"]["properties"]
+
+
+def test_without_redox_there_is_no_fo2_to_plot(engine):
+    card = Scenario(fluid="formation_brine", t_start_c=25.0, t_end_c=100.0, steps=3)
+    assert "log_fO2" not in engine.run(card)["modes"]["static"]["properties"]
+
+
+def test_iron_oxides_react_once_the_redox_state_is_tracked(engine):
+    card = Scenario(t_start_c=25.0, t_end_c=25.0, p_start_bar=1.0, p_end_bar=1.0, steps=4,
+                    reactants=[{"name": "magnetite", "amount": 0.1, "unit": "g"}])
+    res = engine.run(card)
+    assert "hematite" in res["modes"]["static"]["minerals"] or "goethite" in res["modes"]["static"]["minerals"]

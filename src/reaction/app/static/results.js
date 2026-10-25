@@ -24,7 +24,7 @@ const UNIT_SCALE = { mol: 1, mmol: 1e3, umol: 1e6, mg: 1e3 };
 const UNIT_TEXT = { mol: "mol", mmol: "mmol", umol: "µmol", mg: "mg" };
 const TABS = [["species", "Species"], ["elements", "Elements"], ["minerals", "Mineral amounts"],
   ["saturation", "Saturation index"], ["property", "Properties"]];
-const PROPS = { pH: "pH", ionic_strength: "Ionic strength", water_kg: "Solvent mass", log_aw: "log water activity" };
+const PROPS = { pH: "pH", ionic_strength: "Ionic strength", water_kg: "Solvent mass", log_aw: "log water activity", log_fO2: "log fO2", Eh: "Eh (V)" };
 
 function pill(el, text, kind) { el.textContent = text; el.className = "pill " + (kind || ""); }
 
@@ -216,7 +216,7 @@ function candidates() {
     return Object.keys(run.saturation).map((k) => ({ group: "saturation", key: k,
       label: result.catalog.minerals[k].label + (result.catalog.minerals[k].blocked ? " (blocked)" : "") }));
   }
-  return Object.entries(PROPS).map(([k, label]) => ({ group: "property", key: k, label }));
+  return Object.entries(PROPS).filter(([k]) => k in run.properties).map(([k, label]) => ({ group: "property", key: k, label }));
 }
 
 function drawPicker() {
