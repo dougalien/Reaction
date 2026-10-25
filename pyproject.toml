@@ -24,3 +24,4 @@ pythonpath = ["src"]
 
 [tool.setuptools.package-data]
 "reaction.app" = ["static/*"]
+"reaction" = ["data/*.tsv"]
