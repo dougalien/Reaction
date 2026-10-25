@@ -4,8 +4,8 @@ A run takes a fluid along a straight line in temperature and pressure and, at ev
 equilibrium of the whole closed system: the aqueous species, plus whichever minerals are stable.  The
 equilibrium constants are computed from Gibbs energies at each (T, P), so pressure is as free as
 temperature: there is no fixed-pressure database anywhere.  In *static* mode minerals stay and can
-redissolve.  In *flow-through* mode the minerals formed at each step are left behind, so only the
-fluid goes on to the next step.
+redissolve.  In *flow-through* mode minerals are left behind as they form and never redissolve, so only
+the fluid goes on; the run reports everything left behind so far.
 """
 from __future__ import annotations
 
@@ -14,16 +14,15 @@ import math
 import threading
 import time
 import uuid
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
 from ..database import load_data0
 from ..database.model import Kind
-from ..equilibrium import EquilibriumState, System, equilibrate
+from ..equilibrium import System
 from ..network import PROTON, WATER
-from ..path import _composition_row
-from ..speciation import SpeciationError, speciate
+from ..path import PathPoint, ReactionPath
+from ..speciation import speciate
 from ..thermo import validity
 from ..thermo.eosdb import load_eos_database
 from . import config
@@ -44,15 +43,6 @@ def _sig(x: float | None, digits: int = 6):
     if x is None or (isinstance(x, float) and not math.isfinite(x)):
         return None
     return float(f"{x:.{digits}g}")
-
-
-@dataclass
-class _Context:
-    bulk: dict
-    state: EquilibriumState | None = None
-    t_c: float | None = None
-    p_bar: float | None = None
-    cumulative: dict | None = None            # flow-through: everything left behind so far
 
 
 class Engine:
@@ -187,57 +177,30 @@ class Engine:
     # ---- the march along the path ---------------------------------------------------------------
     def _march(self, system: System, bulk0: dict, points: list[tuple[float, float]], sc: Scenario,
                flow_through: bool, tick, notes: list[str]) -> dict:
+        """The library's reaction path, with reaction progress counting the steps of the card: the same
+        closed-system and flow-through rules as every other path (see ``path.py``)."""
         db = self.db
-        ctx = _Context(dict(bulk0), cumulative={} if flow_through else None)
-        rows: list[dict | None] = []
         n = len(points)
-        for i, (t, p) in enumerate(points):
-            tick(i, n)
-            try:
-                state = self._advance(system, ctx, t, p, sc)
-            except SpeciationError as exc:
-                notes.append(f"No equilibrium found at {t:.0f} C and {p:.0f} bar ({exc}); that point is "
-                             f"left blank.")
-                rows.append(None)
-                continue
-            rows.append(self._record(db, state, ctx))
-        tick(n, n)
-        return _pack(rows)
-
-    def _advance(self, system: System, ctx: _Context, t_c: float, p_bar: float, sc: Scenario,
-                 depth: int = 0):
-        """Move the system to (t_c, p_bar): solve there, then in flow-through leave the minerals behind."""
-        state = self._solve(system, ctx, t_c, p_bar, sc, depth)
-        if ctx.cumulative is not None:                       # flow-through: leave the minerals behind
-            for name, moles in state.minerals.items():
-                ctx.cumulative[name] = ctx.cumulative.get(name, 0.0) + moles
-                for comp, c in _composition_row(system, name).items():
-                    ctx.bulk[comp] = ctx.bulk.get(comp, 0.0) - c * moles
-        ctx.state, ctx.t_c, ctx.p_bar = state, t_c, p_bar
-        return state
-
-    def _solve(self, system: System, ctx: _Context, t_c: float, p_bar: float, sc: Scenario,
-               depth: int = 0) -> EquilibriumState:
-        """Equilibrium of ``ctx.bulk`` at (t_c, p_bar), leaving ``ctx`` unchanged.  On a failed solve,
-        the halfway point is solved first only as a starting guess: nothing is left behind there,
-        so a convergence failure never adds an extra flow-through step."""
-        model = system.model(t_c, p_bar)
+        last = max(n - 1, 1)
+        (t0, p0), (t1, p1) = points[0], points[-1]
         blocked = {b.lower() for b in sc.blocked_minerals} | set(ALWAYS_EXCLUDED)
-        eligible = [name for name, kind in zip(model.ph_names, model.ph_kind)
-                    if kind == Kind.MINERAL and name.lower() not in blocked]
-        start = [] if ctx.state is None or ctx.cumulative is not None else list(ctx.state.minerals)
-        try:
-            return equilibrate(system, t_c, ctx.bulk, pressure_bar=p_bar, minerals=start,
-                               eligible=eligible, guess=ctx.state)
-        except SpeciationError:
-            if ctx.state is None or ctx.t_c is None or depth >= 6:
-                raise
-            t_mid, p_mid = 0.5 * (ctx.t_c + t_c), 0.5 * (ctx.p_bar + p_bar)
-            mid = self._solve(system, ctx, t_mid, p_mid, sc, depth + 1)
-            nearer = _Context(ctx.bulk, mid, t_mid, p_mid, ctx.cumulative)
-            return self._solve(system, nearer, t_c, p_bar, sc, depth + 1)
+        suppress = [name for name, kind in zip(system.net.phase_names, system.net.phase_kind)
+                    if kind == Kind.MINERAL and name.lower() in blocked]
+        path = ReactionPath(system, bulk0,
+                            temperature=lambda xi: t0 + (t1 - t0) * xi / last,
+                            pressure=lambda xi: p0 + (p1 - p0) * xi / last,
+                            suppress_minerals=suppress, flow_through=flow_through)
 
-    def _record(self, db, state: EquilibriumState, ctx: _Context) -> dict:
+        def failed(xi, exc):
+            t, p = points[int(round(xi))]
+            notes.append(f"No equilibrium found at {t:.0f} C and {p:.0f} bar ({exc}); that point is "
+                         f"left blank.")
+
+        solved = path.run(list(range(n)), on_failure=failed, progress=tick)
+        return _pack([None if pt is None else self._record(db, pt) for pt in solved])
+
+    def _record(self, db, point: PathPoint) -> dict:
+        state = point.state
         spec = state.speciation
         elements: dict[str, float] = {}
         species = {}
@@ -249,7 +212,9 @@ class Engine:
             for el, k in sp.elements.items():
                 if el not in ("H", "O"):
                     elements[el] = elements.get(el, 0.0) + k * st.molality
-        minerals = dict(ctx.cumulative) if ctx.cumulative is not None else dict(state.minerals)
+        minerals = dict(point.removed)                    # flow-through: everything left behind so far
+        for name, moles in state.minerals.items():
+            minerals[name] = minerals.get(name, 0.0) + moles
         return {"pH": spec.ph, "ionic_strength": spec.ionic_strength, "water_kg": state.water_kg,
                 "log_aw": spec.log_a_water, "species": species, "elements": elements,
                 "minerals": minerals, "saturation": dict(spec.saturation),

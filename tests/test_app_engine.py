@@ -91,36 +91,38 @@ def test_flow_through_runs_above_the_critical_temperature(engine):
     assert run["minerals"]["anhydrite"][-1] > 0
 
 
-def test_a_failed_step_leaves_nothing_behind_halfway(engine, monkeypatch):
-    """When a step is retried in two halves, the halfway point is only a starting guess: minerals are
-    left behind at the steps of the card and nowhere else."""
-    from reaction.app import engine as engine_module
+def test_a_failed_step_does_not_change_the_flow_through_result(engine, monkeypatch):
+    """A step that fails to converge is retried in smaller steps; minerals are left behind where they
+    would start to redissolve, not at the steps, so the retry changes nothing."""
+    from reaction import path as path_module
     from reaction.speciation import SpeciationError
 
     card = Scenario(t_start_c=25.0, t_end_c=350.0, steps=8, p_start_bar=500.0, p_end_bar=500.0,
                     mode="flow_through")
+    plain = engine.run(card)["modes"]["flow_through"]
     target = card.points()[5][0]
-    real_solve, real_row = engine_module.equilibrate, engine_module._composition_row
-    failed, removals = [], []
+    real, failed = path_module.equilibrate, []
 
     def flaky(system, t_c, *args, **kwargs):
         if abs(t_c - target) < 1e-9 and not failed:
             failed.append(t_c)
             raise SpeciationError("simulated convergence failure")
-        return real_solve(system, t_c, *args, **kwargs)
+        return real(system, t_c, *args, **kwargs)
 
-    def counted(*args):
-        removals.append(args[1])
-        return real_row(*args)
-
-    monkeypatch.setattr(engine_module, "_composition_row", counted)
-    plain = engine.run(card)["modes"]["flow_through"]
-    plain_removals = len(removals)
-    removals.clear()
-    monkeypatch.setattr(engine_module, "equilibrate", flaky)
+    monkeypatch.setattr(path_module, "equilibrate", flaky)
     retried = engine.run(card)["modes"]["flow_through"]
     assert failed
-    assert len(removals) == plain_removals
     assert set(retried["minerals"]) == set(plain["minerals"])
     for name, amounts in plain["minerals"].items():
         assert retried["minerals"][name] == pytest.approx(amounts, rel=1e-6, abs=1e-12)
+    assert retried["properties"]["pH"] == pytest.approx(plain["properties"]["pH"], abs=1e-6)
+
+
+def test_flow_through_leaves_calcite_behind_where_it_would_redissolve(engine):
+    """Calcite forms on warming and redissolves in the static run; in flow-through the amount left
+    behind stops growing where the static run starts to lose it, and never falls."""
+    card = Scenario(t_start_c=25.0, t_end_c=250.0, steps=10, p_start_bar=500.0, p_end_bar=500.0,
+                    mode="flow_through")
+    ft = engine.run(card)["modes"]["flow_through"]["minerals"]["calcite"]
+    assert all(b >= a * (1 - 1e-9) for a, b in zip(ft, ft[1:]))
+    assert ft[-1] > 0

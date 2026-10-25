@@ -200,6 +200,31 @@ def compare_case(db: ThermoDatabase, name: str, description: str, points: list[P
     return rep
 
 
+def _printed_xis(output_path: Path, csv_xis: list[float]) -> list[float]:
+    """The CSV's print points, except that two points the CSV prints alike (1.02047E-04 and 1.02049E-04
+    both read 1.0205E-04 there) take the extra digit of the .6o text output.  Only those: at the other
+    boundary points EQ6 locates, the extra digit moves the comparison across our own boundary as often
+    as it helps, so the CSV values stay."""
+    if not output_path.exists():
+        return csv_xis
+    found = []
+    for line in output_path.read_text(errors="replace").splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[0] == "Xi=":
+            try:
+                found.append(float(parts[1]))
+            except ValueError:
+                return csv_xis
+    if len(found) != len(csv_xis):
+        return csv_xis
+    if any(abs(a - b) > 1e-4 * max(abs(a), abs(b)) for a, b in zip(found, csv_xis)):
+        return csv_xis
+    n = len(csv_xis)
+    tied = [i for i in range(n) if (i > 0 and csv_xis[i] == csv_xis[i - 1])
+            or (i + 1 < n and csv_xis[i] == csv_xis[i + 1])]
+    return [found[i] if i in tied else x for i, x in enumerate(csv_xis)]
+
+
 def run_case(db: ThermoDatabase, input_path: str | Path,
              csv_path: str | Path | None = None) -> tuple[Eq6Report, list[PathPoint]]:
     input_path = Path(input_path)
@@ -207,6 +232,7 @@ def run_case(db: ThermoDatabase, input_path: str | Path,
     csv_path = Path(csv_path) if csv_path else input_path.parent / "Outputs" / (input_path.stem + ".csv")
     csv = read_eq6_csv(csv_path)
     setup = build_case(db, inp, csv)
-    points = setup.path.run(setup.xis)
+    xis = _printed_xis(input_path.parent / "Outputs" / (input_path.stem + ".6o"), setup.xis)
+    points = setup.path.run(xis)
     fixed_o2 = "O2(g)" in setup.path.fixed
     return compare_case(db, input_path.stem, inp.description, points, csv, fixed_o2), points
