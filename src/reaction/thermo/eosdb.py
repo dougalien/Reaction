@@ -27,7 +27,7 @@ from .crystal import CrystalSpecies
 from .hkf import HKFSpecies, WaterStateError
 from pathlib import Path
 
-from .obigt import (DEFAULT_FILES, SLOP98_FILES, SUPCRT92_FILES, ObigtData,
+from .obigt import (BERMAN_FILES, DEFAULT_FILES, SLOP98_FILES, SUPCRT92_FILES, ObigtData,
                     ObigtSpecies, load_obigt)
 
 WATER, PROTON, OXYGEN = "H2O", "H+", "O2(g)"
@@ -102,16 +102,26 @@ class _Aqueous:
 
 
 class _Crystal:
-    """One phase, or several polymorphs of which the most stable counts."""
+    """One phase, or several polymorphs (cr, cr2, ...) that each hold up to their transition
+    temperature, as in CHNOSZ.  Above the limit of the last phase the phase has no data
+    (CHNOSZ's ``exceed.Ttr = FALSE``): extrapolating a heat-capacity polynomial far past its
+    range made, for example, nesquehonite stable in seawater at 300 C."""
 
     def __init__(self, eos_list: list[CrystalSpecies]):
         self.eos_list = eos_list
 
+    def _phase(self, t_k):
+        for e in self.eos_list:
+            if not e.extrapolated(t_k):
+                return e
+        raise ThermoRangeError(f"{self.eos_list[-1].name} has no data above "
+                               f"{self.eos_list[-1].t_max - 273.15:.0f} C")
+
     def gibbs(self, t_k, p_bar):
-        return min(e.gibbs(t_k, p_bar) for e in self.eos_list)
+        return self._phase(t_k).gibbs(t_k, p_bar)
 
     def extrapolated(self, t_k):
-        return all(e.extrapolated(t_k) for e in self.eos_list)
+        return False
 
 
 class _Electron:
@@ -207,6 +217,7 @@ class EosDatabase(ThermoDatabase):
             cco2=_CCO2.copy(), logk_eh=_EhLogK(providers),
             elements=dict(ATOMIC_WEIGHTS), species=species, t_limits=(0.0, 1000.0))
         self._bdot_fit = GridLogK(_BDOT_T, _BDOT, 0.0, 300.0)
+        self.data_notes: list[str] = []     # about the data as loaded, shown with every run
 
     def reference_pressure(self, t_c: float) -> float:
         return reference_pressure_bar(t_c)
@@ -332,7 +343,7 @@ def build_eos_database(data: ObigtData, *, masters: dict[str, str] | None = None
             continue
         first = poly[0]
         reaction_for(name, first, _Crystal([p.eos for p in poly]), Kind.MINERAL,
-                     volume=first.eos.v0 if isinstance(first.eos, CrystalSpecies) else None)
+                     volume=getattr(first.eos, "v0", None))
 
     return EosDatabase(title, "OBIGT", species, oxygen.eos)
 
@@ -369,8 +380,9 @@ def eq36_name_to_obigt(name: str) -> str:
 
 PRESETS = {
     # newest curated data win: SLOP98 supplies extra species, SUPCRT92 the classic minerals,
-    # then the maintained inorganic_* files override both
-    "current": SLOP98_FILES + SUPCRT92_FILES + DEFAULT_FILES,
+    # the maintained inorganic_* files override both, and the Berman (1988 and later) dataset
+    # replaces the Helgeson (1978) silicates, as in OBIGT's default data
+    "current": SLOP98_FILES + SUPCRT92_FILES + DEFAULT_FILES + BERMAN_FILES,
     # SUPCRT92-era data win, to reproduce databases built from SUPCRT92 (EQ3/6 data0.com)
     "supcrt92": DEFAULT_FILES + SUPCRT92_FILES + SLOP98_FILES,
 }
@@ -387,6 +399,10 @@ def load_eos_database(obigt_dir: str | Path, preset: str = "current",
     """
     data = load_obigt(obigt_dir, PRESETS[preset])
     db = build_eos_database(data, masters=masters, title=f"OBIGT/HKF ({preset})")
+    if "Berman" in data.missing:
+        db.data_notes.append(
+            "The Berman mineral data are missing from the data folder, so the older Helgeson "
+            "(1978) silicates are used; run scripts/fetch_references.ps1 again to add them.")
     if eq36_database is not None:
         set_ion_sizes_from_eq36(db, eq36_database)
     return db

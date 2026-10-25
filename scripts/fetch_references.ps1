@@ -31,6 +31,14 @@ foreach ($f in "AD","Berman_cr","DEW","H2O_aq","SLOP98-a","SLOP98-b","SUPCRT92",
     curl.exe -sSL -o (Join-Path $obigt "$f.csv") `
         "https://raw.githubusercontent.com/jedick/CHNOSZ/main/inst/extdata/OBIGT/$f.csv"
 }
+# Parameters of the Berman (1988) minerals listed in Berman_cr.csv
+$berman = Join-Path $obigt "Berman"
+New-Item -ItemType Directory -Force -Path $berman | Out-Null
+foreach ($f in "BDat17_2017","Ber88_1988","Ber90_1990","DS10_2010","FDM+14_2014","Got04_2004",
+               "JUN92_1992","SHD91_1991","VGT92_1992","VPT01_2001","VPV05_2005","ZS92_1992") {
+    curl.exe -sSL -o (Join-Path $berman "$f.csv") `
+        ("https://raw.githubusercontent.com/jedick/CHNOSZ/main/inst/extdata/Berman/" + [uri]::EscapeDataString("$f.csv"))
+}
 
 Write-Host "Done. To run the validation tests:"
 Write-Host "  `$env:REACTION_EQ36_DIR   = '$Dest\eq36_win\Eq3_6v8.0a'"
