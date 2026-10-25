@@ -1,7 +1,7 @@
 # M3 working notes: reaction paths
 
-Status (2026-10-15): research and design only, no M3 code written yet.  M1, M1.5 and M2
-are committed (8d77c10, 8d9cd4a, e90e9d9).  Resume by reading this file.
+Written 2026-10-15 before any M3 code; the solver and harness described here were committed in 3af9559.
+Current status is in NEXT.md.
 
 ## The oracle: EQ6 test library (`6tlib_cmp`)
 
