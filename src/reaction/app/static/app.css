@@ -107,3 +107,4 @@ details ul { margin: 6px 0 0; padding-left: 18px; color: var(--muted); font-size
 .refline { stroke: var(--axis); stroke-dasharray: 4 4; }
 .cross { stroke: var(--faint); stroke-width: 1; }
 .axislabel { fill: var(--ink); font-size: 12px; }
+.flabel { fill: var(--ink); font-size: 12px; paint-order: stroke; stroke: var(--panel); stroke-width: 3px; stroke-linejoin: round; }

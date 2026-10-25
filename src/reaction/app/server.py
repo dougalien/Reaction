@@ -14,11 +14,11 @@ import threading
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from . import config
 from .assistant import Ollama
-from .engine import Engine
+from .engine import Engine, EngineUnavailable
 from .session import Session
 
 STATIC = Path(__file__).resolve().parent / "static"
@@ -76,6 +76,15 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/api/run/"):
             data = self.session.result_with_story(path[len("/api/run/"):])
             return self._json(data) if data else self._error(404, "no such run")
+        if path == "/api/diagram":
+            run = (parse_qs(urlparse(self.path).query).get("run") or [None])[0]
+            try:
+                data = self.session.diagram_data(run)
+            except (ValueError, KeyError) as exc:
+                return self._error(400, str(exc).strip("'\""))
+            except EngineUnavailable as exc:
+                return self._error(503, str(exc))
+            return self._json(data or {"none": True})
         if path == "/events":
             return self._events()
         if path == "/favicon.ico":
@@ -142,6 +151,11 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"started": s.start_run()})
         if path == "/api/current":
             return self._json({"ok": s.set_current(str(body.get("id", "")), _window(body))})
+        if path == "/api/diagram":
+            request = body.get("request") or {}
+            if body.get("close"):
+                request = {"close": True}
+            return self._json({"reply": s.set_diagram(dict(request))})
         if path == "/api/view":
             s.set_view(dict(body.get("patch", {})), _window(body))
             return self._json({"ok": True})

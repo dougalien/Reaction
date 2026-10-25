@@ -10,7 +10,7 @@ import traceback
 from pathlib import Path
 
 from .assistant import Interpretation, Ollama, interpret
-from . import analysis
+from . import analysis, diagrams
 from .engine import Engine, EngineUnavailable
 from .fluids import CUSTOM, CUSTOM_LABEL, PRESETS
 from .narrate import story
@@ -31,6 +31,7 @@ class Session:
         self.chat: list[dict] = []
         self.view: dict = {"items": [], "log": True, "modes": [], "unit": "mmol"}
         self.second: dict = {"current": None, "view": {}}      # the second results window
+        self.diagram: dict | None = None                       # the diagram both windows show
         self.current: str | None = None
         self.run_state = {"state": "idle", "progress": 0.0, "message": "", "error": ""}
         self.mode_confirmed = False
@@ -58,6 +59,7 @@ class Session:
             self.current = data.get("current")
             self.view = data.get("view", self.view)
             self.mode_confirmed = bool(data.get("mode_confirmed", False))
+            self.diagram = data.get("diagram") if isinstance(data.get("diagram"), dict) else None
             second = data.get("second") or {}
             if isinstance(second, dict) and self.result(second.get("current")) is not None:
                 self.second = {"current": second["current"],
@@ -71,7 +73,8 @@ class Session:
 
     def _save(self) -> None:
         data = {"card": self.card.to_dict(), "chat": self.chat[-KEEP_CHAT:], "current": self.current,
-                "view": self.view, "mode_confirmed": self.mode_confirmed, "second": self.second}
+                "view": self.view, "mode_confirmed": self.mode_confirmed, "second": self.second,
+                "diagram": self.diagram}
         tmp = self._file.with_suffix(".tmp")
         tmp.write_text(json.dumps(data, indent=1), encoding="utf-8")
         tmp.replace(self._file)
@@ -124,7 +127,7 @@ class Session:
                     "card_problems": self.card_problems(), "advisories": advice,
                     "chat": self.chat[-KEEP_CHAT:],
                     "run": dict(self.run_state), "runs": self.list_runs(), "current": self.current,
-                    "view": self.view, "windows": {"2": self.window("2")}, "llm": {"model": getattr(self.model, "model", None),
+                    "view": self.view, "windows": {"2": self.window("2")}, "diagram": self.diagram, "llm": {"model": getattr(self.model, "model", None),
                                                "ready": self._llm_ok},
                     "engine": self.engine.status() if self.engine._db is not None else
                     {"ready": None, "message": "Thermodynamic data load on the first run."}}
@@ -186,6 +189,11 @@ class Session:
         if re.fullmatch(r"\s*(new|reset|start over|new run|clear)\s*[.!]?\s*", text, re.I):
             self.reset_card()
             self.say("assistant", "Card reset to the defaults.")
+            self._publish()
+            return
+        request = diagrams.parse_request(text)
+        if request is not None:
+            self.say("assistant", self.set_diagram(request, publish=False))
             self._publish()
             return
         model = self.model if self.check_model() else None
@@ -263,6 +271,34 @@ class Session:
         self.say("assistant", reply)
         if run_now:
             self.start_run()
+
+    # ---- diagrams ---------------------------------------------------------------------------------
+    def set_diagram(self, request: dict, publish: bool = True) -> str:
+        """Open, change or close the diagram; returns a sentence for the chat."""
+        with self.lock:
+            if request.get("close"):
+                self.diagram = None
+                reply = "Diagram closed."
+            else:
+                self.diagram = diagrams.merge(self.diagram, request)
+                d = self.diagram
+                what = (f"an activity diagram for {d['cation']} with aluminium and silica"
+                        if d["kind"] == "activity" else
+                        f"{'an' if d['kind'] == 'eh_ph' else 'a'} {diagrams.KINDS[d['kind']]} diagram for "
+                        f"{d['element']}")
+                where = (f"at {d['t_c']:g} C" if d.get("t_c") is not None else
+                         "at the last point of the run" if self.current else "at 25 C")
+                reply = (f"Drawing {what} {where} in the results window"
+                         + (", with the run's path on it." if self.current else "."))
+            self._save()
+        if publish:
+            self._publish()
+        return reply
+
+    def diagram_data(self, run_id: str | None) -> dict | None:
+        if self.diagram is None:
+            return None
+        return diagrams.compute(self.engine.db, self.diagram, self.result(run_id) if run_id else None)
 
     # ---- card, view, runs -------------------------------------------------------------------------
     def edit_card(self, changes: dict) -> list[str]:
