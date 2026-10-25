@@ -23,7 +23,7 @@ const DASH = { static: "", flow_through: "7 5" };
 const UNIT_SCALE = { mol: 1, mmol: 1e3, umol: 1e6, mg: 1e3 };
 const UNIT_TEXT = { mol: "mol", mmol: "mmol", umol: "µmol", mg: "mg" };
 const TABS = [["species", "Species"], ["elements", "Elements"], ["minerals", "Mineral amounts"],
-  ["gas", "Gas phase"], ["saturation", "Saturation index"], ["property", "Properties"]];
+  ["gas", "Gas phase"], ["kinetic", "Rates"], ["saturation", "Saturation index"], ["property", "Properties"]];
 const PROPS = { pH: "pH", ionic_strength: "Ionic strength", water_kg: "Solvent mass", log_aw: "log water activity", log_fO2: "log fO2", Eh: "Eh (V)" };
 
 function pill(el, text, kind) { el.textContent = text; el.className = "pill " + (kind || ""); }
@@ -53,6 +53,7 @@ function labelOf(item) {
   if (item.group === "minerals") return cat.minerals[item.key].label;
   if (item.group === "gas") return (cat.gas && cat.gas[item.key] ? cat.gas[item.key].label : item.key);
   if (item.group === "saturation") return "SI " + cat.minerals[item.key].label;
+  if (item.group === "kinetic") return (cat.kinetic && cat.kinetic[item.key] ? cat.kinetic[item.key].label : item.key);
   return PROPS[item.key];
 }
 
@@ -86,6 +87,10 @@ function yLabel(items, view) {
   if (g === "species" || g === "elements") return `${UNIT_TEXT[view.unit]} per kg of water`;
   if (g === "minerals" || g === "gas") return `${UNIT_TEXT[view.unit]} per kg of original water`;
   if (g === "saturation") return "log Q/K (0 = at saturation)";
+  if (g === "kinetic") {
+    const c = result.catalog.kinetic && result.catalog.kinetic[items[0].key];
+    return items[0].key.startsWith("rate:") ? `${c ? c.unit : "mol/s"} per kg water (+ dissolves)` : "% of starting amount left";
+  }
   return PROPS[items[0].key];
 }
 
@@ -171,7 +176,8 @@ function draw() {
 
   const items = view.items;
   const g = items.length ? items[0].group : "";
-  const logOk = g === "species" || g === "elements" || g === "minerals" || g === "gas" || (g === "property" && items[0].key === "ionic_strength");
+  const logOk = g === "species" || g === "elements" || g === "minerals" || g === "gas" || (g === "property" && items[0].key === "ionic_strength")
+    || (g === "kinetic" && items[0].key.startsWith("rate:"));
   const useLog = view.log && logOk;
   document.querySelectorAll("#axis button").forEach((b) => {
     b.classList.toggle("on", (b.dataset.log === "1") === useLog);
@@ -217,6 +223,9 @@ function candidates() {
   if (tab === "gas") {
     return Object.keys(run.gas || {}).map((k) => ({ group: "gas", key: k, label: labelOf({ group: "gas", key: k }) }));
   }
+  if (tab === "kinetic") {
+    return Object.keys(run.kinetic || {}).map((k) => ({ group: "kinetic", key: k, label: labelOf({ group: "kinetic", key: k }) }));
+  }
   if (tab === "saturation") {
     return Object.keys(run.saturation).map((k) => ({ group: "saturation", key: k,
       label: result.catalog.minerals[k].label + (result.catalog.minerals[k].blocked ? " (blocked)" : "") }));
@@ -225,7 +234,10 @@ function candidates() {
 }
 
 function drawPicker() {
-  $("tabs").replaceChildren(...TABS.map(([id, label]) => h("button", {
+  const run0 = result.modes[Object.keys(result.modes)[0]];
+  const shown = TABS.filter(([id]) => id !== "kinetic" || Object.keys(run0.kinetic || {}).length);
+  if (!shown.some(([id]) => id === tab)) tab = "species";
+  $("tabs").replaceChildren(...shown.map(([id, label]) => h("button", {
     class: tab === id ? "on" : "", onclick: () => { tab = id; $("search").value = ""; drawPicker(); } }, label)));
   const q = $("search").value.trim().toLowerCase();
   const chosen = win().view.items;

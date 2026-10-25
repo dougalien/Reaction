@@ -13,15 +13,26 @@ As in EQ6, a mineral stays in the equilibrium system while it grows and is moved
 "physically removed system" at the point where it would start to redissolve: a growing solid
 never back-reacts, so the fluid follows exactly the path of continuous removal, and the amount
 reported for each mineral is what has formed since it was last removed.
+
+A reactant with a rate law is *kinetic*: reaction progress is then time in seconds, and the moles it
+has reacted follow d(reacted)/dt = rate(state), where the rate depends on the fluid it is in (see
+`kinetics.py`).  The amounts are advanced implicitly (backward Euler: the rate is taken at the end of
+each step), which is stable however fast a reaction is next to the step, so a mineral that reaches
+saturation within a step simply sits at saturation.  A kinetic mineral is never part of the
+equilibrium assemblage: it dissolves while undersaturated and grows on what is left of it while
+supersaturated, at its rate.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Callable, Sequence
 
-from scipy.optimize import minimize_scalar
+import numpy as np
+from scipy.optimize import brentq, minimize_scalar
 
 from .equilibrium import EquilibriumError, EquilibriumState, System, equilibrate
+from .kinetics import RateLaw
 from .network import WATER
 from .speciation import Speciation, SpeciationError
 
@@ -34,12 +45,26 @@ class Reactant:
     mineral build it with :func:`mineral_reactant` so the saturation conversion works.
     ``rates`` = (r1, r2, r3) gives the moles reacted as r1 xi + r2 xi^2/2 + r3 xi^3/6;
     the reactant stops when ``amount`` moles have reacted.
+
+    With a ``rate_law`` the reactant is kinetic instead: ``amount`` is how much of it there is at the
+    start, ``area`` its reactive surface in m2 then, and the surface shrinks or grows with the amount
+    left as (left / amount)^(2/3), as for a population of grains of one size.
     """
     name: str
     composition: dict[str, float]
     amount: float
     rates: tuple[float, float, float] = (1.0, 0.0, 0.0)
     mineral: str | None = None                # phase name if this reactant is a pure mineral
+    rate_law: RateLaw | None = None
+    area: float = 0.0
+
+    @property
+    def kinetic(self) -> bool:
+        return self.rate_law is not None
+
+    def surface(self, reacted: float) -> float:
+        left = self.amount - reacted
+        return self.area * (left / self.amount) ** (2.0 / 3.0) if left > 0 and self.amount > 0 else 0.0
 
     def reacted(self, xi: float) -> float:
         r1, r2, r3 = self.rates
@@ -55,6 +80,7 @@ class PathPoint:
     reacted: dict[str, float]                  # moles of each reactant destroyed
     transferred: tuple[str, ...] = ()          # mineral reactants now in the equilibrium system
     removed: dict[str, float] = field(default_factory=dict)   # flow-through: moles left behind so far
+    rates: dict[str, float] = field(default_factory=dict)     # kinetic reactants: units per second
 
     @property
     def speciation(self) -> Speciation:
@@ -87,9 +113,10 @@ def _composition_row(system: System, name: str) -> dict[str, float]:
 
 
 def mineral_reactant(system: System, name: str, amount: float, *,
-                     rates=(1.0, 0.0, 0.0)) -> Reactant:
+                     rates=(1.0, 0.0, 0.0), rate_law: RateLaw | None = None,
+                     area: float = 0.0) -> Reactant:
     """A pure mineral (or gas, or aqueous species) as a reactant, from its formation reaction."""
-    return Reactant(name, _composition_row(system, name), amount, rates, name)
+    return Reactant(name, _composition_row(system, name), amount, rates, name, rate_law, area)
 
 
 class ReactionPath:
@@ -103,7 +130,8 @@ class ReactionPath:
                  suppress_minerals: Sequence[str] = (),
                  flow_through: bool = False,
                  no_precipitation: bool = False,
-                 saturation_tol: float = 1e-6):
+                 saturation_tol: float = 1e-6,
+                 kinetic_tol: float = 0.03):
         self.system, self.bulk0 = system, dict(bulk)
         self.reactants = list(reactants)
         self._temperature = temperature if callable(temperature) else (lambda xi, t=temperature: t)
@@ -115,9 +143,14 @@ class ReactionPath:
         self.flow_through = flow_through
         self.no_precipitation = no_precipitation
         self.saturation_tol = saturation_tol
+        self.kinetic_tol = kinetic_tol
         self._transferred: set[str] = set()
         self._removed: dict[str, float] = {}
         self._stopped: dict[str, float] = {}      # flow-through: saturated reactants, moles reacted
+        self.kinetic = [r for r in self.reactants if r.kinetic]
+        # kinetic amounts reacted at the two ends of the current step; in between, a straight line
+        self._span: tuple[float, dict, float, dict] = (0.0, {}, 0.0, {})
+        self._dt_hint: float | None = None
 
     # ------------------------------------------------------------------------------------------
     def _solve(self, xi: float, guess: EquilibriumState | None) -> tuple[EquilibriumState, dict]:
@@ -127,8 +160,13 @@ class ReactionPath:
         model = self.system.model(t_c, p_bar)
         bulk = dict(self.bulk0)
         reacted = {}
+        kin = self._kinetic_reacted(xi)
         for r in self.reactants:
-            done = r.amount if r.name in self._transferred else self._stopped.get(r.name, r.reacted(xi))
+            if r.kinetic:
+                done = kin.get(r.name, 0.0)
+            else:
+                done = (r.amount if r.name in self._transferred
+                        else self._stopped.get(r.name, r.reacted(xi)))
             reacted[r.name] = done
             for comp, c in r.composition.items():
                 bulk[comp] = bulk.get(comp, 0.0) + c * done
@@ -136,10 +174,14 @@ class ReactionPath:
             for comp, c in _composition_row(self.system, name).items():
                 bulk[comp] = bulk.get(comp, 0.0) - c * moles
         reacting = {r.mineral for r in self.reactants
-                    if r.mineral and r.name not in self._transferred and r.name not in self._stopped}
+                    if r.mineral and (r.kinetic or (r.name not in self._transferred
+                                                    and r.name not in self._stopped))}
         excluded = reacting | self.suppress_minerals
+        # a kinetic mineral's other structural states (quartz,beta; albite,low) would grow in its place
+        stems = {r.mineral.split(",")[0] for r in self.kinetic if r.mineral}
         eligible = [n for n, k in zip(model.ph_names, model.ph_kind)
-                    if k.value == "mineral" and n not in excluded and not self.no_precipitation]
+                    if k.value == "mineral" and n not in excluded and not self.no_precipitation
+                    and n.split(",")[0] not in stems]
         present = list(guess.minerals) if guess is not None else []
         present += [n for n in self.initial_minerals if n not in present]
         converted = {r.mineral: r.amount for r in self.reactants
@@ -149,6 +191,192 @@ class ReactionPath:
                             buffers=self.buffers, minerals=[n for n in present if n in eligible],
                             amounts=converted, eligible=eligible, guess=guess)
         return state, reacted
+
+    # ---- kinetic reactants ------------------------------------------------------------------------
+    def _kinetic_reacted(self, xi: float) -> dict[str, float]:
+        xa, na, xb, nb = self._span
+        if not nb or xb <= xa:
+            return nb or na
+        f = min(max((xi - xa) / (xb - xa), 0.0), 1.0)
+        return {k: na.get(k, 0.0) + f * (v - na.get(k, 0.0)) for k, v in nb.items()}
+
+    def _kinetic_rates(self, state: EquilibriumState, reacted: dict[str, float]) -> dict[str, float]:
+        sat = state.speciation.saturation
+        return {r.name: r.rate_law.rate(state.speciation, r.surface(reacted.get(r.name, 0.0)),
+                                        sat.get(r.mineral) if r.mineral else None)
+                for r in self.kinetic}
+
+    def _implicit(self, xi0: float, st0: EquilibriumState, n0: dict[str, float],
+                  xi1: float) -> tuple[dict[str, float], EquilibriumState, dict[str, float]]:
+        """Amounts reacted at xi1 from n = n0 + dt * rate(state at xi1 with n): one root in each amount
+        (bracketed: the rate falls as a mineral dissolves toward saturation, and its surface shrinks),
+        swept over the kinetic reactants in turn until they agree.  Also returns the explicit step
+        (rate taken at the start), for the error estimate."""
+        dt = xi1 - xi0
+        n = dict(n0)
+        last = [st0]
+
+        def state_with(trial):
+            self._span = (xi0, n0, xi1, trial)
+            st = self._solve(xi1, last[0])[0]
+            last[0] = st
+            return st
+
+        def residual(r, value):
+            trial = {**n, r.name: value}
+            return value - n0[r.name] - dt * self._kinetic_rates(state_with(trial), trial)[r.name]
+
+        rates0 = self._kinetic_rates(st0, n0)
+        explicit = {name: n0[name] + dt * rate for name, rate in rates0.items()}
+        found = self._newton(n0, explicit, state_with, dt)
+        if found is not None:
+            return found, last[0], explicit
+        sweeps = 1 if len(self.kinetic) == 1 else 8
+        for sweep in range(sweeps):
+            moved = False
+            for r in self.kinetic:
+                # minus the step at the rate where this one starts and the others are now
+                untouched = all(n[k] == n0[k] for k in n if k != r.name)
+                f0 = (n0[r.name] - explicit[r.name]) if untouched else residual(r, n0[r.name])
+                scale = max(abs(r.amount), abs(n0[r.name]), 1e-300)
+                if abs(f0) <= 1e-14 * scale:
+                    new = n0[r.name]
+                else:
+                    far = min(n0[r.name] - f0, r.amount)    # the explicit step; never more than there is
+                    f_far = None
+                    for _ in range(60):                     # a step too long to solve: shorten it
+                        try:
+                            f_far = residual(r, far)
+                            break
+                        except SpeciationError:
+                            far = n0[r.name] + 0.5 * (far - n0[r.name])
+                    if f_far is None:
+                        raise SpeciationError(f"{r.name}: no solution for its kinetic step")
+                    near, f_near = n0[r.name], f0
+                    for _ in range(12):                     # the rate grew along the step: go further
+                        if f_far * f0 <= 0 or far >= r.amount:
+                            break
+                        try:
+                            further = min(n0[r.name] + 2.0 * (far - n0[r.name]), r.amount)
+                            f_further = residual(r, further)
+                        except SpeciationError:
+                            break
+                        near, f_near, far, f_far = far, f_far, further, f_further
+                    if f_far * f_near > 0:
+                        new = far
+                    else:
+                        lo, hi = sorted((near, far))
+                        new = brentq(lambda v, r=r: residual(r, v), lo, hi,
+                                     xtol=1e-5 * (hi - lo) + 1e-15 * scale, rtol=1e-12, maxiter=60)
+                change = abs(new - n0[r.name])
+                moved = moved or abs(new - n[r.name]) > 1e-3 * change + 1e-14 * scale
+                n[r.name] = new
+            if not moved:
+                break
+            if len(self.kinetic) > 1:                       # close enough now for Newton to finish
+                found = self._newton(n0, explicit, state_with, dt, start=n)
+                if found is not None:
+                    return found, last[0], explicit
+        return n, state_with(n), explicit
+
+    def _newton(self, n0: dict[str, float], explicit: dict[str, float], state_with,
+                dt: float, start: dict[str, float] | None = None) -> dict[str, float] | None:
+        """The implicit step by Newton's method on all kinetic amounts at once (Jacobian by
+        differences), from ``start`` (no change by default); a few solves when the step is smooth, as
+        it is once a fast reaction sits at saturation.  None when it does not settle, for the slower,
+        safer sweep."""
+        names = [r.name for r in self.kinetic]
+        amount = np.array([r.amount for r in self.kinetic])
+        base = np.array([n0[k] for k in names])
+        guess_step = np.minimum(np.abs(np.array([explicit[k] for k in names]) - base), np.abs(amount))
+
+        def resid(x):
+            trial = dict(zip(names, x))
+            rates = self._kinetic_rates(state_with(trial), trial)
+            return x - base - dt * np.array([rates[k] for k in names])
+
+        def tol(x):
+            return 1e-3 * np.maximum(np.abs(x - base), 1e-6 * np.abs(x)) + 1e-14 * np.abs(amount)
+
+        x = base.copy() if start is None else np.array([start[k] for k in names])
+        try:
+            f = resid(x)
+            for _ in range(8):
+                if np.all(np.abs(f) <= tol(x)):
+                    return dict(zip(names, x))
+                h = 1e-4 * np.maximum(np.maximum(np.abs(x - base), guess_step), 1e-8 * np.abs(amount))
+                jac = np.empty((len(names), len(names)))
+                for j in range(len(names)):
+                    xp = x.copy()
+                    xp[j] += h[j] if xp[j] + h[j] <= amount[j] else -h[j]
+                    jac[:, j] = (resid(xp) - f) / (xp[j] - x[j])
+                step = np.linalg.solve(jac, -f)
+                for _ in range(5):                           # halve a step that makes things worse
+                    xn = np.minimum(x + step, amount)
+                    try:
+                        fn = resid(xn)
+                    except SpeciationError:
+                        step *= 0.5
+                        continue
+                    if np.max(np.abs(fn) / tol(xn)) <= max(np.max(np.abs(f) / tol(x)), 1.0):
+                        break
+                    step *= 0.5
+                else:
+                    return None
+                x, f = xn, fn
+        except (SpeciationError, np.linalg.LinAlgError):
+            return None
+        return None
+
+    def _step_error(self, n0: dict[str, float], n1: dict[str, float], explicit: dict[str, float],
+                    st1: EquilibriumState) -> float:
+        """The step's error over what is allowed (above 1: too long).  Half the gap between the implicit
+        and explicit steps is the error; it may be ``kinetic_tol`` of what reacted in the step plus a
+        third of that of all that has reacted so far.  Next to saturation the implicit step is right
+        whatever its length, so a reaction there does not count."""
+        sat = st1.speciation.saturation
+        worst = 0.0
+        for r in self.kinetic:
+            if r.mineral and abs(sat.get(r.mineral, -99.0)) < 0.02:
+                continue
+            allowed = self.kinetic_tol * (abs(n1[r.name] - n0[r.name]) + 0.3 * abs(n1[r.name]))
+            worst = max(worst, 0.5 * abs(n1[r.name] - explicit[r.name]) / (allowed + 1e-14 * r.amount))
+        return worst
+
+    def _kinetic_step(self, xi0: float, st0: EquilibriumState, n0: dict[str, float],
+                      xi1: float) -> tuple[EquilibriumState, dict, dict[str, float]]:
+        """State and kinetic amounts at xi1, in as many implicit steps as the error allows: a step is
+        halved when its error is too large and the next one doubled when it is well inside, starting
+        from the last step that worked (or, the first time, from a ten-thousandth of the way, shorter
+        if a reactant would change by more than a percent at its starting rate in that time)."""
+        span = xi1 - xi0
+        h = self._dt_hint
+        if h is None:
+            rates0 = self._kinetic_rates(st0, n0)
+            h = min([0.01 * abs(r.amount) / abs(rates0[r.name]) for r in self.kinetic
+                     if rates0[r.name] != 0.0] + [1e-4 * span])
+        x, st, n = xi0, st0, n0
+        reacted: dict = {}
+        while x < xi1 - 1e-12 * span:
+            h = min(h, xi1 - x)
+            last_try = h <= 1e-9 * span
+            try:
+                n1, st1, explicit = self._implicit(x, st, n, x + h)
+                err = 0.0 if last_try else self._step_error(n, n1, explicit, st1)
+            except SpeciationError:
+                if last_try:
+                    raise
+                n1, err = None, math.inf
+            if err > 1.0:
+                h *= 0.5
+                continue
+            self._span = (x, n, x + h, n1)
+            st, reacted = self._advance(x, st, x + h)
+            x, n = x + h, n1
+            if err < 0.25:
+                h *= 2.0
+        self._dt_hint = h
+        return st, reacted, n
 
     def _peak(self, mineral: str, xi0: float, st0: EquilibriumState, xi1: float) -> float:
         """Reaction progress in [xi0, xi1] where the amount of ``mineral`` is largest (Brent's method:
@@ -176,7 +404,7 @@ class ReactionPath:
     def _saturated(self, state: EquilibriumState) -> list[str]:
         sat = state.speciation.saturation
         return [r.name for r in self.reactants
-                if r.mineral and r.name not in self._transferred and r.name not in self._stopped
+                if r.mineral and not r.kinetic and r.name not in self._transferred and r.name not in self._stopped
                 and sat.get(r.mineral, -1e9) > -self.saturation_tol]
 
     def _advance(self, xi0: float | None, st0: EquilibriumState | None, xi1: float,
@@ -247,13 +475,19 @@ class ReactionPath:
         Without ``on_failure`` a point where no equilibrium is found raises.  With it, the failure
         is reported there, that point is None and the path goes on from the last solved point."""
         self._transferred, self._removed, self._stopped = set(), {}, {}
+        n_kin = {r.name: 0.0 for r in self.kinetic}
+        self._span = (0.0, n_kin, 0.0, n_kin)
+        self._dt_hint = None
         points: list[PathPoint | None] = []
         xi_prev, state = None, None
         for i, xi in enumerate(xis):
             if progress:
                 progress(i, len(xis))
             try:
-                new, reacted = self._advance(xi_prev, state, xi)
+                if self.kinetic and state is not None:
+                    new, reacted, n_kin = self._kinetic_step(xi_prev, state, n_kin, xi)
+                else:
+                    new, reacted = self._advance(xi_prev, state, xi)
             except SpeciationError as exc:
                 if on_failure is None:
                     raise
@@ -268,7 +502,7 @@ class ReactionPath:
             state, xi_prev = new, xi
             points.append(PathPoint(xi, self._temperature(xi), state.speciation.pressure_bar,
                                     state, reacted, tuple(sorted(self._transferred)),
-                                    dict(self._removed)))
+                                    dict(self._removed), self._kinetic_rates(state, n_kin)))
         if progress:
             progress(len(xis), len(xis))
         return points

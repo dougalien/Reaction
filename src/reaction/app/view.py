@@ -2,7 +2,8 @@
 
 The view is shared state: the chat and the clicks in the results window both go through
 ``apply_patch``, so they behave the same.  A plotted item is ``{"group": ..., "key": ...}`` where
-the group is one of species, elements, minerals, gas, saturation or property.  Items can share a y axis
+the group is one of species, elements, minerals, gas, saturation, kinetic (rates and what is left of
+kinetic reactants) or property.  Items can share a y axis
 only if they have the same unit, so adding an item of another unit replaces the current ones.
 """
 from __future__ import annotations
@@ -32,6 +33,8 @@ def unit_group(item: dict) -> str:
         return "mineral"
     if g == "saturation":
         return "si"
+    if g == "kinetic":
+        return f"kinetic:{item['key'].split(':')[0]}"
     return f"property:{item['key']}"
 
 
@@ -133,6 +136,15 @@ def resolve_item(text: str, result: dict, prefer: str | None = None) -> dict | N
     species_index = build_index({k: v["label"] for k, v in cat["species"].items()})
     mineral_index = build_index({k: v["label"] for k, v in cat["minerals"].items()})
     run = next(iter(result["modes"].values()))
+    rate = re.fullmatch(r"(?:(?:dissolution|reaction)\s+)?rate(?:s)?\s+of\s+(.+)|(.+?)\s+(?:dissolution\s+)?rate", low_clean)
+    left = re.fullmatch(r"(?:how much\s+)?(.+?)\s+(?:left|remaining)", low_clean)
+    if (rate or left) and run0.get("kinetic"):
+        what, stem = ("rate", rate.group(1) or rate.group(2)) if rate else ("left", left.group(1))
+        for k in run0["kinetic"]:
+            kind, name = k.split(":", 1)
+            label = cat.get("kinetic", {}).get(k, {}).get("label", "").lower()
+            if kind == what and (stem == name.lower() or label.startswith(stem)):
+                return {"group": "kinetic", "key": k}
     hit = resolve(low_clean or t, mineral_index)
     if hit and (sat or hit not in species_index.values()):
         if sat and hit in run["saturation"]:

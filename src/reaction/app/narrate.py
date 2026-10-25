@@ -65,11 +65,17 @@ def _added(result: dict, i: int) -> str:
     return f"{axis['values'][i]:.3g} {unit} added"
 
 
+def _time(result: dict, i: int) -> str:
+    axis = result["axes"]["time"]
+    value, unit = axis["values"][i], axis["unit"]
+    return f"{value:.3g} {unit[:-1] if value == 1 else unit}"
+
+
 def point_text(result: dict, i: int) -> str:
     """Where on the path point ``i`` is, mentioning only what varies."""
     temps, pressures, varies = _axes(result)
-    if "reacted" in varies or "mixed" in varies:
-        where = [_added(result, i)]
+    if "reacted" in varies or "mixed" in varies or "time" in varies:
+        where = [_time(result, i) if "time" in varies else _added(result, i)]
         if "temperature_c" in varies:
             where.append(f"{temps[i]:.0f} °C")
         if "pressure_bar" in varies:
@@ -86,6 +92,8 @@ def _when(result: dict, i: int) -> str:
     temps, pressures, varies = _axes(result)
     if i == 0:
         return "from the start"
+    if "time" in varies:
+        return f"after about {point_text(result, i)}"
     if "reacted" in varies or "mixed" in varies:
         return f"from about {point_text(result, i)}"
     if "temperature_c" in varies and "pressure_bar" in varies:
@@ -97,8 +105,9 @@ def _when(result: dict, i: int) -> str:
 
 def _mineral_clauses(result: dict, run: dict, blocked: set[str]) -> list[str]:
     found = []
+    kinetic = {k.split(":", 1)[1] for k in run.get("kinetic", {})}
     for name, series in run["minerals"].items():
-        if name.lower() in blocked:
+        if name.lower() in blocked or name in kinetic:          # reactants, told of separately
             continue
         i = _first(series, lambda v: v > APPEARS)
         if i is None:
@@ -113,6 +122,32 @@ def _mineral_clauses(result: dict, run: dict, blocked: set[str]) -> list[str]:
             clause += f" (up to {_amount(peak)} per kg of original water, gone by the end)"
         found.append((i, clause))
     return [c for _, c in sorted(found)]
+
+
+def _kinetic_clause(result: dict, run: dict) -> str:
+    """How much of each kinetic reactant reacted, and when a mineral reached saturation."""
+    parts = []
+    names = result.get("catalog", {}).get("kinetic", {})
+    for key, series in run.get("kinetic", {}).items():
+        if not key.startswith("left:"):
+            continue
+        name = key.split(":", 1)[1]
+        label = (names.get(key) or {}).get("label", name).removesuffix(" left")
+        end = series[_last_valid(series)]
+        change = 100.0 - end
+        if abs(change) < 0.005:
+            text = f"the {label.lower()} barely reacted"
+        elif change > 0:
+            text = f"{change:.2g}% of the {label.lower()} dissolved"
+        else:
+            text = f"the {label.lower()} grew by {-change:.2g}%"
+        si = run["saturation"].get(name)
+        if si:
+            i = _first(si[1:], lambda v: abs(v) < 0.02)
+            if i is not None:
+                text += f" (at saturation by {point_text(result, i + 1)})"
+        parts.append(text)
+    return ("At the measured rates, " + "; ".join(parts) + ".") if parts else ""
 
 
 def _gas_clause(result: dict, run: dict, mode: str) -> str:
@@ -160,10 +195,13 @@ def story(result: dict) -> list[str]:
             if kept is not None and kept < 0.95:
                 lost.append(f"{(1 - kept) * 100:.0f}% of the {ELEMENT_WORDS[el]}")
         sentence = f"{labels[key]}: "
+        kinetic = _kinetic_clause(result, run)
+        if kinetic:
+            sentence += kinetic + " "
         if clauses:
-            sentence += "minerals form in this order: " + "; ".join(clauses) + ". "
+            sentence += ("Minerals" if kinetic else "minerals") + " form in this order: " + "; ".join(clauses) + ". "
         else:
-            sentence += "no minerals form. "
+            sentence += ("No" if kinetic else "no") + " minerals form. "
         if lost:
             sentence += "By the end the fluid has lost " + ", ".join(lost) + ". "
         gas = _gas_clause(result, run, key)

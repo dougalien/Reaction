@@ -82,9 +82,15 @@
       </div>
       <div id="mix-hint" class="hint" style="margin-top:4px"></div>
       <div style="margin-top:10px">
-        <div class="small muted" style="margin-bottom:4px">Reactants <span class="hint">(added steadily, all of it by the last step, per kg of water)</span></div>
+        <div class="small muted" style="margin-bottom:4px">Reactants <span class="hint" id="reactant-hint">(added steadily, all of it by the last step, per kg of water)</span></div>
         <div id="reactants" class="row" style="gap:5px"></div>
         <input id="add-reactant" type="text" placeholder="e.g. 10 g albite or 0.05 mol HCl, press Enter" style="margin-top:6px" aria-label="Add a reactant">
+        <div class="grid2" style="margin-top:8px">
+          <label class="f" title="Minerals and basalt glass dissolve or grow at measured rates (Palandri and Kharaka 2004; Gislason and Oelkers 2003) instead of all at once">How they react<select id="f-kinetics"><option value="false">All of it, steadily</option><option value="true">At measured rates</option></select></label>
+          <label class="f kin" title="Reactive surface per gram of each reactant; 100 cm2/g is roughly 0.1 mm grains">Surface area (cm&sup2;/g)<input id="f-surface_area_cm2_per_g" type="number" min="0" step="any"></label>
+          <label class="f kin">Run for<input id="f-duration" type="number" min="0" step="any"></label>
+          <label class="f kin">Time unit<select id="f-duration_unit"><option value="seconds">seconds</option><option value="minutes">minutes</option><option value="hours">hours</option><option value="days">days</option><option value="years">years</option></select></label>
+        </div>
       </div>
       <div style="margin-top:10px">
         <div class="small muted" style="margin-bottom:4px">Blocked minerals <span class="hint">(supersaturated but too slow to form)</span></div>

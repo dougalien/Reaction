@@ -15,6 +15,13 @@ function render(s) {
   $("f-activity_model").value = c.activity_model;
   $("f-gas_phase").value = c.gas_phase === false ? "false" : "true";
   $("f-methane_sulfate").value = c.methane_sulfate || "apart";
+  $("f-kinetics").value = c.kinetics ? "true" : "false";
+  $("f-duration_unit").value = c.duration_unit || "years";
+  for (const k of ["duration", "surface_area_cm2_per_g"]) setIfIdle($("f-" + k), c[k]);
+  document.querySelectorAll(".kin").forEach((el) => { el.style.display = c.kinetics ? "" : "none"; });
+  $("reactant-hint").textContent = c.kinetics
+    ? "(what is there at the start, per kg of water; minerals without a measured rate are added steadily)"
+    : "(added steadily, all of it by the last step, per kg of water)";
   for (const k of ["p_start_bar", "p_end_bar", "t_start_c", "t_end_c", "steps"]) setIfIdle($("f-" + k), c[k]);
   document.querySelectorAll("#modeseg button").forEach((b) => b.classList.toggle("on", b.dataset.mode === c.mode));
 
@@ -146,6 +153,10 @@ for (const k of ["analysis", "units", "ph", "fluid_t_c", "charge_balance", "redo
 $("f-activity_model").addEventListener("change", (ev) => edit("activity_model", ev.target.value));
 $("f-gas_phase").addEventListener("change", (ev) => edit("gas_phase", ev.target.value === "true"));
 $("f-methane_sulfate").addEventListener("change", (ev) => edit("methane_sulfate", ev.target.value));
+$("f-kinetics").addEventListener("change", (ev) => edit("kinetics", ev.target.value === "true"));
+for (const k of ["duration", "duration_unit", "surface_area_cm2_per_g"]) {
+  $("f-" + k).addEventListener("change", (ev) => edit(k, ev.target.value));
+}
 document.querySelectorAll("#modeseg button").forEach((b) => b.addEventListener("click", () => edit("mode", b.dataset.mode)));
 $("add-blocked").addEventListener("keydown", (ev) => {
   if (ev.key !== "Enter") return;

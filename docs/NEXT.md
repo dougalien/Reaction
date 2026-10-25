@@ -55,7 +55,23 @@ component, CH4(g) is tied to it); the card's `methane_sulfate` = react lets them
 this default). Gases are reactants ("2 mol CO2 gas", "methane"). CO2 solubility is within 10% of Duan and
 Sun (2003) to 200 bar; at 400 bar the aqueous side runs about 20% low (a Duan-type model is the next step).
 
-297 tests pass with the data folder present. The data folder needs `OBIGT/Berman/` (run
+P5b (phase separation, NaCl-H2O after Driesner and Heinrich 2007) is on hold: the coefficient tables are in
+the paywalled paper and neither Douglas nor I could get them (2026-10-25). Look for an open implementation
+with a usable license (xThermal, for example) before writing it.
+
+P6 (kinetics) was done on 2026-10-25: `kinetics.py` (rate laws r = A sum k(T) prod a^n (1 - Omega), the
+Palandri and Kharaka 2004 table in `data/rates_palandri_kharaka_2004.tsv`, 60-odd minerals mapped to the
+OBIGT names; basalt glass after Gislason and Oelkers 2003), kinetic reactants in `path.py` (reaction progress
+is time in seconds; amounts advanced by backward Euler with an error test against the explicit step,
+Newton on all kinetic amounts with a bracketed sweep as the fallback; a kinetic mineral grows on its seed
+when supersaturated; its other structural states, quartz,beta or albite,low, cannot precipitate in its place).
+The card has `kinetics`, `duration`, `duration_unit` and `surface_area_cm2_per_g` (surface shrinks as
+(left/start)^(2/3)); reactants without a rate are added steadily over the run. Results have a Rates tab
+(rate and % left of each kinetic reactant). Judgment calls: kyanite's acid activation energy is printed
+-53.9 in the PHREEQC transcription, +53.9 is used; the PK base mechanism exponent is applied to a(H+).
+Next: Hermanska et al. (2022, 2023) rates as an alternative set, and precipitation rates and nucleation.
+
+308 tests pass with the data folder present. The data folder needs `OBIGT/Berman/` (run
 `scripts/fetch_references.ps1` again); without it the old minerals are used and every run says so.
 
 ## First things to do, in this order
@@ -82,7 +98,7 @@ Sun (2003) to 200 bar; at 400 bar the aqueous side runs about 20% low (a Duan-ty
      reactant; a water/rock axis; redox; many more minerals. It needs the solver hardened first.
    - *Solver core*: keep extending the Newton plus active-set approach, or move to Gibbs-energy minimization
      (cleaner for phase appearance and solid solutions). Decide before the basalt work.
-5. Later: kinetics (aragonite to calcite, rate laws with sources, Palandri and Kharaka 2004 as the start),
+5. Later: ~~kinetics~~ (done in P6; aragonite to calcite needs aragonite's rate, not in the PK table),
    solid solutions, isotopes (O, H, C, S, Sr as a layer on the solved speciation).
 
 ## Known technical gaps

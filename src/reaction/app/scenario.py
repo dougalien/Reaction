@@ -29,6 +29,11 @@ REACTANT_UNITS = {"g": ("g", 1.0), "gram": ("g", 1.0), "grams": ("g", 1.0), "mg"
                   "kg": ("g", 1e3), "mol": ("mol", 1.0), "mole": ("mol", 1.0), "moles": ("mol", 1.0),
                   "mmol": ("mol", 1e-3), "umol": ("mol", 1e-6)}
 MAX_REACTANTS = 6
+TIME_UNITS = {"seconds": 1.0, "minutes": 60.0, "hours": 3600.0, "days": 86400.0,
+              "years": 365.25 * 86400.0}
+TIME_WORDS = {"s": "seconds", "sec": "seconds", "second": "seconds", "min": "minutes",
+              "minute": "minutes", "h": "hours", "hr": "hours", "hour": "hours", "d": "days",
+              "day": "days", "y": "years", "yr": "years", "year": "years", "a": "years"}
 
 T_MIN, T_MAX = 0.0, 600.0            # degrees C
 P_MIN, P_MAX = 1.0, 5000.0           # bar (the range the HKF equations are calibrated for)
@@ -79,6 +84,13 @@ class Scenario:
     # up to the pressure; methane and sulfate are held apart (no reaction between them) unless asked
     gas_phase: bool = True
     methane_sulfate: str = "apart"
+    # kinetics: the run lasts ``duration`` (in ``duration_unit``) and minerals with measured rates
+    # dissolve or grow at those rates instead of all at once; the reactant amounts are then what is
+    # there at the start, with ``surface_area_cm2_per_g`` of reactive surface per gram
+    kinetics: bool = False
+    duration: float = 1.0
+    duration_unit: str = "years"
+    surface_area_cm2_per_g: float = 100.0
 
     # ---- editing --------------------------------------------------------------------------
     def to_dict(self) -> dict[str, Any]:
@@ -190,6 +202,10 @@ class Scenario:
         return resolve_redox(self.fluid_spec(), self.fluid_analysis())
 
     @property
+    def duration_s(self) -> float:
+        return self.duration * TIME_UNITS.get(self.duration_unit, 1.0)
+
+    @property
     def hold_methane_apart(self) -> bool:
         return self.methane_sulfate == "apart"
 
@@ -224,7 +240,7 @@ class Scenario:
             if self.mix_t_c is not None and not (T_MIN <= self.mix_t_c <= T_MAX):
                 out.append(f"the second fluid's temperature must be between {T_MIN:g} and {T_MAX:g} C")
         if ranges_ok:
-            if not self.varies and not self.reactants and not self.mixing:
+            if not self.varies and not self.reactants and not self.mixing and not self.kinetics:
                 out.append("nothing changes along this path: give different start and end values "
                            "for temperature or pressure")
             boil = self._first_boiling_point()
@@ -232,6 +248,17 @@ class Scenario:
                 t, p, psat = boil
                 out.append(f"at {t:.0f} C water boils below {psat:.0f} bar but the path has {p:.0f} bar "
                            f"there; keep the pressure at or above {math.ceil(psat)} bar")
+        if self.kinetics:
+            if not self.reactants:
+                out.append("kinetics needs a reactant: give the minerals or rock the fluid reacts with")
+            if not (self.duration > 0 and math.isfinite(self.duration)):
+                out.append("the duration must be positive")
+            elif self.duration_s > 1e6 * TIME_UNITS["years"]:
+                out.append("the duration must be at most a million years")
+            if self.duration_unit not in TIME_UNITS:
+                out.append(f"the duration unit must be one of {', '.join(TIME_UNITS)}")
+            if not (0.0 < self.surface_area_cm2_per_g <= 1e7):
+                out.append("the surface area must be above 0 and at most 10,000,000 cm2 per g")
         if self.mode not in MODES:
             out.append(f"mode must be one of {', '.join(MODES)}")
         if self.activity_model not in ACTIVITY_MODELS:
@@ -280,7 +307,9 @@ class Scenario:
         text = self._describe_path()
         if self.reactants:
             added = ", ".join(f"{r['amount']:g} {r['unit']} {r['name']}" for r in self.reactants)
-            text = text.replace(f" ({self._how()}", f", adding {added} ({self._how()}")
+            verb = (f"reacting with {added} for {self.duration:g} {self.duration_unit} at measured rates"
+                    if self.kinetics else f"adding {added}")
+            text = text.replace(f" ({self._how()}", f", {verb} ({self._how()}")
         if self.mixing:
             other = fluid_label(self.mix_with).lower()
             hot = f" at {self.mix_t_c:g} °C" if self.mix_t_c is not None else ""
@@ -374,8 +403,15 @@ def _coerce(key: str, value: Any) -> Any:
         if value is None or (isinstance(value, str) and not value.strip()):
             return None
         return float(value)
-    if key in ("t_start_c", "t_end_c", "p_start_bar", "p_end_bar", "fluid_t_c", "mix_ratio"):
+    if key in ("t_start_c", "t_end_c", "p_start_bar", "p_end_bar", "fluid_t_c", "mix_ratio", "duration",
+               "surface_area_cm2_per_g"):
         return float(value)
+    if key == "duration_unit":
+        low = str(value).strip().lower()
+        low = TIME_WORDS.get(low, TIME_WORDS.get(low.rstrip("s"), low))
+        if low not in TIME_UNITS:
+            raise ValueError(f"'{value}' is not a time unit (use {', '.join(TIME_UNITS)})")
+        return low
     if key == "mix_t_c":
         if value is None or (isinstance(value, str) and not value.strip()):
             return None
@@ -412,7 +448,7 @@ def _coerce(key: str, value: Any) -> Any:
         if not isinstance(value, (list, tuple)):
             raise TypeError("expected a list of mineral names")
         return [str(v).strip().lower() for v in value if str(v).strip()]
-    if key == "gas_phase":
+    if key in ("gas_phase", "kinetics"):
         if isinstance(value, str):
             low = value.strip().lower()
             if low in ("true", "yes", "on", "1", "allowed", "allow"):
@@ -505,5 +541,12 @@ FIELD_HELP = {
     "methane_sulfate": "apart (default): methane and sulfate do not react with each other; react: "
                        "they reach equilibrium (thermochemical sulfate reduction)",
     "reactants": "minerals or species added steadily along the path, per kg of water, e.g. "
-                 "[{\"name\": \"albite\", \"amount\": 10, \"unit\": \"g\"}]",
+                 "[{\"name\": \"albite\", \"amount\": 10, \"unit\": \"g\"}]; with kinetics, "
+                 "what is there at the start",
+    "kinetics": "false (default): reactants are added steadily and react completely; true: minerals and "
+                "basalt glass react at measured rates over the duration (time becomes the axis)",
+    "duration": "how long a kinetic run lasts (number, in duration_unit)",
+    "duration_unit": "seconds, minutes, hours, days or years",
+    "surface_area_cm2_per_g": "reactive surface of the reactants, cm2 per gram (default 100, about "
+                              "0.1 mm grains)",
 }

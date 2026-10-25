@@ -235,6 +235,9 @@ def _fluid_key(words: str) -> str | None:
     return "seawater"
 
 
+_MORE_REACTANT = re.compile(
+    r"\s*(?:,\s*(?:and\s+)?|\s+and\s+|\s*\+\s*)(\d*\.?\d+)\s*(g|grams?|mg|kg|mol|moles?|mmol)\s+(?:of\s+)?"
+    r"([A-Za-z][\w()+\-]*(?:,(?:ordered|disordered|low|high|alpha|beta|maximum)|\s+glass|\s+gas)?)", re.I)
 _REACTANT = re.compile(
     r"\b(?:react(?:ing)?|add(?:ing)?|dissolv(?:e|ing)|titrat(?:e|ing)(?:\s+\w+)?\s+with|with)\s+"
     r"(?:up\s+to\s+)?(\d*\.?\d+)\s*(g|grams?|mg|kg|mol|moles?|mmol)\s+(?:of\s+)?"
@@ -337,8 +340,15 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
         ch["ph"] = pasted.ph
     ch.update(_redox(low))
     ch.update(_gas_options(low))
-    found = [f for f in _REACTANT.findall(text)
-             if not re.fullmatch(_FLUID_WORDS, f[2].lower())]       # "with 10 kg of seawater" is mixing
+    ch.update(_kinetic_options(low))
+    found = []
+    for m in _REACTANT.finditer(text):                 # "with 10 g albite, 1 g calcite and 5 g quartz"
+        found.append(m.groups())
+        rest = text[m.end():]
+        while (more := _MORE_REACTANT.match(rest)):
+            found.append(more.groups())
+            rest = rest[more.end():]
+    found = [f for f in found if not re.fullmatch(_FLUID_WORDS, f[2].lower())]   # "with 10 kg of seawater" is mixing
     if found:
         ch["reactants"] = "; ".join(f"{amount} {unit} {name}" for amount, unit, name in found)
         held = re.search(rf"\bat\s*{_NUM}{_DEG}", low)
@@ -386,9 +396,18 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
                         f"{ch['mix_with'].replace('_', ' ')} per kg"
                         + (f" at {ch['mix_t_c']:g} C" if "mix_t_c" in ch else ""))
         if ch.get("reactants"):
-            bits.append("adding " + ch["reactants"].replace(";", ","))
+            verb = "reacting with " if ch.get("kinetics", card.kinetics) else "adding "
+            bits.append(verb + ch["reactants"].replace(";", ","))
         elif "reactants" in ch:
             bits.append("no reactants")
+        if ch.get("kinetics") and "duration" in ch:
+            bits.append(f"measured rates over {ch['duration']:g} {ch['duration_unit']}")
+        elif ch.get("kinetics"):
+            bits.append("measured rates")
+        elif "kinetics" in ch:
+            bits.append("no kinetics (reactants react completely)")
+        if "surface_area_cm2_per_g" in ch:
+            bits.append(f"surface area {ch['surface_area_cm2_per_g']:g} cm2/g")
         if "ph" in ch and ch["ph"] is not None and "analysis" not in ch:
             bits.append(f"pH {ch['ph']:g}")
         if "redox" in ch:
@@ -400,6 +419,33 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
             out.reply = "Set " + ", ".join(bits) + "." if bits else ""
         elif bits:
             out.reply += " Set " + ", ".join(bits) + "."
+    return out
+
+
+_TIME = re.compile(r"\b(?:for|over|during|after|lasting)\s+(?:a\s+period\s+of\s+)?(\d*\.?\d+(?:e\d+)?)\s*"
+                   r"(seconds?|secs?|minutes?|mins?|hours?|hrs?|days?|weeks?|months?|years?|yrs?)\b")
+_TIME_SCALE = {"week": ("days", 7.0), "month": ("years", 1.0 / 12.0)}
+
+
+def _kinetic_options(low: str) -> dict:
+    """Kinetics from "for 10 years", "at measured rates" or "kinetically"; off with "instantly" or
+    "to equilibrium"; and the reactive surface area."""
+    out: dict = {}
+    m = _TIME.search(low)
+    if m:
+        unit = re.sub(r"s$", "", m.group(2))
+        unit = {"sec": "second", "min": "minute", "hr": "hour", "yr": "year"}.get(unit, unit)
+        name, k = _TIME_SCALE.get(unit, (unit + "s", 1.0))
+        out["kinetics"] = True
+        out["duration"] = float(m.group(1)) * k
+        out["duration_unit"] = name
+    if re.search(r"kinetic(s|ally)?|measured rates?|rate laws?", low):
+        out["kinetics"] = not re.search(r"(no|without|turn off|switch off)\s+kinetics", low)
+    elif re.search(r"(instantly|instantaneous(ly)?|all at once)", low):
+        out["kinetics"] = False
+    m = re.search(r"(?:surface area|area)\s*(?:of\s+)?(?:to\s+)?(\d*\.?\d+)\s*(cm2|cm\^2|m2|m\^2)\s*(?:/|per)\s*g", low)
+    if m:
+        out["surface_area_cm2_per_g"] = float(m.group(1)) * (1e4 if m.group(2).startswith("m") else 1.0)
     return out
 
 

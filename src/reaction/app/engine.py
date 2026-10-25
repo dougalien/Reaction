@@ -21,6 +21,7 @@ from typing import Callable
 from ..database import load_data0
 from ..database.model import Kind
 from ..equilibrium import System
+from ..kinetics import basalt_glass, rate_law
 from ..network import PROTON, WATER
 from ..path import PathPoint, ReactionPath, Reactant, mineral_reactant
 from ..speciation import PH, Couple, Eh, LogFO2, Molal, Pe, Speciation, speciate
@@ -181,7 +182,12 @@ class Engine:
                       "values": [_sig(pt[0] if key == "temperature_c" else pt[1]) for pt in points]}
                 for key, (label, unit) in AXES.items()}
         varies = sc.varies
-        if sc.reactants:
+        if sc.kinetics:
+            last = max(len(points) - 1, 1)
+            axes["time"] = {"key": "time", "label": "Time", "unit": sc.duration_unit,
+                            "values": [_sig(sc.duration * i / last) for i in range(len(points))]}
+            varies = ["time"] + varies
+        elif sc.reactants:
             extra = self._reaction_axes(sc, added, len(points))
             axes.update(extra)
             varies = list(extra) + varies
@@ -250,8 +256,12 @@ class Engine:
     def _reactants(self, system: System, sc: Scenario, names: dict[str, str], steps: int,
                    notes: list[str] | None = None) -> list:
         """Each reactant added at a steady rate, all of it by the last step (reaction progress counts
-        the steps)."""
+        the steps).  With kinetics, reaction progress is time in seconds: a mineral or glass with a
+        measured rate reacts at that rate, anything else is added steadily over the run."""
         out = []
+        span = sc.duration_s if sc.kinetics else max(steps - 1, 1)
+        area = sc.surface_area_cm2_per_g * 1e-4          # m2 per g
+        steady: list[str] = []
         for r in sc.reactants:
             name = names[r["name"]]
             if name.startswith("rock:"):                 # dissolves congruently, never precipitates
@@ -259,14 +269,26 @@ class Engine:
                 comp, rock_notes = rocks.components_per_gram(rock, self.db, system.basis)
                 if notes is not None:
                     notes.extend(n for n in rock_notes if n not in notes)
-                out.append(Reactant(rock.label, comp, r["amount"],
-                                    (r["amount"] / max(steps - 1, 1), 0.0, 0.0)))
+                law = None
+                if sc.kinetics and rock.key == "basalt_glass":
+                    law = basalt_glass(rocks.elements_per_gram(rock)[0]["Si"])
+                elif sc.kinetics:
+                    steady.append(rock.label)
+                out.append(Reactant(rock.label, comp, r["amount"], (r["amount"] / span, 0.0, 0.0),
+                                    rate_law=law, area=area * r["amount"]))
                 continue
             if name not in system.net.phase_names and name not in system.net.dep_names:
                 raise ValueError(f"{name} cannot be added: its formula needs the redox state of the "
                                  f"fluid, which is not tracked; set the redox state on the card")
-            moles = r["amount"] / self.db.molecular_weight(name) if r["unit"] == "g" else r["amount"]
-            out.append(mineral_reactant(system, name, moles, rates=(moles / max(steps - 1, 1), 0.0, 0.0)))
+            mw = self.db.molecular_weight(name)
+            moles = r["amount"] / mw if r["unit"] == "g" else r["amount"]
+            law = rate_law(name) if sc.kinetics and self.db.species[name].kind == Kind.MINERAL else None
+            if sc.kinetics and law is None:
+                steady.append(pretty_mineral(name) if self.db.species[name].kind == Kind.MINERAL else name)
+            out.append(mineral_reactant(system, name, moles, rates=(moles / span, 0.0, 0.0),
+                                        rate_law=law, area=area * moles * mw))
+        if steady and notes is not None:
+            notes.append(f"No measured rate for {', '.join(steady)}: added steadily over the run instead.")
         return out
 
     def _mixing_axes(self, sc: Scenario, steps: int) -> dict:
@@ -372,6 +394,7 @@ class Engine:
         db = self.db
         n = len(points)
         last = max(n - 1, 1)
+        step = sc.duration_s / last if sc.kinetics else 1.0      # reaction progress per step
         blocked = {b.lower() for b in sc.blocked_minerals} | set(ALWAYS_EXCLUDED)
         suppress = [name for name, kind in zip(system.net.phase_names, system.net.phase_kind)
                     if kind == Kind.MINERAL and name.lower() in blocked]
@@ -379,21 +402,22 @@ class Engine:
         if mix is not None:          # the second fluid, per kg of its water, as one more reactant
             composition = {k: v for k, v in mix.component_totals.items() if k in system.basis}
             reactants.append(Reactant(f"mix:{sc.mix_with}", composition, sc.mix_ratio,
-                                      (sc.mix_ratio / last, 0.0, 0.0)))
+                                      (sc.mix_ratio / (last * step), 0.0, 0.0)))
         path = ReactionPath(system, bulk0, reactants=reactants,
-                            temperature=lambda xi: sc.tp(xi / last)[0],
-                            pressure=lambda xi: sc.tp(xi / last)[1],
+                            temperature=lambda xi: sc.tp(xi / (last * step))[0],
+                            pressure=lambda xi: sc.tp(xi / (last * step))[1],
                             suppress_minerals=suppress, flow_through=flow_through)
 
         def failed(xi, exc):
-            t, p = points[int(round(xi))]
+            t, p = points[int(round(xi / step))]
             notes.append(f"No equilibrium found at {t:.0f} C and {p:.0f} bar ({exc}); that point is "
                          f"left blank.")
 
-        solved = path.run(list(range(n)), on_failure=failed, progress=tick)
-        return _pack([None if pt is None else self._record(db, pt) for pt in solved])
+        solved = path.run([i * step for i in range(n)], on_failure=failed, progress=tick)
+        kinetic = [r for r in reactants if r.kinetic]
+        return _pack([None if pt is None else self._record(db, pt, kinetic) for pt in solved])
 
-    def _record(self, db, point: PathPoint) -> dict:
+    def _record(self, db, point: PathPoint, kinetic: list | None = None) -> dict:
         state = point.state
         spec = state.speciation
         elements: dict[str, float] = {}
@@ -414,7 +438,14 @@ class Engine:
             minerals[name] = minerals.get(name, 0.0) + moles
         for name, moles in state.gas.items():
             gas[name] = gas.get(name, 0.0) + moles
-        return {"pH": spec.ph, "ionic_strength": spec.ionic_strength, "water_kg": state.water_kg,
+        rates = {}                                       # kinetic reactants: rate and share still there
+        for r in kinetic or ():
+            left = r.amount - point.reacted.get(r.name, 0.0)
+            if r.mineral:
+                minerals[r.mineral] = minerals.get(r.mineral, 0.0) + max(left, 0.0)
+            rates[f"rate:{r.name}"] = point.rates.get(r.name, 0.0)
+            rates[f"left:{r.name}"] = 100.0 * max(left, 0.0) / r.amount
+        return {"kinetic": rates, "pH": spec.ph, "ionic_strength": spec.ionic_strength, "water_kg": state.water_kg,
                 "log_fO2": spec.log_fo2, "Eh": spec.eh_volts,
                 "log_aw": spec.log_a_water, "species": species,
                 "log_a": {n: spec.species[n].log_activity for n in spec.basis_names
@@ -479,6 +510,7 @@ def _pack(rows: list[dict | None]) -> dict:
         "elements": column(lambda r, k: r["elements"].get(k, 0.0), element_keys),
         "minerals": column(lambda r, k: r["minerals"].get(k, 0.0), mineral_keys),
         "gas": column(lambda r, k: r.get("gas", {}).get(k, 0.0), gas_keys),
+        "kinetic": column(lambda r, k: r.get("kinetic", {}).get(k), sorted({k for r in good for k in r.get("kinetic", {})})),
         "saturation": column(lambda r, k: r["saturation"].get(k), sat_keys),
         "warnings": sorted({w for r in good for w in r["warnings"]}),
     }
@@ -501,7 +533,15 @@ def _catalog(db, runs: dict[str, dict], sc: Scenario) -> dict:
         for group in ("minerals", "saturation"):
             for k in run[group]:
                 minerals[k] = {"label": pretty_mineral(k), "blocked": k.lower() in blocked, "mw": _mw(db, k)}
-    return {"species": species, "elements": elements, "minerals": minerals, "gas": gases}
+    kinetic = {}
+    for run in runs.values():
+        for k in run.get("kinetic", {}):
+            what, name = k.split(":", 1)
+            shown = pretty_mineral(name) if name in db.species else name
+            kinetic[k] = {"label": f"{shown} rate" if what == "rate" else f"{shown} left",
+                          "unit": ("mol/s" if name in db.species else "g/s") if what == "rate" else "% of start"}
+    return {"species": species, "elements": elements, "minerals": minerals, "gas": gases,
+            "kinetic": kinetic}
 
 
 def _mw(db, name: str) -> float | None:

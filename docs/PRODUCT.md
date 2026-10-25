@@ -121,8 +121,11 @@ a water/rock ratio of 1 or below. Since P4 the results window draws Eh-pH, log f
 the runs, with the open run's path on top and the rest of the fluid held at the run's values; boundaries closer
 than the logK uncertainty at that (T, P) are hatched. Since P5 a free gas phase (CO2, CH4, steam, H2, H2S,
 N2 ..., Peng-Robinson fugacities) forms and dissolves along any path, is vented in flow-through, and gases
-can be added; methane and sulfate are held apart unless the card says they may react. Next: phase
-separation (NaCl-H2O), kinetics, solid solutions and isotopes.
+can be added; methane and sulfate are held apart unless the card says they may react. Since P6 a run can
+last a given time with minerals and basalt glass reacting at measured rates (Palandri and Kharaka 2004;
+Gislason and Oelkers 2003) from a reactive surface area: they dissolve toward saturation, grow on their seed
+past it, and the results show each rate and how much is left. Next: phase separation (NaCl-H2O, waiting on
+data), Pitzer brines, solid solutions and isotopes.
 
 ## Pressure and temperature are free variables
 
