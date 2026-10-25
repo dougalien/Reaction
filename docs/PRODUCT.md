@@ -124,8 +124,9 @@ N2 ..., Peng-Robinson fugacities) forms and dissolves along any path, is vented 
 can be added; methane and sulfate are held apart unless the card says they may react. Since P6 a run can
 last a given time with minerals and basalt glass reacting at measured rates (Palandri and Kharaka 2004;
 Gislason and Oelkers 2003) from a reactive surface area: they dissolve toward saturation, grow on their seed
-past it, and the results show each rate and how much is left. Next: phase separation (NaCl-H2O, waiting on
-data), Pitzer brines, solid solutions and isotopes.
+past it, and the results show each rate and how much is left. Since P7a brines use Pitzer's equations and
+a fluid can be evaporated (seawater to its bittern salts). Next: uncertainty bands on the plots, phase
+separation (NaCl-H2O, waiting on data), solid solutions and isotopes.
 
 ## Pressure and temperature are free variables
 

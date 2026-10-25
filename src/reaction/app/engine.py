@@ -18,6 +18,7 @@ import uuid
 from pathlib import Path
 from typing import Callable
 
+from ..constants import WATER_MOLES_PER_KG
 from ..database import load_data0
 from ..database.model import Kind
 from ..equilibrium import System
@@ -36,6 +37,18 @@ Progress = Callable[[float, str], None]
 
 TRACE = 1e-12          # mol per kg of water of a component only a reactant brings in
 AXES = {"temperature_c": ("Temperature", "°C"), "pressure_bar": ("Pressure", "bar")}
+
+
+class _Evaporation(Reactant):
+    """Water removed so that the concentration factor grows by the same ratio at every step: after
+    step xi of ``steps``, 1 - factor^(-xi/steps) kg of the starting kilogram is gone."""
+
+    def __init__(self, name, composition, amount, *, factor: float, steps: int):
+        super().__init__(name, composition, amount)
+        self.factor, self.steps = factor, steps
+
+    def reacted(self, xi: float) -> float:
+        return min(self.amount, max(0.0, 1.0 - self.factor ** (-xi / self.steps)))
 
 
 class EngineUnavailable(RuntimeError):
@@ -155,6 +168,16 @@ class Engine:
 
         for run in runs.values():
             notes.extend(run.pop("warnings"))
+        top = max((v for run in runs.values() for v in run["properties"]["ionic_strength"] if v is not None),
+                  default=0.0)
+        if sc.activity_model == "pitzer":
+            notes.append("Activity coefficients from Pitzer's equations (PHREEQC pitzer.dat parameters); the "
+                         "complexes of Na, K, Ca, Mg, Cl, sulfate and carbonate are in those parameters. The "
+                         "equilibrium constants are still the database's (HKF), so a solubility can differ "
+                         "from a Pitzer-only database by its log K.")
+        elif top > 1.0:
+            notes.append(f"Ionic strength reaches {top:.1f} mol/kg. The {sc.activity_model.replace('bdot', 'B-dot')} "
+                         f"equation is unreliable above about 1 mol/kg; choose Pitzer on the card for brines.")
         notes = [n for n in notes if not n.startswith("water density")]       # covered by reliability
         notes.extend(reliability_notes(points, rels, sc.varies))
         start_elements: dict[str, float] = {}
@@ -191,6 +214,11 @@ class Engine:
             extra = self._reaction_axes(sc, added, len(points))
             axes.update(extra)
             varies = list(extra) + varies
+        if sc.evaporating:
+            last = max(len(points) - 1, 1)
+            axes["evaporation"] = {"key": "evaporation", "label": "Concentration factor", "unit": "times",
+                                   "values": [_sig(sc.evaporate ** (i / last)) for i in range(len(points))]}
+            varies = ["evaporation"] + varies
         if sc.mixing:
             extra = self._mixing_axes(sc, len(points))
             axes.update(extra)
@@ -403,6 +431,9 @@ class Engine:
             composition = {k: v for k, v in mix.component_totals.items() if k in system.basis}
             reactants.append(Reactant(f"mix:{sc.mix_with}", composition, sc.mix_ratio,
                                       (sc.mix_ratio / (last * step), 0.0, 0.0)))
+        if sc.evaporating:           # water taken away, evenly in the logarithm of the concentration
+            reactants.append(_Evaporation("evaporation", {WATER: -WATER_MOLES_PER_KG},
+                                          1.0 - 1.0 / sc.evaporate, factor=sc.evaporate, steps=last))
         path = ReactionPath(system, bulk0, reactants=reactants,
                             temperature=lambda xi: sc.tp(xi / (last * step))[0],
                             pressure=lambda xi: sc.tp(xi / (last * step))[1],

@@ -74,8 +74,11 @@ def _time(result: dict, i: int) -> str:
 def point_text(result: dict, i: int) -> str:
     """Where on the path point ``i`` is, mentioning only what varies."""
     temps, pressures, varies = _axes(result)
-    if "reacted" in varies or "mixed" in varies or "time" in varies:
-        where = [_time(result, i) if "time" in varies else _added(result, i)]
+    if "reacted" in varies or "mixed" in varies or "time" in varies or "evaporation" in varies:
+        if "evaporation" in varies:
+            where = [f"{result['axes']['evaporation']['values'][i]:.3g} times concentrated"]
+        else:
+            where = [_time(result, i) if "time" in varies else _added(result, i)]
         if "temperature_c" in varies:
             where.append(f"{temps[i]:.0f} °C")
         if "pressure_bar" in varies:
@@ -94,6 +97,8 @@ def _when(result: dict, i: int) -> str:
         return "from the start"
     if "time" in varies:
         return f"after about {point_text(result, i)}"
+    if "evaporation" in varies:
+        return f"from about {point_text(result, i)}"
     if "reacted" in varies or "mixed" in varies:
         return f"from about {point_text(result, i)}"
     if "temperature_c" in varies and "pressure_bar" in varies:

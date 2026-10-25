@@ -71,7 +71,24 @@ The card has `kinetics`, `duration`, `duration_unit` and `surface_area_cm2_per_g
 -53.9 in the PHREEQC transcription, +53.9 is used; the PK base mechanism exponent is applied to a(H+).
 Next: Hermanska et al. (2022, 2023) rates as an alternative set, and precipitation rates and nucleation.
 
-308 tests pass with the data folder present. The data folder needs `OBIGT/Berman/` (run
+P7a (Pitzer brines and evaporation) was done on 2026-10-25: `pitzer.py` (Harvie-Moller-Weare equations with
+E-theta; parameters from PHREEQC's pitzer.dat in `data/pitzer_phreeqc.tsv`, with their temperature terms),
+`activity_model = "pitzer"` on the card. In Pitzer mode the complexes made only of the Pitzer system's
+components (NaCl, CaSO4, NaSO4- ...) are dropped, since the parameters carry them; complexes of other
+elements stay and get only the Debye-Hueckel term. The gamma iteration is under-relaxed for strong brines.
+Checks: NaCl and CaCl2 gamma and osmotic coefficients within 1-2% of Robinson and Stokes to 6 m, seawater
+a(H2O) 0.9813, halite 6.15 mol/kg at 25 C and 6.7 at 100 C. New card field `evaporate` (concentration
+factor, steps even in its logarithm): seawater gives gypsum at about 4.6x, halite at 11x, epsomite at 42x.
+Judgment calls: alpha1 = 1.4 and alpha2 = 12 for 2-2 pairs, otherwise alpha1 = 2 and alpha2 = 50 (the
+PHREEQC defaults as I understand them); no pressure term in the Pitzer parameters (HKF carries pressure
+in the log K); the NBS pH convention is not applied with Pitzer. A run whose ionic strength passes 1
+mol/kg without Pitzer says so.
+
+Next, at Douglas's request: uncertainty bands (propagate the log K uncertainty along a run so plots show a
+range). P5b may become possible from the CC BY lookup tables of Oguntola on Zenodo (record 20394023,
+computed from Driesner and Heinrich), if they hold the coexisting phase compositions.
+
+323 tests pass with the data folder present. The data folder needs `OBIGT/Berman/` (run
 `scripts/fetch_references.ps1` again); without it the old minerals are used and every run says so.
 
 ## First things to do, in this order
