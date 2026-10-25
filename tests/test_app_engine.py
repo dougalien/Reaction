@@ -155,3 +155,49 @@ def test_charge_balance_closes_on_the_chosen_ion(engine):
     card.charge_balance = "none"
     sp, notes = engine.starting_fluid(card)
     assert sp.charge_imbalance > 0.01 and "out of charge balance" in notes[0]
+
+
+def test_reacting_albite_makes_clay_and_quartz_and_a_water_rock_axis(engine):
+    card = Scenario(t_start_c=25.0, t_end_c=25.0, p_start_bar=1.0, p_end_bar=1.0, steps=6, mode="static",
+                    reactants=[{"name": "Albite", "amount": 10.0, "unit": "g"}])
+    res = engine.run(card)
+    assert res["varies"][:2] == ["reacted", "water_rock"] and res["x"]["key"] == "reacted"
+    assert res["axes"]["reacted"]["values"][-1] == pytest.approx(10.0)
+    assert res["axes"]["water_rock"]["values"][0] is None and res["axes"]["water_rock"]["values"][-1] == 100.0
+    run = res["modes"]["static"]
+    assert all(v is not None for v in run["properties"]["pH"])
+    assert run["minerals"]["quartz"][-1] > 0.01
+    # all the sodium of 10 g of albite stays in solution
+    na_added = 10.0 / 262.22
+    na = [run["elements"]["Na"][i] * run["properties"]["water_kg"][i] for i in (0, -1)]
+    assert na[1] - na[0] == pytest.approx(na_added, rel=2e-3)
+
+
+def test_titration_axis_is_in_millimoles(engine):
+    card = Scenario(t_start_c=25.0, t_end_c=25.0, p_start_bar=1.0, p_end_bar=1.0, steps=6, mode="static",
+                    reactants=[{"name": "HCl", "amount": 0.02, "unit": "mol"}])
+    res = engine.run(card)
+    assert res["varies"] == ["reacted"] and res["axes"]["reacted"]["unit"] == "mmol per kg water"
+    ph = res["modes"]["static"]["properties"]["pH"]
+    assert ph[-1] < 2.5 < ph[0]
+
+
+def test_unknown_or_redox_reactants_are_refused_clearly(engine):
+    base = dict(t_start_c=25.0, t_end_c=25.0, p_start_bar=1.0, p_end_bar=1.0, steps=4)
+    with pytest.raises(ValueError, match="not a mineral"):
+        engine.run(Scenario(**base, reactants=[{"name": "unobtainium", "amount": 1.0, "unit": "g"}]))
+    with pytest.raises(ValueError, match="oxidation state"):
+        engine.run(Scenario(**base, reactants=[{"name": "magnetite", "amount": 1.0, "unit": "g"}]))
+
+
+def test_solved_state_carries_the_water_activity_it_was_solved_with(engine):
+    """The active set ranks minerals by saturation computed from the returned activities; with a stale
+    water activity, two polymorphs of a hydrous-reaction mineral (K-feldspar, microcline) each looked
+    supersaturated when the other was present, and the search cycled."""
+    from reaction.constants import LN10
+    from reaction.equilibrium import System, equilibrate
+    sp, _ = engine.starting_fluid(Scenario())
+    basis = [b for b in sp.basis_names if b not in ("H2O", "H+")]
+    state = equilibrate(System(engine.db, basis), 25.0, dict(sp.component_totals), pressure_bar=1.0)
+    assert state._u[0] == pytest.approx(state.speciation.log_a_water * LN10, abs=1e-12)
+    assert state.speciation.log_a_water < -0.005

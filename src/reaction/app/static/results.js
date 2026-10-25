@@ -188,9 +188,10 @@ function download(name, text, type) {
 $("dl-csv").addEventListener("click", () => {
   const series = currentSeries();
   const q = (s) => `"${s.replace(/"/g, '""')}"`;
-  const T = result.axes.temperature_c, P = result.axes.pressure_bar;
-  const rows = [[q(`${T.label} (${T.unit})`), q(`${P.label} (${P.unit})`), ...series.map((s) => q(s.csv))].join(",")];
-  T.values.forEach((t, i) => rows.push([t, P.values[i], ...series.map((s) => (s.y[i] === null ? "" : s.y[i]))].join(",")));
+  const cols = ["reacted", "water_rock", "temperature_c", "pressure_bar"].filter((k) => result.axes[k]).map((k) => result.axes[k]);
+  const rows = [[...cols.map((a) => q(`${a.label} (${a.unit})`)), ...series.map((s) => q(s.csv))].join(",")];
+  cols[0].values.forEach((_, i) => rows.push([...cols.map((a) => (a.values[i] === null ? "" : a.values[i])),
+    ...series.map((s) => (s.y[i] === null ? "" : s.y[i]))].join(",")));
   download(`${result.id}.csv`, rows.join("\n"), "text/csv");
 });
 $("dl-svg").addEventListener("click", () => download(`${result.id}.svg`, plot.svgText(), "image/svg+xml"));

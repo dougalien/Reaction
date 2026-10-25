@@ -103,3 +103,20 @@ def test_ordinary_requests_are_not_read_as_analyses():
         assert "analysis" not in interpret_rules(text, Scenario()).scenario_changes, text
     assert interpret_rules("use the vent fluid", Scenario()).scenario_changes["fluid"] == "vent_fluid"
     assert interpret_rules("a formation brine", Scenario()).scenario_changes["fluid"] == "formation_brine"
+
+
+def test_reactants_from_text_and_from_the_chat():
+    from reaction.app.scenario import parse_reactants
+    assert parse_reactants("10 g albite, quartz 0.1 mol; 5 mmol HCl") == [
+        {"name": "albite", "amount": 10.0, "unit": "g"}, {"name": "quartz", "amount": 0.1, "unit": "mol"},
+        {"name": "HCl", "amount": 0.005, "unit": "mol"}]
+    assert parse_reactants("2 g dolomite,ordered")[0]["name"] == "dolomite,ordered"
+    with pytest.raises(ValueError):
+        parse_reactants("lots of albite")
+    got = interpret_rules("react 10 g of albite with seawater at 25 C", Scenario())
+    card, problems = Scenario().changed(got.scenario_changes)
+    assert not problems and card.reactants == [{"name": "albite", "amount": 10.0, "unit": "g"}]
+    assert card.t_start_c == card.t_end_c == 25.0 and got.run
+    card.p_start_bar = card.p_end_bar = 1.0
+    assert not card.problems()                        # nothing else varies, but the reactant does
+    assert "adding 10 g albite" in card.describe()

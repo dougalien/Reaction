@@ -258,6 +258,7 @@ class _Solve:
             raise EquilibriumError("activity coefficients did not converge")
         u_out = u.copy()
         u_out[unk] = x[:nu_cnt]
+        u_out[0] = log_aw * LN10              # the water activity the solution was solved with
         return dict(u=u_out, ln_w=float(x[nu_cnt]), n=np.array(x[nu_cnt + 1:]), ionic=ionic,
                     sum_m=sum_m, log_aw=log_aw, lg_b=lg_b, lg_d=lg_d, iterations=iterations)
 
@@ -397,25 +398,31 @@ def equilibrate(system: System, temperature_c: float, bulk: dict[str, float], *,
     formula_size = np.maximum(np.abs(model.nu_ph[:, solute_cols]).sum(axis=1), 1.0)
     scale_b = max(float(np.max(np.abs(B[1:]))) if nb > 1 else 1.0, 1e-30)
     n_floor = 1e-12 * scale_b
-    seen: set[frozenset] = set()
+    # an assemblage reached twice is not solved twice, and from it the next most supersaturated mineral is
+    # tried instead of the one that led back to it: the search walks on rather than cycling
+    solved: dict[frozenset, dict] = {}
+    tried: dict[frozenset, set[int]] = {}
     blocked: set[int] = set()                 # minerals whose addition failed
     u_cur, ln_w_cur, ionic_cur = u0, ln_w0, ionic0
     last = None
     total_iter = 0
     for attempt in range(max_attempts):
         key = frozenset(assemblage)
-        if key in seen:
-            raise EquilibriumError("the phase assemblage cycles: no consistent set of minerals found")
-        seen.add(key)
-        try:
-            last = problem.solve(assemblage, u_cur, ln_w_cur, initial_n(assemblage), ionic_cur,
-                                 tol=tol)
-        except (SpeciationError, np.linalg.LinAlgError) as exc:
-            if not assemblage:
-                raise EquilibriumError(f"aqueous solution alone failed: {exc}") from exc
-            blocked.add(assemblage[-1])           # the newest mineral could not be added
-            assemblage = assemblage[:-1]
-            continue
+        if key in solved:
+            last = solved[key]
+            assemblage = last["assemblage"]
+        else:
+            try:
+                last = problem.solve(assemblage, u_cur, ln_w_cur, initial_n(assemblage), ionic_cur,
+                                     tol=tol)
+            except (SpeciationError, np.linalg.LinAlgError) as exc:
+                if not assemblage:
+                    raise EquilibriumError(f"aqueous solution alone failed: {exc}") from exc
+                blocked.add(assemblage[-1])           # the newest mineral could not be added
+                assemblage = assemblage[:-1]
+                continue
+            last["assemblage"] = list(assemblage)
+            solved[key] = last
         total_iter += last["iterations"]
         u_cur, ln_w_cur, ionic_cur = last["u"], last["ln_w"], last["ionic"]
         n = last["n"]
@@ -429,8 +436,12 @@ def equilibrate(system: System, temperature_c: float, bulk: dict[str, float], *,
         si = (model.nu_ph @ last["u"]) / LN10 - model.logk_ph
         candidates = [(si[a] / formula_size[a], a) for a in allowed
                       if a not in assemblage and a not in blocked and si[a] > 1e-7]
+        untried = [c for c in candidates if c[1] not in tried.setdefault(key, set())]
+        if candidates and not untried:
+            raise EquilibriumError("the phase assemblage cycles: no consistent set of minerals found")
         if candidates:
-            _, add = max(candidates)
+            _, add = max(untried)
+            tried[key].add(add)
             leave, theta, lam = _phase_rule_swap(model.nu_ph, assemblage, add, problem.unk, n_prev,
                                                  model.ph_names)
             if leave is None:

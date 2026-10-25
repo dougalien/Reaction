@@ -161,7 +161,7 @@ def interpret(text: str, card: Scenario, plotted: list[str], history: list[dict]
         if any(k in rules.scenario_changes for k in group):
             for k in group:
                 got.scenario_changes.pop(k, None)
-    for key in (*T_KEYS, *P_KEYS, "mode", "fluid", "steps", "analysis", "units", "ph"):
+    for key in (*T_KEYS, *P_KEYS, "mode", "fluid", "steps", "analysis", "units", "ph", "reactants"):
         if key in rules.scenario_changes:
             got.scenario_changes[key] = rules.scenario_changes[key]
     if got.x_axis == "unchanged":
@@ -212,8 +212,14 @@ def _guard(changes: dict, text: str) -> dict:
 # ---- plain rules ------------------------------------------------------------------------------------
 _NUM = r"(-?\d+(?:\.\d+)?)"
 _DEG = r"\s*(?:°|deg(?:rees?)?)?\s*c(?![a-z])"
-RUN_WORDS = re.compile(r"\b(run|go|start|simulate|calculate|compute|react|heat|warm|cool|decompress|"
+RUN_WORDS = re.compile(r"\b(run|go|start|simulate|calculate|compute|react|titrate|heat|warm|cool|decompress|"
                        r"compress|depressuri[sz]e|pressuri[sz]e|do it|what happens)\b", re.I)
+
+
+_REACTANT = re.compile(
+    r"\b(?:react(?:ing)?|add(?:ing)?|dissolv(?:e|ing)|titrat(?:e|ing)(?:\s+\w+)?\s+with|with)\s+"
+    r"(?:up\s+to\s+)?(\d*\.?\d+)\s*(g|grams?|mg|kg|mol|moles?|mmol)\s+(?:of\s+)?"
+    r"([A-Za-z][\w()+\-]*(?:,(?:ordered|disordered|low|high|alpha|beta|maximum))?)", re.I)
 
 
 def interpret_rules(text: str, card: Scenario) -> Interpretation:
@@ -283,6 +289,14 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
         out.run = False
     elif pasted.ph is not None and not re.search(r"\b(plot|show|hide)\b", low):
         ch["ph"] = pasted.ph
+    found = _REACTANT.findall(text)
+    if found:
+        ch["reactants"] = "; ".join(f"{amount} {unit} {name}" for amount, unit, name in found)
+        held = re.search(rf"\bat\s*{_NUM}{_DEG}", low)
+        if held and "t_end_c" in ch and "t_start_c" not in ch and float(held.group(1)) == ch["t_end_c"]:
+            ch["temperature_c"] = ch.pop("t_end_c")         # "react ... at 25 C" holds 25 C
+    elif re.search(r"\b(no|remove the|without|clear the)\s+reactants?\b", low):
+        ch["reactants"] = []
     out.run = bool(RUN_WORDS.search(low)) and not re.search(r"\b(don't|do not|dont)\s+run\b", low)
 
     # plot requests: "plot A instead of B", "show A", "hide B", "remove B"
@@ -318,6 +332,10 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
             bits.append(f"pressure held at {ch['pressure_bar']:g} bar")
         if "mode" in ch:
             bits.append(ch["mode"].replace("_", "-"))
+        if ch.get("reactants"):
+            bits.append("adding " + ch["reactants"].replace(";", ","))
+        elif "reactants" in ch:
+            bits.append("no reactants")
         if "ph" in ch and ch["ph"] is not None and "analysis" not in ch:
             bits.append(f"pH {ch['ph']:g}")
         if "analysis" not in ch:
