@@ -97,7 +97,7 @@ class Engine:
                 self._advice.clear()
             pts = [sc.tp(i / 40) for i in range(41)]
             self._advice[key] = reliability_notes(pts, self.reliability(pts), sc.varies)
-        return self._advice[key]
+        return list(getattr(self.db, "data_notes", [])) + self._advice[key]
 
     # ---- one run --------------------------------------------------------------------------------
     def run(self, sc: Scenario, progress: Progress | None = None) -> dict:

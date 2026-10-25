@@ -15,6 +15,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from . import berman
 from .crystal import CrystalSpecies
 from .hkf import HKFSpecies
 
@@ -25,6 +26,20 @@ DEFAULT_FILES = ("inorganic_aq.csv", "inorganic_cr.csv", "inorganic_gas.csv",
                  "inorganic_liq.csv", "H2O_aq.csv")
 SUPCRT92_FILES = ("SUPCRT92.csv",)
 SLOP98_FILES = ("SLOP98-a.csv", "SLOP98-b.csv")
+BERMAN_FILES = ("Berman_cr.csv",)
+BERMAN_DIR = "Berman"          # parameter files, next to the OBIGT csv files
+
+# Minerals of the older (Helgeson et al., 1978) dataset that the Berman dataset replaces under
+# another name; when Berman minerals are loaded these are dropped so the two cannot compete.
+SUPERSEDED_BY_BERMAN = {
+    "microcline,maximum": "K-feldspar,low", "sanidine,high": "K-feldspar,high",
+    "clinochlore,14A": "clinochlore", "clinochlore,7A": "clinochlore",
+    "daphnite,14A": "daphnite", "daphnite,7A": "daphnite",
+    "amesite,14A": "Mg-amesite", "amesite,7A": "Mg-amesite", "cordierite,dry": "cordierite",
+    "cordierite,hydrous": "cordierite", "titanite": "sphene", "epidote,ordered": "epidote",
+    "dolomite,ordered": "dolomite", "dolomite,disordered": "dolomite",
+    "cristobalite": "cristobalite,alpha", "ferrotremolite": "ferro-actinolite",
+}
 
 
 class ObigtError(ValueError):
@@ -36,8 +51,18 @@ _TOKEN = re.compile(r"([A-Z][a-z]?|\(|\))(\d*\.?\d*)")
 
 
 def parse_formula(formula: str) -> tuple[dict[str, float], float]:
-    """Elements and charge of a formula such as 'Ca+2', 'HCO3-', 'Fe2SiO4', 'Ca(OH)2'."""
+    """Elements and charge of a formula such as 'Ca+2', 'HCO3-', 'Fe2SiO4', 'Ca(OH)2', or a
+    hydrate such as 'NaAlSi2O6*H2O'."""
     f = formula.strip()
+    if "*" in f:
+        total: dict[str, float] = {}
+        for part in f.split("*"):
+            m = re.match(r"(\d*\.?\d+)?(.*)$", part)
+            n = float(m.group(1)) if m.group(1) else 1.0
+            elements, _ = parse_formula(m.group(2))
+            for el, c in elements.items():
+                total[el] = total.get(el, 0.0) + n * c
+        return total, 0.0
     charge = 0.0
     m = re.search(r"([+-])(\d*)$", f)
     if m and f != "H" and len(f) > 1:
@@ -89,9 +114,20 @@ def _num(text: str) -> float | None:
     return float(t)
 
 
-def _row_to_species(row: dict, source: str) -> ObigtSpecies | None:
+def _row_to_species(row: dict, source: str, berman_params=None) -> ObigtSpecies | None:
     name, state, model = row["name"], row["state"], row["model"]
-    if model in ("Berman", "AD", "DEW"):          # parameters live elsewhere / other water model
+    if model == "Berman":
+        params = (berman_params or {}).get(name)
+        elements: dict[str, float] = {}
+        try:
+            elements, charge = parse_formula(row["formula"])
+            eos = berman.BermanSpecies(name, state, params, berman.element_entropy(elements)) \
+                if params is not None else None
+        except (ObigtError, ValueError):
+            eos = None
+        return ObigtSpecies(name, state, row["formula"], elements if eos else {}, 0.0, model, eos,
+                            source, (row["ref1"], row["ref2"]))
+    if model in ("AD", "DEW"):                    # other water models
         return None
     unit = CAL if row["E_units"] == "cal" else 1.0
     g, h, s, cp, v = (_num(row[k]) for k in ("G", "H", "S", "Cp", "V"))
@@ -127,6 +163,13 @@ def _row_to_species(row: dict, source: str) -> ObigtSpecies | None:
     if model in ("CGL", "CGL_Ttr"):
         if p[6] not in (None, 0.0):               # lambda term in the heat capacity: not supported
             return ObigtSpecies(name, state, formula, elements, charge, model, None, source, refs)
+        if g is None:                             # G from H and S, else no usable data
+            if h is None or s is None:
+                return ObigtSpecies(name, state, formula, elements, charge, model, None, source, refs)
+            try:
+                g = h - 298.15 * (s - berman.element_entropy(elements) / unit)
+            except ValueError:
+                return ObigtSpecies(name, state, formula, elements, charge, model, None, source, refs)
         eos = CrystalSpecies(
             name=name, state=state,
             g0=(g if g is not None else 0.0) * unit,
@@ -145,26 +188,37 @@ class ObigtData:
     """Species by (name, state)."""
     species: dict[tuple[str, str], ObigtSpecies] = field(default_factory=dict)
     skipped: list[str] = field(default_factory=list)
+    missing: list[str] = field(default_factory=list)      # optional parts of the data not found
 
     def get(self, name: str, state: str = "aq") -> ObigtSpecies | None:
         return self.species.get((name, state))
 
     def polymorphs(self, name: str) -> list[ObigtSpecies]:
-        return [sp for (n, st), sp in self.species.items()
-                if n == name and re.fullmatch(r"cr\d?", st)]
+        """The phases of a mineral in order of temperature (cr, cr2, cr3, ...)."""
+        return sorted((sp for (n, st), sp in self.species.items()
+                       if n == name and re.fullmatch(r"cr\d?", st)), key=lambda sp: sp.state)
 
 
 def load_obigt(folder: str | Path, files=DEFAULT_FILES) -> ObigtData:
     """Read OBIGT csv files from a folder; later files override earlier rows."""
     folder = Path(folder)
     data = ObigtData()
+    berman_params = None
     for fname in files:
         path = folder / fname
+        if fname in BERMAN_FILES:
+            pdir = folder / BERMAN_DIR
+            if not pdir.is_dir():                 # older data folders: keep the Helgeson minerals
+                data.skipped.append(f"{fname}: the Berman parameter files are not in {pdir} "
+                                    f"(CHNOSZ inst/extdata/Berman); using the older minerals")
+                data.missing.append(BERMAN_DIR)
+                continue
+            berman_params = berman.load_parameters(pdir)
         if not path.exists():
             raise ObigtError(f"{path} not found")
         with path.open(encoding="utf-8", newline="") as fh:
             for row in csv.DictReader(fh):
-                sp = _row_to_species(row, fname)
+                sp = _row_to_species(row, fname, berman_params)
                 if sp is None:
                     data.skipped.append(f"{fname}: {row['name']} ({row['state']}) {row['model']}")
                     continue
@@ -172,5 +226,14 @@ def load_obigt(folder: str | Path, files=DEFAULT_FILES) -> ObigtData:
                     data.skipped.append(f"{fname}: {row['name']} ({row['state']}) has no usable EOS")
                     data.species.pop((sp.name, sp.state), None)
                     continue
+                if re.fullmatch(r"cr\d", sp.state) and (sp.name, "cr") not in data.species:
+                    data.skipped.append(f"{fname}: {row['name']} ({row['state']}) has no low-"
+                                        f"temperature phase")
+                    continue                      # its G is relative to a phase without data
+                if sp.model == "Berman":          # replaces every polymorph of the older data
+                    for key in [k for k in data.species
+                                if re.fullmatch(r"cr\d?", k[1])
+                                and (k[0] == sp.name or SUPERSEDED_BY_BERMAN.get(k[0]) == sp.name)]:
+                        data.species.pop(key)
                 data.species[(sp.name, sp.state)] = sp
     return data
