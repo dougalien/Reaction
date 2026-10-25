@@ -17,6 +17,12 @@ property).  Put one on each screen.  Nothing leaves your machine.
 scripts\reaction.cmd            # starts the server and opens the control window
 ```
 
+Or, without Python, double-click `Reaction.exe` (download it from the
+"Latest Windows build" release, rebuilt by `.github/workflows/windows-exe.yml`
+after each change, or build it with `packaging\build_exe.ps1`).  Its console
+window shows where the app runs; closing it stops the app.  The exe keeps its
+saved runs in `%LOCALAPPDATA%\Reaction\workspace`.
+
 In the control window, say what to model ("heat seawater to 350 C at 500 bar,
 both modes") or edit the card by hand, then press Run.  Use "Open results
 window" to get the second window.  Ask for plot changes in either window

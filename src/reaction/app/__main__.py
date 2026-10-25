@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import multiprocessing
 import threading
 import webbrowser
 
@@ -9,6 +10,7 @@ from .server import DEFAULT_PORT, make_server
 
 
 def main() -> None:
+    multiprocessing.freeze_support()          # Reaction.exe: a spawned worker runs its task, not the app
     ap = argparse.ArgumentParser(description="Reaction: a personal geochemical calculator")
     ap.add_argument("--port", type=int, default=DEFAULT_PORT)
     ap.add_argument("--no-browser", action="store_true", help="do not open the windows")
