@@ -8,15 +8,21 @@ composition is added at a rate dxi_r/dxi; they cannot precipitate while they are
 A mineral reactant that becomes saturated is converted, as in EQ6: its unreacted mass
 joins the equilibrium system, where it may dissolve or stay.
 
-In a fluid-centered *flow-through* system the minerals formed at each step are left
-behind and cannot react again.
+In a fluid-centered *flow-through* system minerals are left behind and cannot react again.
+As in EQ6, a mineral stays in the equilibrium system while it grows and is moved to the
+"physically removed system" at the point where it would start to redissolve: a growing solid
+never back-reacts, so the fluid follows exactly the path of continuous removal, and the amount
+reported for each mineral is what has formed since it was last removed.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Callable, Sequence
 
+from scipy.optimize import minimize_scalar
+
 from .equilibrium import EquilibriumError, EquilibriumState, System, equilibrate
+from .network import WATER
 from .speciation import Speciation, SpeciationError
 
 
@@ -48,6 +54,7 @@ class PathPoint:
     state: EquilibriumState
     reacted: dict[str, float]                  # moles of each reactant destroyed
     transferred: tuple[str, ...] = ()          # mineral reactants now in the equilibrium system
+    removed: dict[str, float] = field(default_factory=dict)   # flow-through: moles left behind so far
 
     @property
     def speciation(self) -> Speciation:
@@ -107,6 +114,8 @@ class ReactionPath:
         self.no_precipitation = no_precipitation
         self.saturation_tol = saturation_tol
         self._transferred: set[str] = set()
+        self._removed: dict[str, float] = {}
+        self._stopped: dict[str, float] = {}      # flow-through: saturated reactants, moles reacted
 
     # ------------------------------------------------------------------------------------------
     def _solve(self, xi: float, guess: EquilibriumState | None) -> tuple[EquilibriumState, dict]:
@@ -117,11 +126,15 @@ class ReactionPath:
         bulk = dict(self.bulk0)
         reacted = {}
         for r in self.reactants:
-            done = r.amount if r.name in self._transferred else r.reacted(xi)
+            done = r.amount if r.name in self._transferred else self._stopped.get(r.name, r.reacted(xi))
             reacted[r.name] = done
             for comp, c in r.composition.items():
                 bulk[comp] = bulk.get(comp, 0.0) + c * done
-        reacting = {r.mineral for r in self.reactants if r.mineral and r.name not in self._transferred}
+        for name, moles in self._removed.items():
+            for comp, c in _composition_row(self.system, name).items():
+                bulk[comp] = bulk.get(comp, 0.0) - c * moles
+        reacting = {r.mineral for r in self.reactants
+                    if r.mineral and r.name not in self._transferred and r.name not in self._stopped}
         excluded = reacting | self.suppress_minerals
         eligible = [n for n, k in zip(model.ph_names, model.ph_kind)
                     if k.value == "mineral" and n not in excluded and not self.no_precipitation]
@@ -135,10 +148,24 @@ class ReactionPath:
                             amounts=converted, eligible=eligible, guess=guess)
         return state, reacted
 
+    def _peak(self, mineral: str, xi0: float, st0: EquilibriumState, xi1: float) -> float:
+        """Reaction progress in [xi0, xi1] where the amount of ``mineral`` is largest (Brent's method:
+        the amount rises, then falls, smoothly or with a kink where another mineral appears)."""
+        def loss(xi):
+            return -self._solve(xi, st0)[0].minerals.get(mineral, 0.0)
+
+        start = st0.minerals.get(mineral, 0.0)
+        tol = 1e-8 * max(xi1 - xi0, 1e-300)
+        if -loss(xi0 + tol) <= start:                 # already falling where the step begins
+            return xi0
+        found = minimize_scalar(loss, bounds=(xi0, xi1), method="bounded",
+                                options={"xatol": tol, "maxiter": 200})
+        return xi0 if start >= -found.fun else float(found.x)
+
     def _saturated(self, state: EquilibriumState) -> list[str]:
         sat = state.speciation.saturation
         return [r.name for r in self.reactants
-                if r.mineral and r.name not in self._transferred
+                if r.mineral and r.name not in self._transferred and r.name not in self._stopped
                 and sat.get(r.mineral, -1e9) > -self.saturation_tol]
 
     def _advance(self, xi0: float | None, st0: EquilibriumState | None, xi1: float,
@@ -152,6 +179,20 @@ class ReactionPath:
             mid = 0.5 * (xi0 + xi1)
             st_mid, _ = self._advance(xi0, st0, mid, depth + 1)
             return self._advance(mid, st_mid, xi1, depth + 1)
+        if self.flow_through and st0 is not None and depth <= 200:
+            # amounts below the solver's resolution (a mineral just removed and still listed) are noise
+            floor = 1e-12 * max([abs(v) for k, v in st0.bulk.items() if k != WATER] + [1e-30])
+            shrinking = [m for m, n in st0.minerals.items()
+                         if n > floor and st1.minerals.get(m, 0.0) < n * (1.0 - 1e-9) - floor]
+            if shrinking:
+                # remove the first mineral to start redissolving, where its amount peaks
+                peak, name = min((self._peak(m, xi0, st0, xi1), m) for m in shrinking)
+                st_p = st0 if peak <= xi0 else self._solve(peak, st0)[0]
+                self._removed[name] = self._removed.get(name, 0.0) + st_p.minerals.get(name, 0.0)
+                st_p, _ = self._solve(peak, st_p)
+                if peak >= xi1:
+                    return st_p, self._solve(xi1, st_p)[1]
+                return self._advance(peak, st_p, xi1, depth + 1)
         newly = self._saturated(st1)
         if not newly:
             return st1, reacted
@@ -174,20 +215,44 @@ class ReactionPath:
                     else:
                         lo, st_lo = mid, st_mid
                 boundary, st_b = hi, st_hi
-        self._transferred.update(self._saturated(st_b))
+        if self.flow_through:
+            # the fluid moves on and leaves the unreacted mineral behind: it stops reacting and
+            # what is left of it never joins the equilibrium system (EQ6 does the same)
+            for name in self._saturated(st_b):
+                r = next(r for r in self.reactants if r.name == name)
+                self._stopped[name] = r.reacted(boundary)
+        else:
+            self._transferred.update(self._saturated(st_b))
         st_conv, reacted = self._solve(boundary, st_b)          # same solution, now with the solid
         if boundary >= xi1:
             return st_conv, reacted
         return self._advance(boundary, st_conv, xi1, depth + 1)
 
-    def run(self, xis: Sequence[float]) -> list[PathPoint]:
-        """Solve the system at each reaction-progress value (ascending)."""
-        self._transferred = set()
-        points: list[PathPoint] = []
+    def run(self, xis: Sequence[float], *,
+            on_failure: Callable[[float, Exception], None] | None = None,
+            progress: Callable[[int, int], None] | None = None) -> list[PathPoint | None]:
+        """Solve the system at each reaction-progress value (ascending).
+
+        Without ``on_failure`` a point where no equilibrium is found raises.  With it, the failure
+        is reported there, that point is None and the path goes on from the last solved point."""
+        self._transferred, self._removed, self._stopped = set(), {}, {}
+        points: list[PathPoint | None] = []
         xi_prev, state = None, None
-        for xi in xis:
-            state, reacted = self._advance(xi_prev, state, xi)
+        for i, xi in enumerate(xis):
+            if progress:
+                progress(i, len(xis))
+            try:
+                new, reacted = self._advance(xi_prev, state, xi)
+            except SpeciationError as exc:
+                if on_failure is None:
+                    raise
+                on_failure(xi, exc)
+                points.append(None)
+                continue
+            state, xi_prev = new, xi
             points.append(PathPoint(xi, self._temperature(xi), state.speciation.pressure_bar,
-                                    state, reacted, tuple(sorted(self._transferred))))
-            xi_prev = xi
+                                    state, reacted, tuple(sorted(self._transferred)),
+                                    dict(self._removed)))
+        if progress:
+            progress(len(xis), len(xis))
         return points

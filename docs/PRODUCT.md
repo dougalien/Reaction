@@ -73,7 +73,7 @@ basalt) and earlier runs.
 | Speciation, B-dot/Davies, redox, pH scales | done (M1/M1.5), validated against 41 EQ3NR cases |
 | Closed-system equilibrium with minerals | works for carbonate/sulfate/hydroxide systems (seawater heating, EQ6 `micro`); unreliable at redox fronts with mineral reactants (EQ6 `methane`, `pyrsw`) |
 | Reaction path with reactants, T path, fixed fugacity | prototype, same limits |
-| Flow-through (products removed each step) | done for heating runs (app runner); not in the general path class |
+| Flow-through (products left behind as they would redissolve) | done, in the general path class; the app uses it (EQ6 `microft` matches) |
 | Fluid mixing, titration | titration cases (`rwtitr`, `swtitr`) match EQ6; mixing not done |
 | Kinetics (rate laws, time axis, surface area) | not started |
 | Solid solutions | not started; affects solver design |
@@ -164,9 +164,9 @@ titration cases; using it for mineral-bound components broke `micro`, so it is n
 solver now raises an error instead of returning a state that is still supersaturated in a mineral it failed
 to add, which makes the step subdivision follow the redox front. `dedolo` (alias minerals with identical
 formulas, such as Dolomite and Dolomite-ord) runs since the active set swaps a mineral whose saturation
-condition depends on the assemblage's instead of adding it.  Still open: `microft` (flow-through in the general
-path class), and
-the cases that need special basis switches, solid solutions, ion exchangers or kinetics.
+condition depends on the assemblage's instead of adding it.  Flow-through is in the general path class
+(EQ6's rule: a mineral is left behind where it would start to redissolve) and the app uses it; `microft`
+matches to 3 of 640 values.  Still open: the cases that need special basis switches, solid solutions, ion exchangers or kinetics.
 
 The solver, paths and EQ6 harness were committed in `3af9559`, the app in `a3076e0` and pressure paths in
 `3f37964`.
