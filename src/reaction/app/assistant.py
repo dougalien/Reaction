@@ -14,7 +14,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 
-from . import analysis, config
+from . import analysis, config, rocks
 from .fluids import CUSTOM, PRESETS
 from .scenario import DEFAULT_UNCERTAINTY_RUNS, FIELD_HELP, Scenario
 
@@ -297,6 +297,7 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
     # "follow the brine" names a phase of the fluid, not the formation-brine preset
     named = re.sub(r"\b(?:follow(?:ing)?|leav(?:e|ing)) the brine\b|\bbrine (?:stays|is left) behind\b|"
                    r"\bbrine salinity\b", " ", low)
+    named = re.sub(rf"(?:{_ISO_KEY})\s+of\s+(?:the\s+)?\w+", " ", named)      # "d34S of the seawater 21"
     for key, p in ([] if plotting else PRESETS.items()):
         if key in named or p.label.lower() in named or (key == "vent_fluid" and re.search(r"\bvent\b|black smoker", named)) \
                 or (key == "formation_brine" and re.search(r"\bbrine\b", named)) or (key == "rainwater" and re.search(r"\brain\b", named)):
@@ -354,6 +355,8 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
     follow = _follow_phase(low)
     if follow:
         ch["follow_phase"] = follow
+    if not plotting:
+        ch.update(_isotope_options(text, low, card))
     held = re.search(rf"\bat\s*{_NUM}{_DEG}", low)
     if ch.get("evaporate", 1.0) > 1.0 and held and "t_end_c" in ch and "t_start_c" not in ch \
             and float(held.group(1)) == ch["t_end_c"]:
@@ -430,6 +433,12 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
                          "davies": "Davies activity coefficients"}[ch["activity_model"]])
         if "solid_solutions" in ch:
             bits.append("solid solutions can form" if ch["solid_solutions"] else "pure minerals only")
+        if "isotopes" in ch:
+            bits.append("isotopes on" if ch["isotopes"] else "isotopes off")
+        if "isotope_inputs" in ch:
+            bits.append("starting isotope values " + "; ".join(
+                f"{src} " + ", ".join(f"{k} {v:g}" for k, v in vals.items())
+                for src, vals in ch["isotope_inputs"].items()))
         if "follow_phase" in ch:
             bits.append({"whole": "the whole fluid followed", "brine": "following the brine as vapour boils off",
                          "vapour": "following the vapour, leaving the brine"}[ch["follow_phase"]])
@@ -495,6 +504,54 @@ def _brine_options(low: str) -> dict:
         elif re.search(r"\bno evaporation\b|\bwithout evaporat", low):
             out["evaporate"] = 1.0
     return out
+
+
+_ISO_KEY = r"(?:d|δ|delta\s*)(?:18\s*o|13\s*c|34\s*s)|87\s*sr\s*/\s*86\s*sr|\bsr\b(?![+\d])|strontium(?! isotope)"
+_ISO_VALUE = re.compile(
+    rf"(?P<before>(?:[a-z][\w,()+\-]*\s+){{0,3}}?)(?P<key>{_ISO_KEY})(?:\s+of\s+(?:the\s+)?(?P<after>[a-z][a-z ]*?))?"
+    r"\s*(?:=|:|is|to|at|of)?\s*(?P<value>[-+−]?\d*\.?\d+)\s*(?:‰|permil|per mil|ppm|mg/kg)?", re.I)
+
+
+def _isotope_options(text: str, low: str, card) -> dict:
+    """Isotopes on or off ("with isotopes", "no isotopes", "track oxygen isotopes") and starting values
+    ("fluid d18O -5", "d34S of the seawater 21", "basalt glass 87Sr/86Sr 0.7030", "basalt Sr 120 ppm")."""
+    out: dict = {}
+    if re.search(r"\b(?:no|without|turn off|switch off|disable)\b[^.]*\bisotopes?\b|\bisotopes? off\b", low):
+        return {"isotopes": False}
+    if re.search(r"\bisotopes?\b|\bisotopic\b", low):
+        out["isotopes"] = True
+    inputs = {k: dict(v) for k, v in (card.isotope_inputs or {}).items()}
+    found = False
+    for m in _ISO_VALUE.finditer(low.replace("−", "-")):
+        key = re.sub(r"\s+", "", m.group("key").lower()).replace("δ", "d").replace("delta", "d")
+        key = {"d18o": "d18O", "d13c": "d13C", "d34s": "d34S", "87sr/86sr": "87Sr/86Sr", "sr": "Sr",
+               "strontium": "Sr"}[key]
+        value = float(m.group("value"))
+        if key == "Sr" and 0.69 < value < 0.80:
+            key = "87Sr/86Sr"                    # "strontium 0.7030" is the ratio
+        words = (m.group("after") or "").strip() or m.group("before").strip()
+        source = _isotope_source(words, card)
+        inputs.setdefault(source, {})[key] = value
+        found = True
+    if found:
+        out["isotopes"] = True
+        out["isotope_inputs"] = inputs
+    return out
+
+
+def _isotope_source(words: str, card) -> str:
+    """Which starting material a phrase names: the fluid, the second fluid ("mix") or a reactant on the card."""
+    w = re.sub(r"\b(?:the|of|and|with|set|make|use|give|initial|starting)\b", " ", words.lower()).strip()
+    if not w or re.search(r"\b(?:fluid|water|seawater|brine|solution|vent|rain)\b", w) and "second" not in w:
+        return "fluid"
+    if "second" in w or "mix" in w:
+        return "mix"
+    for r in card.reactants:
+        name = r["name"].lower()
+        if name in w or w in name or (rocks.find(w) and rocks.find(w) == rocks.find(name)):
+            return name
+    rock = rocks.find(w)
+    return rock.label.lower() if rock else w.split()[-1]
 
 
 def _follow_phase(low: str) -> str | None:

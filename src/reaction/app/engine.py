@@ -36,6 +36,7 @@ from ..solidsolution import table as solid_solution_table
 from ..speciation import PH, Couple, Eh, LogFO2, Molal, Pe, Speciation, speciate
 from ..thermo import validity
 from ..thermo.eosdb import DEFAULT_MASTERS, load_eos_database
+from .. import isotopes
 from . import analysis, config, rocks
 from .fluids import AIR_LOG_FO2, preset
 from .names import pretty_mineral, pretty_species
@@ -60,6 +61,16 @@ class _Evaporation(Reactant):
 
     def reacted(self, xi: float) -> float:
         return min(self.amount, max(0.0, 1.0 - self.factor ** (-xi / self.steps)))
+
+
+# starting isotope values when the card gives none: seawater as measured, the rest typical values to replace
+ISOTOPE_FLUIDS = {
+    "seawater": {"d18O": 0.0, "d13C": 0.0, "d34S": 21.0, "Sr": 7.8, "87Sr/86Sr": 0.70918},
+    "vent_fluid": {"d18O": 1.0, "d13C": -4.0, "d34S": 4.0, "Sr": 7.8, "87Sr/86Sr": 0.7035},
+    "formation_brine": {"d18O": 2.0, "d13C": -5.0, "d34S": 20.0, "Sr": 600.0, "87Sr/86Sr": 0.7100},
+    "rainwater": {"d18O": -8.0, "d13C": -9.0, "d34S": 5.0, "Sr": 0.002, "87Sr/86Sr": 0.7100},
+}
+ISOTOPE_ROCKS = {"basalt_glass": {"d18O": 5.7, "d13C": -6.0, "d34S": -0.9, "Sr": 115.0, "87Sr/86Sr": 0.7027}}
 
 
 class EngineUnavailable(RuntimeError):
@@ -482,7 +493,109 @@ class Engine:
         run = _pack([None if pt is None else self._record(db, pt, kinetic) for pt in solved])
         if separate is not None:
             run["split"] = [split.get(round(i * step, 9)) for i in range(n)]
+        if sc.isotopes:
+            run["isotopes"] = self._isotopes(sc, bulk0, reactants, solved, points, notes)
         return run
+
+    def _isotopes(self, sc: Scenario, bulk0: dict, reactants: list, solved: list, points: list,
+                  notes: list[str]) -> dict[str, list]:
+        """δ18O, δ13C, δ34S of the fluid and of each mineral, and 87Sr/86Sr of the fluid, at each point (see
+        isotopes.py), as {"d18O:water": [...], "d18O:quartz": [...], "87Sr/86Sr:fluid": [...]}."""
+        db = self.db
+        given = {k.lower(): v for k, v in sc.isotope_inputs.items()}
+        used: list[str] = []
+        fluid_sr = bulk0.get("Sr+2", 0.0)
+        tracker = isotopes.Tracker(db, self._isotope_source(sc.fluid, given.get("fluid", {}), fluid_sr, used,
+                                                           "the fluid"), bulk0)
+        sources = {}
+        for card, r in zip(sc.reactants, reactants):
+            sources[r.name] = self._isotope_source(
+                card["name"], given.get(card["name"].lower(), given.get(r.name.lower(), {})), 0.0, used, r.name, r)
+        for r in reactants[len(sc.reactants):]:
+            if r.name.startswith("mix:"):
+                sources[r.name] = self._isotope_source(r.name[4:], given.get("mix", {}), r.composition.get("Sr+2", 0.0),
+                                                       used, "the second fluid")
+        n = len(points)
+        out: dict[str, list] = {}
+        done = {r.name: 0.0 for r in reactants}
+        for i, pt in enumerate(solved):
+            if pt is None:
+                continue
+            t = pt.temperature_c
+            for r in reactants:
+                now = pt.reacted.get(r.name, 0.0)
+                step, done[r.name] = now - done[r.name], now
+                if step == 0:
+                    continue
+                if r.name == "evaporation":
+                    tracker.evaporate(-step * r.composition.get(WATER, 0.0), t)
+                elif r.name in sources:
+                    tracker.add(r.composition, sources[r.name], step)
+            deltas = tracker.point(pt.state, t, pt.speciation.component_totals.get("Cl-", 0.0))
+            row = {}
+            for e, by in deltas.items():
+                key = isotopes.SYSTEMS[e]
+                for carrier, d in by.items():
+                    if carrier in ("CO2", "H2S", "other S", "organic C") or carrier.endswith("(g)"):
+                        continue
+                    row[f"{key}:{carrier}"] = d
+            ratio = tracker.sr_fluid_ratio
+            if ratio is not None:
+                row["87Sr/86Sr:fluid"] = ratio
+            for k, v in row.items():
+                out.setdefault(k, [None] * n)[i] = round(float(v), 6 if k.startswith("87") else 3)
+        said: list[str] = []
+        if used:
+            said.append("Isotopes: starting values not given on the card were taken as " + "; ".join(used) + ".")
+        said.append("Isotopes are in equilibrium among the fluid and the minerals at each step (oxygen: Vho and others "
+                     "2020; carbon: Ohmoto and Rye 1979; sulfur: Ohmoto and Rye 1979, Ohmoto and Lasaga 1982); "
+                     "δ18O and δ13C of carbonates against VSMOW and VPDB, δ34S against VCDT. Strontium is carried "
+                     "with the fluid only (minerals are taken to keep none).")
+        for e, names in sorted(tracker.frac.analogues.items()):
+            said.append(f"Isotopes ({isotopes.SYSTEMS[e]}): no fractionation of their own for "
+                         f"{', '.join(sorted(names))}, so those analogues are used.")
+        if tracker.frac.beyond:
+            said.append("Isotopes: fractionations used above their calibrated range: "
+                        f"{', '.join(sorted(tracker.frac.beyond))}.")
+        notes.extend(n for n in said if n not in notes)
+        return out
+
+    def _isotope_source(self, name: str, given: dict, sr_moles: float, used: list[str], label: str,
+                        reactant: Reactant | None = None) -> isotopes.Source:
+        """Starting δ values and Sr of the fluid, the second fluid or a reactant: the card's, or defaults."""
+        key = name.lower()
+        db = self.db
+        rock = rocks.find(name) if reactant is not None else None
+        if reactant is None:                          # a fluid: per kg of its water
+            base = dict(ISOTOPE_FLUIDS.get(key, ISOTOPE_FLUIDS["seawater"]))
+            sr_unit = "mg/kg"
+        elif rock is not None:
+            base = dict(ISOTOPE_ROCKS.get(rock.key, ISOTOPE_ROCKS["basalt_glass"]))
+            sr_unit = "ppm"
+        else:
+            el = db.species[reactant.name].elements if reactant.name in db.species else {}
+            base = ({"d18O": 29.0, "d13C": 0.0} if el.get("C") and el.get("O")
+                    else {"d13C": -8.5} if el.get("C")
+                    else {"d18O": 9.5, "d34S": 21.0} if el.get("S") and el.get("O", 0) >= 4 * el["S"]
+                    else {"d34S": 0.0} if el.get("S") else {"d18O": 6.0})
+            sr_unit = "ppm"
+        defaults = {k: v for k, v in base.items() if k not in given}
+        merged = {**base, **given}
+        if sr_moles > 0 and "Sr" not in given:        # the fluid's own analysis has Sr
+            merged.pop("Sr", None)
+            defaults.pop("Sr", None)
+        if defaults:
+            used.append(f"{label}: " + ", ".join(
+                f"{k} {v:g}" + (" " + sr_unit if k == "Sr" else "‰" if k.startswith("d") else "")
+                for k, v in defaults.items()))
+        if "Sr" in merged:
+            if reactant is None:
+                sr_moles = merged["Sr"] / 1000.0 / isotopes.SR_GRAMS_PER_MOLE
+            else:
+                grams = 1.0 if rock is not None else (db.molecular_weight(reactant.name) or 0.0)
+                sr_moles = merged["Sr"] * 1e-6 * grams / isotopes.SR_GRAMS_PER_MOLE
+        return isotopes.Source({k: v for k, v in merged.items() if k.startswith("d")}, sr_moles,
+                               merged.get("87Sr/86Sr"))
 
     def _separator(self, system: System, sc: Scenario, record: dict):
         """The path's phase-separation hook when the card follows the brine or the vapour: where the fluid
@@ -906,8 +1019,21 @@ def _catalog(db, runs: dict[str, dict], sc: Scenario) -> dict:
               "vapour_salinity": {"label": "Vapour salinity", "unit": "wt% NaCl"},
               "split_off_kg": {"label": ("Vapour boiled off" if sc.follow_phase == "brine" else "Brine left behind"),
                                "unit": "kg per kg of starting water"}}
+    isotope = {}
+    words = {"water": "water", "DIC": "dissolved inorganic carbon", "CH4": "dissolved methane",
+             "sulfate": "dissolved sulfate", "sulfide": "dissolved sulfide", "fluid": "fluid"}
+    for run in runs.values():
+        for k in run.get("isotopes", {}):
+            what, carrier = k.split(":", 1)
+            shown = words.get(carrier) or pretty_mineral(carrier)
+            if carrier not in words and not shown[1:2].isupper():
+                shown = shown[0].lower() + shown[1:]
+            if what == "87Sr/86Sr":
+                isotope[k] = {"label": "87Sr/86Sr of the fluid", "unit": "ratio"}
+            else:
+                isotope[k] = {"label": f"δ{what[1:]} {shown}", "unit": f"‰ {isotopes.STANDARDS[what]}"}
     return {"species": species, "elements": elements, "minerals": minerals, "gas": gases,
-            "kinetic": kinetic, "composition": composition, "phases": phases}
+            "kinetic": kinetic, "composition": composition, "phases": phases, "isotopes": isotope}
 
 
 def _mw(db, name: str) -> float | None:

@@ -23,7 +23,7 @@ const DASH = { static: "", flow_through: "7 5" };
 const UNIT_SCALE = { mol: 1, mmol: 1e3, umol: 1e6, mg: 1e3 };
 const UNIT_TEXT = { mol: "mol", mmol: "mmol", umol: "µmol", mg: "mg" };
 const TABS = [["species", "Species"], ["elements", "Elements"], ["minerals", "Mineral amounts"],
-  ["gas", "Gas phase"], ["kinetic", "Rates"], ["composition", "Solid solutions"], ["phases", "Brine and vapour"], ["saturation", "Saturation index"], ["property", "Properties"]];
+  ["gas", "Gas phase"], ["kinetic", "Rates"], ["composition", "Solid solutions"], ["phases", "Brine and vapour"], ["isotopes", "Isotopes"], ["saturation", "Saturation index"], ["property", "Properties"]];
 const PROPS = { pH: "pH", ionic_strength: "Ionic strength", water_kg: "Solvent mass", log_aw: "log water activity", log_fO2: "log fO2", Eh: "Eh (V)" };
 
 function pill(el, text, kind) { el.textContent = text; el.className = "pill " + (kind || ""); }
@@ -54,6 +54,7 @@ function labelOf(item) {
   if (item.group === "gas") return (cat.gas && cat.gas[item.key] ? cat.gas[item.key].label : item.key);
   if (item.group === "saturation") return "SI " + cat.minerals[item.key].label;
   if (item.group === "phases") return (cat.phases && cat.phases[item.key] ? cat.phases[item.key].label : item.key);
+  if (item.group === "isotopes") return (cat.isotopes && cat.isotopes[item.key] ? cat.isotopes[item.key].label : item.key);
   if (item.group === "composition") return (cat.composition && cat.composition[item.key] ? cat.composition[item.key].label : item.key);
   if (item.group === "kinetic") return (cat.kinetic && cat.kinetic[item.key] ? cat.kinetic[item.key].label : item.key);
   return PROPS[item.key];
@@ -107,6 +108,10 @@ function yLabel(items, view) {
   if (g === "minerals" || g === "gas") return `${UNIT_TEXT[view.unit]} per kg of original water`;
   if (g === "saturation") return "log Q/K (0 = at saturation)";
   if (g === "composition") return "mole fraction in the solid solution";
+  if (g === "isotopes") {
+    const c = result.catalog.isotopes && result.catalog.isotopes[items[0].key];
+    return items[0].key.startsWith("87") ? "87Sr/86Sr" : `${items[0].key.split(":")[0].replace("d", "δ")} (${c ? c.unit : "‰"})`;
+  }
   if (g === "phases") return items[0].key === "vapour_share" ? "% of the fluid's mass in the vapour" : "wt% NaCl (equivalent)";
   if (g === "kinetic") {
     const c = result.catalog.kinetic && result.catalog.kinetic[items[0].key];
@@ -229,7 +234,8 @@ function draw() {
     "shifted at random by their uncertainty (see Assumptions and limits).";
   plot.set(xax.values, series, {
     log: useLog, yLabel: yLabel(items, view), xLabel: `${xax.label} (${xax.unit})`,
-    xName: xax.label, xUnit: " " + xax.unit, refLines: g === "saturation" ? [0] : null,
+    xName: xax.label, xUnit: " " + xax.unit,
+    hoverFixed: g === "isotopes" ? (items[0].key.startsWith("87") ? 5 : 2) : 0, refLines: g === "saturation" ? [0] : null,
     title: result.summary, strip: anyRisk ? rel : null,
     sub: other ? (i) => `${other.label} ${fmtVal(other.values[i])} ${other.unit}` : null,
   });
@@ -256,6 +262,9 @@ function candidates() {
   if (tab === "phases") {
     return Object.keys(run.phases || {}).map((k) => ({ group: "phases", key: k, label: labelOf({ group: "phases", key: k }) }));
   }
+  if (tab === "isotopes") {
+    return Object.keys(run.isotopes || {}).map((k) => ({ group: "isotopes", key: k, label: labelOf({ group: "isotopes", key: k }) }));
+  }
   if (tab === "composition") {
     return Object.keys(run.composition || {}).map((k) => ({ group: "composition", key: k, label: labelOf({ group: "composition", key: k }) }));
   }
@@ -268,7 +277,7 @@ function candidates() {
 
 function drawPicker() {
   const run0 = result.modes[Object.keys(result.modes)[0]];
-  const shown = TABS.filter(([id]) => (id !== "kinetic" && id !== "composition" && id !== "phases") ||
+  const shown = TABS.filter(([id]) => (id !== "kinetic" && id !== "composition" && id !== "phases" && id !== "isotopes") ||
     (id === "phases" ? "vapour_share" in (run0.phases || {}) : Object.keys(run0[id] || {}).length));
   if (!shown.some(([id]) => id === tab)) tab = "species";
   $("tabs").replaceChildren(...shown.map(([id, label]) => h("button", {
