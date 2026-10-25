@@ -206,12 +206,13 @@ def _isotope_item(text: str, keys, cat: dict) -> str | None:
     low = text.replace("δ", "d").replace("delta ", "d").replace("delta", "d")
     if re.search(r"87\s*sr|strontium (?:isotope|ratio)|\bsr (?:isotope|ratio)", low):
         return "87Sr/86Sr:fluid" if "87Sr/86Sr:fluid" in keys else None
-    m = re.match(r"\s*d\s*(18\s*o|13\s*c|34\s*s)\b\s*(?:of\s+(?:the\s+)?)?(.*)", low)
+    m = re.match(r"\s*d\s*(18\s*o|13\s*c|34\s*s|2\s*h|d)\b\s*(?:of\s+(?:the\s+)?)?(.*)", low)
     if not m:
         return None
     what = "d" + m.group(1).replace(" ", "").upper()
+    what = "dD" if what in ("dD", "d2H") else what
     rest = m.group(2).strip()
-    alias = {"": {"d18O": "water", "d13C": "DIC", "d34S": "sulfate"}[what], "fluid": "water", "dic": "DIC",
+    alias = {"": {"d18O": "water", "d13C": "DIC", "d34S": "sulfate", "dD": "water"}[what], "fluid": "water", "dic": "DIC",
              "carbon": "DIC", "methane": "CH4", "ch4": "CH4", "h2s": "sulfide"}
     carrier = alias.get(rest, rest)
     for k in keys:

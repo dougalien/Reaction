@@ -265,7 +265,7 @@ def _isotope_clause(run: dict) -> str:
         return (vals[0], vals[-1]) if vals else None
 
     bits = []
-    for key, what, fmt in (("d18O:water", "δ18O of the water", "{:+.1f}‰"),
+    for key, what, fmt in (("d18O:water", "δ18O of the water", "{:+.1f}‰"), ("dD:water", "δD of the water", "{:+.1f}‰"),
                            ("d34S:sulfate", "δ34S of the dissolved sulfate", "{:+.1f}‰"),
                            ("d34S:sulfide", "δ34S of the dissolved sulfide", "{:+.1f}‰"),
                            ("87Sr/86Sr:fluid", "87Sr/86Sr of the fluid", "{:.5f}")):

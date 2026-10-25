@@ -545,7 +545,8 @@ def _brine_options(low: str) -> dict:
     return out
 
 
-_ISO_KEY = r"(?:d|δ|delta\s*)(?:18\s*o|13\s*c|34\s*s)|87\s*sr\s*/\s*86\s*sr|\bsr\b(?![+\d])|strontium(?! isotope)"
+_ISO_KEY = (r"(?:d|δ|delta\s*)(?:18\s*o|13\s*c|34\s*s)|(?:\bd|δ|\bdelta\s*)(?:2\s*h|d)\b|87\s*sr\s*/\s*86\s*sr|"
+            r"\bsr\b(?![+\d])|strontium(?! isotope)")
 _ISO_VALUE = re.compile(
     rf"(?P<before>(?:[a-z][\w,()+\-]*\s+){{0,3}}?)(?P<key>{_ISO_KEY})(?:\s+of\s+(?:the\s+)?(?P<after>[a-z][a-z ]*?))?"
     r"\s*(?:=|:|is|to|at|of)?\s*(?P<value>[-+−]?\d*\.?\d+)\s*(?:‰|permil|per mil|ppm|mg/kg)?", re.I)
@@ -638,7 +639,7 @@ def _isotope_options(text: str, low: str, card) -> dict:
     for m in _ISO_VALUE.finditer(low.replace("−", "-")):
         key = re.sub(r"\s+", "", m.group("key").lower()).replace("δ", "d").replace("delta", "d")
         key = {"d18o": "d18O", "d13c": "d13C", "d34s": "d34S", "87sr/86sr": "87Sr/86Sr", "sr": "Sr",
-               "strontium": "Sr"}[key]
+               "strontium": "Sr", "dd": "dD", "d2h": "dD"}[key]
         value = float(m.group("value"))
         if key == "Sr" and 0.69 < value < 0.80:
             key = "87Sr/86Sr"                    # "strontium 0.7030" is the ratio

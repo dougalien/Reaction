@@ -67,12 +67,13 @@ class _Evaporation(Reactant):
 
 # starting isotope values when the card gives none: seawater as measured, the rest typical values to replace
 ISOTOPE_FLUIDS = {
-    "seawater": {"d18O": 0.0, "d13C": 0.0, "d34S": 21.0, "Sr": 7.8, "87Sr/86Sr": 0.70918},
-    "vent_fluid": {"d18O": 1.0, "d13C": -4.0, "d34S": 4.0, "Sr": 7.8, "87Sr/86Sr": 0.7035},
-    "formation_brine": {"d18O": 2.0, "d13C": -5.0, "d34S": 20.0, "Sr": 600.0, "87Sr/86Sr": 0.7100},
-    "rainwater": {"d18O": -8.0, "d13C": -9.0, "d34S": 5.0, "Sr": 0.002, "87Sr/86Sr": 0.7100},
+    "seawater": {"d18O": 0.0, "dD": 0.0, "d13C": 0.0, "d34S": 21.0, "Sr": 7.8, "87Sr/86Sr": 0.70918},
+    "vent_fluid": {"d18O": 1.0, "dD": 1.0, "d13C": -4.0, "d34S": 4.0, "Sr": 7.8, "87Sr/86Sr": 0.7035},
+    "formation_brine": {"d18O": 2.0, "dD": -20.0, "d13C": -5.0, "d34S": 20.0, "Sr": 600.0, "87Sr/86Sr": 0.7100},
+    "rainwater": {"d18O": -8.0, "dD": -54.0, "d13C": -9.0, "d34S": 5.0, "Sr": 0.002, "87Sr/86Sr": 0.7100},
 }
-ISOTOPE_ROCKS = {"basalt_glass": {"d18O": 5.7, "d13C": -6.0, "d34S": -0.9, "Sr": 115.0, "87Sr/86Sr": 0.7027}}
+ISOTOPE_ROCKS = {"basalt_glass": {"d18O": 5.7, "dD": -70.0, "d13C": -6.0, "d34S": -0.9, "Sr": 115.0,
+                                  "87Sr/86Sr": 0.7027}}
 
 
 class EngineUnavailable(RuntimeError):
@@ -688,6 +689,8 @@ class Engine:
                 for carrier, d in by.items():
                     if carrier in ("CO2", "H2S", "other S", "organic C") or carrier.endswith("(g)"):
                         continue
+                    if e == "H" and carrier != "water":   # minerals only echo the water's δD
+                        continue
                     row[f"{key}:{carrier}"] = d
             ratio = tracker.sr_fluid_ratio
             if ratio is not None:
@@ -700,7 +703,10 @@ class Engine:
         said.append("Isotopes are in equilibrium among the fluid and the minerals at each step (oxygen: Vho and others "
                      "2020; carbon: Ohmoto and Rye 1979; sulfur: Ohmoto and Rye 1979, Ohmoto and Lasaga 1982); "
                      "δ18O and δ13C of carbonates against VSMOW and VPDB, δ34S against VCDT. Strontium is carried "
-                     "with the fluid only (minerals are taken to keep none).")
+                     "with the fluid only (minerals are taken to keep none). δD (VSMOW) is given for the water only: "
+                     "it follows evaporation (liquid-vapour fractionation of Horita and Wesolowski 1994), mixing and "
+                     "phase separation; hydrous minerals take the water's δD, as mineral-water D/H factors are not in "
+                     "yet.")
         for e, names in sorted(tracker.frac.analogues.items()):
             said.append(f"Isotopes ({isotopes.SYSTEMS[e]}): no fractionation of their own for "
                          f"{', '.join(sorted(names))}, so those analogues are used.")
@@ -728,6 +734,8 @@ class Engine:
                     else {"d13C": -8.5} if el.get("C")
                     else {"d18O": 9.5, "d34S": 21.0} if el.get("S") and el.get("O", 0) >= 4 * el["S"]
                     else {"d34S": 0.0} if el.get("S") else {"d18O": 6.0})
+            if el.get("H"):
+                base["dD"] = -60.0                   # an illustrative hydrous mineral
             sr_unit = "ppm"
         defaults = {k: v for k, v in base.items() if k not in given}
         merged = {**base, **given}

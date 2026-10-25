@@ -98,3 +98,25 @@ def test_given_starting_values_are_used(engine):
     assert water[0] == pytest.approx(-5.0, abs=0.01)
     assert all(math.isfinite(v) for v in water if v is not None)
     assert not any("the fluid: d18O" in n for n in r["notes"])
+
+
+def test_hydrogen_isotopes(engine):
+    # Horita and Wesolowski (1994) liquid-vapour D/H: about 76 permil at 25 C, 28 at 100 C, slightly inverse
+    # (the vapour heavier) near 300 C, none above the critical point
+    assert isotopes.liquid_vapour_h(25.0) == pytest.approx(75.8, abs=0.2)
+    assert isotopes.liquid_vapour_h(100.0) == pytest.approx(27.9, abs=0.2)
+    assert -5.0 < isotopes.liquid_vapour_h(300.0) < 0.0 and isotopes.liquid_vapour_h(400.0) == 0.0
+    # evaporating to a tenth of the water at 25 C follows Rayleigh for dD as for d18O
+    r = _run(engine, temperature_c=25, pressure_bar=1, evaporate=10, steps=21,
+             isotope_inputs={"fluid": {"dD": -54.0, "d18O": -8.0}})
+    iso = r["modes"]["static"]["isotopes"]
+    f = 0.1
+    # residual water: R / R0 = f ** (1 / alpha - 1), alpha = R(liquid) / R(vapour)
+    expected = (1000.0 - 54.0) * f ** (math.exp(-isotopes.liquid_vapour_h(25.0) / 1000.0) - 1.0) - 1000.0
+    assert iso["dD:water"][-1] == pytest.approx(expected, rel=0.015)
+    assert not any(k.startswith("dD:") and k != "dD:water" for k in iso)
+    assert r["catalog"]["isotopes"]["dD:water"]["label"] == "δD water"
+    # basalt alteration barely moves the water's dD: the minerals hold about 1% of the hydrogen
+    r = _run(engine, temperature_c=350, pressure_bar=500, steps=3,
+             reactants=[{"name": "basalt glass", "amount": 100, "unit": "g"}])
+    assert abs(r["modes"]["static"]["isotopes"]["dD:water"][-1]) < 1.0

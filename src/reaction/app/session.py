@@ -444,9 +444,10 @@ class Session:
                     self.say("assistant", f"{asked.capitalize()} does not change in this run, so the "
                                           f"horizontal axis is {result['x']['label'].lower()}.")
                 self.pending_x = None
-                self.run_state = {"state": "idle", "progress": 1.0, "message": "", "error": ""}
                 self.say("assistant", f"Done in {result['elapsed_s']} s. The results are in the other window.")
                 self._save()
+                # idle only once saved: anything that waits for the run then finds it on disk too
+                self.run_state = {"state": "idle", "progress": 1.0, "message": "", "error": ""}
         except EngineUnavailable as exc:
             self._fail(str(exc))
         except Exception as exc:                       # keep the app alive whatever the engine does

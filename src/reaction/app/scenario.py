@@ -36,7 +36,7 @@ FOLLOW_PHASES = ("whole", "brine", "vapour")
 ISOTOPE_KEYS = {"d18o": "d18O", "18o": "d18O", "o18": "d18O", "d13c": "d13C", "13c": "d13C", "c13": "d13C",
                 "d34s": "d34S", "34s": "d34S", "s34": "d34S", "sr": "Sr", "sr_ppm": "Sr", "srppm": "Sr",
                 "sr_mg_per_kg": "Sr", "87sr/86sr": "87Sr/86Sr", "87sr": "87Sr/86Sr", "sr87": "87Sr/86Sr",
-                "sr_ratio": "87Sr/86Sr"}
+                "sr_ratio": "87Sr/86Sr", "dd": "dD", "d2h": "dD", "2h": "dD", "deuterium": "dD", "dh": "dD"}
 DEFAULT_UNCERTAINTY_RUNS = 20
 TIME_UNITS = {"seconds": 1.0, "minutes": 60.0, "hours": 3600.0, "days": 86400.0,
               "years": 365.25 * 86400.0}
@@ -619,7 +619,7 @@ def _coerce(key: str, value: Any) -> Any:
             for k, v in vals.items():
                 key_ = ISOTOPE_KEYS.get(str(k).strip().lower().replace("δ", "d").replace(" ", ""))
                 if key_ is None:
-                    raise ValueError(f"'{k}' is not one of d18O, d13C, d34S, Sr, 87Sr/86Sr")
+                    raise ValueError(f"'{k}' is not one of d18O, dD, d13C, d34S, Sr, 87Sr/86Sr")
                 here[key_] = float(v)
                 if key_ == "87Sr/86Sr" and not 0.69 < here[key_] < 0.80:
                     raise ValueError(f"87Sr/86Sr {v} is outside 0.69 to 0.80")
@@ -741,7 +741,8 @@ FIELD_HELP = {
                     "equilibrium with the fluid (Gaines-Thomas, PHREEQC constants)",
     "hfo_g": "grams of hydrous ferric oxide per kg of water (0 = none): surface complexation on its strong and "
              "weak sites (Dzombak and Morel 1990)",
-    "isotopes": "false (default); true: d18O, d13C, d34S and 87Sr/86Sr of the fluid and minerals along the run",
+    "isotopes": "false (default); true: d18O, d13C, d34S and 87Sr/86Sr of the fluid and minerals, and dD of the water, "
+                "along the run",
     "isotope_inputs": "starting isotope values, e.g. {\"fluid\": {\"d18O\": -5}, \"basalt glass\": {\"Sr\": 120, "
                       "\"87Sr/86Sr\": 0.703}}; d values in permil (VSMOW, VPDB, VCDT), Sr in mg/kg of fluid or ppm "
                       "of a solid",

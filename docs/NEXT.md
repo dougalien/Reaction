@@ -181,9 +181,26 @@ outlet's breakthroughs (halfway points and peaks) and the mineral zones along th
 volume seawater-basalt column takes about 10 s. Judgment calls: one equilibration per mix (as PHREEQC);
 a cell that fails keeps its last state with its matter counted; at most 40,000 equilibrium solves per run.
 
-Next: H isotopes when D/H factors are checked; kinetics in the column (a velocity gives each shift a time).
+P7c part two, hydrogen (done for the water): `dD` joins the isotope systems (card `isotope_inputs` key `dD`,
+also "d2H", "deuterium"; chat "fluid dD -40"). The water's δD follows evaporation with the liquid-vapour D/H
+fractionation of Horita and Wesolowski (1994), checked against the values they report (about 100 permil at
+7 C, 27.9 at 100 C, -2 near 347 C; it changes sign near 220 C), plus mixing and phase separation. Evaporation of
+rainwater to a tenth at 25 C is within 1% of Rayleigh. Judgment call: mineral-water D/H factors are not in. The
+papers (Suzuoki and Epstein 1976, Graham and others 1980 and 1984, Gilg and Sheppard 1996, Chacko and others
+1999) are paywalled or blocked from here, and the general Suzuoki-Epstein equation is only rough below 400 C,
+so hydrous minerals take the water's δD and only the water's δD is shown. In a seawater-basalt run the minerals
+hold about 1% of the hydrogen, so this moves the water's δD by well under 1 permil. H2 and CH4 are counted with
+the water (in nature they are far lighter). Default δD: seawater 0, vent fluid +1, formation brine -20,
+rainwater -54 (meteoric line from δ18O -8), basalt glass -70, other hydrous reactants -60; all are named in a
+note. To finish: mineral factors from the papers, once Douglas can share them.
 
-358 tests pass with the data folder present. The data folder needs `OBIGT/Berman/` (run
+Also fixed: a run is marked idle only after the session is saved (a test that restarted the session right
+after a run sometimes read the old file).
+
+Next: kinetics in the column (a velocity gives each shift a time); mineral D/H factors when the papers are
+available; the Bischoff and Rosenbauer check of P5b.
+
+359 tests pass with the data folder present. The data folder needs `OBIGT/Berman/` (run
 `scripts/fetch_references.ps1` again); without it the old minerals are used and every run says so.
 
 ## First things to do, in this order
@@ -211,7 +228,7 @@ Next: H isotopes when D/H factors are checked; kinetics in the column (a velocit
    - *Solver core*: keep extending the Newton plus active-set approach, or move to Gibbs-energy minimization
      (cleaner for phase appearance and solid solutions). Decide before the basalt work.
 5. Later: ~~kinetics~~ (done in P6; aragonite to calcite needs aragonite's rate, not in the PK table),
-   ~~solid solutions~~ (P7b), isotopes (O, C, S, Sr done in P7c; H still to do), ~~sorption~~ (P7d), ~~1D transport~~ (P7e).
+   ~~solid solutions~~ (P7b), isotopes (O, C, S, Sr done in P7c; H for the water, minerals still to do), ~~sorption~~ (P7d), ~~1D transport~~ (P7e).
 
 ## Known technical gaps
 
