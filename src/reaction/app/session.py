@@ -30,6 +30,7 @@ class Session:
         self.card = Scenario()
         self.chat: list[dict] = []
         self.view: dict = {"items": [], "log": True, "modes": [], "unit": "mmol"}
+        self.second: dict = {"current": None, "view": {}}      # the second results window
         self.current: str | None = None
         self.run_state = {"state": "idle", "progress": 0.0, "message": "", "error": ""}
         self.mode_confirmed = False
@@ -57,6 +58,10 @@ class Session:
             self.current = data.get("current")
             self.view = data.get("view", self.view)
             self.mode_confirmed = bool(data.get("mode_confirmed", False))
+            second = data.get("second") or {}
+            if isinstance(second, dict) and self.result(second.get("current")) is not None:
+                self.second = {"current": second["current"],
+                               "view": sanitize(second.get("view", {}), self.result(second["current"]))}
         except (OSError, ValueError):
             pass
         if self.current and not (self.workspace / "runs" / f"{self.current}.json").exists():
@@ -66,7 +71,7 @@ class Session:
 
     def _save(self) -> None:
         data = {"card": self.card.to_dict(), "chat": self.chat[-KEEP_CHAT:], "current": self.current,
-                "view": self.view, "mode_confirmed": self.mode_confirmed}
+                "view": self.view, "mode_confirmed": self.mode_confirmed, "second": self.second}
         tmp = self._file.with_suffix(".tmp")
         tmp.write_text(json.dumps(data, indent=1), encoding="utf-8")
         tmp.replace(self._file)
@@ -117,7 +122,7 @@ class Session:
                     "card_problems": self.card_problems(), "advisories": advice,
                     "chat": self.chat[-KEEP_CHAT:],
                     "run": dict(self.run_state), "runs": self.list_runs(), "current": self.current,
-                    "view": self.view, "llm": {"model": getattr(self.model, "model", None),
+                    "view": self.view, "windows": {"2": self.window("2")}, "llm": {"model": getattr(self.model, "model", None),
                                                "ready": self._llm_ok},
                     "engine": self.engine.status() if self.engine._db is not None else
                     {"ready": None, "message": "Thermodynamic data load on the first run."}}
@@ -275,22 +280,44 @@ class Session:
             self._save()
         self._publish()
 
-    def set_view(self, patch: dict) -> None:
+    def window(self, w: str = "1") -> dict:
+        """What results window ``w`` shows: {"current": run id, "view": ...}.  Window 1 is the one the
+        chat drives; window 2 starts as a copy of it and goes its own way once something changes it."""
+        if w == "1":
+            return {"current": self.current, "view": self.view}
+        if self.second.get("current") is None:
+            return {"current": self.current, "view": self.view}
+        return self.second
+
+    def set_view(self, patch: dict, window: str = "1") -> None:
         with self.lock:
-            result = self.result(self.current) if self.current else None
-            self.view = apply_patch(self.view, patch, result)
+            win = self.window(window)
+            result = self.result(win["current"]) if win["current"] else None
+            view = apply_patch(win["view"], patch, result)
+            if view.get("compare") and (view["compare"] == win["current"] or self.result(view["compare"]) is None):
+                view["compare"] = None
+            if window == "1":
+                self.view = view
+            else:
+                self.second = {"current": win["current"], "view": view}
             self._save()
         self._publish()
 
-    def set_current(self, run_id: str) -> bool:
+    def set_current(self, run_id: str, window: str = "1") -> bool:
         with self.lock:
             result = self.result(run_id)
             if result is None:
                 return False
-            self.current = run_id
-            self.view = sanitize(self.view, result) if self.view.get("items") else default_view(result)
-            if not self.view["items"]:
-                self.view = default_view(result)
+            old = self.window(window)["view"]
+            view = sanitize(old, result) if old.get("items") else default_view(result)
+            if not view["items"]:
+                view = {**default_view(result), "compare": view.get("compare")}
+            if view.get("compare") == run_id:
+                view["compare"] = None
+            if window == "1":
+                self.current, self.view = run_id, view
+            else:
+                self.second = {"current": run_id, "view": view}
             self._save()
         self._publish()
         return True

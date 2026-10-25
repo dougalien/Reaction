@@ -10,8 +10,11 @@ Reaction is a personal geochemical calculator. Two browser windows share a local
 interactive plot, a picker for any species, element, mineral or property). The language model fills in the
 card and the plot request; it never produces numbers.
 
-What works: seawater taken along a straight line in temperature and pressure (0 to 600 C, 1 to 5000 bar,
-either or both changing), static and flow-through, with minerals precipitating and dissolving. No fixed-pressure
+What works: any fluid (presets for seawater, rainwater, vent fluid and formation brine, or a pasted analysis
+with units and automatic charge balance) taken along a straight line in temperature and pressure (0 to 600 C,
+1 to 5000 bar, either or both changing), with reactants added steadily (minerals or species in g or mol per kg
+of water: water/rock and titration) and a second fluid mixed in (with the temperature following the mixing if
+its own temperature is given), static and flow-through, with minerals precipitating and dissolving. No fixed-pressure
 databases: logK is computed from Gibbs energies at every point. A reliability rating (water ionization
 against Marshall and Franck 1981) is shown before a run, in the narrative and as a strip under the plot.
 
@@ -21,7 +24,11 @@ M3 solver and EQ6 harness `3af9559`, the app `a3076e0`, pressure paths `3f37964`
 Housekeeping committed on 2026-10-25: this memo, `scripts/eq6_report.py`, tests default to the app's data
 folder (`tests/conftest.py`, `tests/test_eq36_cases.py`).
 
-218 tests pass with no environment variables set.
+P1 (solver: phase rule, flow-through in the path class, speed) and P2 (custom fluids, reactants, mixing,
+run comparison, a second results window, mg/kg units) were done on 2026-10-25 as pull requests #2 to #8;
+see the roadmap doc linked in the project memory.
+
+258 tests pass with the data folder present.
 
 ## First things to do, in this order
 
@@ -69,8 +76,10 @@ folder (`tests/conftest.py`, `tests/test_eq36_cases.py`).
   tabulated to 300 C only; no Pitzer for high ionic strength; minerals have constant molar volume (as in
   SUPCRT92); Born Q is 11% above the SUPCRT-implied value; seawater lacks the Mg hydroxide sulfate hydrate seen
   in heating experiments, so Mg removal and the acid it releases are underestimated.
-- **App**: the reliability strip is thin (5 px); no run comparison or second results window yet; "Earlier
-  runs" in the user's workspace includes my test runs; no units switch beyond mol, mmol and umol per kg.
+- **App**: the reliability strip is thin (5 px); "Earlier runs" in the user's workspace includes my test
+  runs. Only preset fluids can be mixed in (not a second custom analysis). Mixing temperature assumes equal
+  heat capacities. Reactants whose formula needs the oxidation state (magnetite, pyrite) wait for redox (P3).
+  Alkalinity is not read from an analysis yet; give total carbonate as HCO3.
 
 ## How to run things
 

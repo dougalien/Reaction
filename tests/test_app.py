@@ -308,6 +308,35 @@ def test_session_survives_a_restart(tmp_path):
     assert len(again.list_runs()) == 1
 
 
+def test_second_results_window_and_comparison(tmp_path):
+    s = Session(tmp_path, FakeEngine(), ScriptedModel(broken=True))
+    s.edit_card({"mode": "static"})
+    s.start_run()
+    assert wait(lambda: s.run_state["state"] == "idle" and s.current)
+    first = s.current
+    s.edit_card({"t_end_c": 200})
+    s.start_run()
+    assert wait(lambda: s.run_state["state"] == "idle" and s.current != first)
+    second = s.current
+    # window 2 follows window 1 until it is changed, then keeps its own run and plot
+    assert s.window("2")["current"] == second
+    assert s.set_current(first, "2")
+    s.set_view({"log": False}, "2")
+    assert s.current == second and s.window("2")["current"] == first
+    assert s.view["log"] is True and s.window("2")["view"]["log"] is False
+    # a comparison names another saved run; itself or a missing run is dropped
+    s.set_view({"compare": first})
+    assert s.view["compare"] == first
+    s.set_view({"compare": second})
+    assert s.view["compare"] is None
+    s.set_view({"compare": "no-such-run"})
+    assert s.view["compare"] is None
+    s.set_view({"unit": "mg"})
+    assert s.view["unit"] == "mg"
+    again = Session(tmp_path, FakeEngine(), ScriptedModel(broken=True))
+    assert again.window("2")["current"] == first and again.snapshot()["windows"]["2"]["current"] == first
+
+
 # ---- the web server -----------------------------------------------------------------------------
 @pytest.fixture
 def server(tmp_path):
