@@ -226,7 +226,10 @@ def _guard(changes: dict, text: str) -> dict:
                    for n in nums for k in scales)
 
     out = {}
+    allowed = SCHEMA["properties"]["scenario_changes"]["properties"]
     for key, value in changes.items():
+        if key not in allowed:
+            continue                                   # only the fields the model was offered
         try:
             if key in (*T_KEYS, "steps") and not said(value):
                 continue
@@ -247,12 +250,15 @@ def _guard(changes: dict, text: str) -> dict:
 # ---- plain rules ------------------------------------------------------------------------------------
 _NUM = r"(-?\d+(?:\.\d+)?)"
 _DEG = r"\s*(?:°|deg(?:rees?)?)?\s*c(?![a-z])"
-RUN_WORDS = re.compile(r"\b(run|go|start|simulate|calculate|compute|react|dissolve|alter|serpentini[sz]e|titrate|mix|add|heat|warm|cool|decompress|evaporate|"
+RUN_WORDS = re.compile(r"\b(run|go|start|simulate|calculate|compute|react|reacting|recting|dissolve|alter|serpentini[sz]e|titrate|mix|add|heat|warm|cool|decompress|evaporate|"
                        r"compress|depressuri[sz]e|pressuri[sz]e|do it|what happens)\b", re.I)
 
 
 _FLUID_WORDS = (r"seawater|sea water|vent fluid|vent|black smoker fluid|rainwater|rain|formation brine|"
                 r"(?:great\s+)?salt\s+lake(?:\s+brine)?|brine|fresh\s*water|river\s*water|hydrothermal\s+fluid")
+# "mix 9 kg of seawater into the hydrothermal fluid": the second fluid goes into the first
+_MIX_INTO = re.compile(rf"\bmix(?:es|ed|ing)?\s+(?:in\s+)?(?:(?:up\s+to\s+)?\d*\.?\d+\s*(?:kg|parts?)\s+(?:of\s+)?)?(?:the\s+)?"
+                       rf"(?P<b>{_FLUID_WORDS})\b\s+(?:into|in\s+with|in)\s+(?:the\s+)?(?P<a>{_FLUID_WORDS})\b")
 _MIX = re.compile(rf"\bmix(?:es|ed|ing)?\s+(?:(?:the\s+)?(?P<a>{_FLUID_WORDS})\b[^.;]*?\s+)?(?:with|into|and)\s+"
                   rf"(?:(?:up\s+to\s+)?\d*\.?\d+\s*(?:kg|parts?)\s+(?:of\s+)?)?(?:the\s+)?(?P<b>{_FLUID_WORDS})\b")
 
@@ -308,7 +314,7 @@ _NEGATIVE = re.compile(
     r"add(?:ing)?\s+|us(?:e|ing)\s+|dissolv(?:e|ing)\s+)?(?:the\s+|any\s+)?(?P<name>" + _NAME + ")")
 _POSITIVE = (
     # "react the hydrothermal fluid with forsterite", "react olivine", "dissolve calcite"
-    re.compile(r"\b(?:react|dissolv|alter|titrat)\w*\s+(?:(?:it|the\s+fluid|(?:the\s+)?[a-z ]*?(?:water|fluid|brine|"
+    re.compile(r"\b(?:react|recting|rects?|dissolv|alter|titrat)\w*\s+(?:(?:it|the\s+fluid|(?:the\s+)?[a-z ]*?(?:water|fluid|brine|"
                r"solution|seawater|stream))\s+)?(?:with\s+)?(?:some\s+|an?\s+|the\s+)?(?P<name>" + _NAME + ")"),
     # "use basalt glass instead", "switch to olivine", "try quartz", "replace olivine with basalt", "with calcite instead"
     re.compile(r"\b(?:use|try|switch\s+to|change\s+(?:it\s+|the\s+reactant\s+)?to|swap\s+in|go\s+with|"
@@ -322,6 +328,26 @@ _POSITIVE = (
 _REPLACED = re.compile(r"\b(?:replace|swap(?:\s+out)?)\s+(?:the\s+)?(?P<name>" + _NAME + r")\s+(?:with|for|by)\b")
 _APPEND = re.compile(r"\b(?:add(?:ing)?|also|too|as\s+well|plus|in\s+addition|along\s+with)\b")
 _REPLACE = re.compile(r"\b(?:instead|rather|replace|switch|swap|change|only|just)\b")
+
+
+_NEGATION = re.compile(r"\b(?:not|no|don'?t|dont|do\s+not|never|without|stop|isn'?t|aren'?t|shouldn'?t|"
+                       r"mustn'?t|nor|neither|instead\s+of|rather\s+than|except)\b")
+
+
+def _negated(low: str, pos: int) -> bool:
+    """Whether the words just before ``pos``, in the same clause, negate what is at ``pos`` ("we are not
+    supposed to mix with seawater", "without calcite", "not seawater")."""
+    clause = re.split(r"[.;:!?,]|\bbut\b|\bjust\b|\bonly\b|\bthen\b", low[:pos])[-1]
+    return bool(_NEGATION.search(" ".join(clause.split()[-6:])))
+
+
+def _preset_pattern(key: str, label: str) -> str:
+    """How a fluid preset is named in a message."""
+    extra = {"vent_fluid": r"|\bvent\b|black\s+smoker", "formation_brine": r"|\bbrine\b(?<!salt lake brine)",
+             "rainwater": r"|\brain\b", "freshwater": r"|\bfresh\s*water\b|\briver\s*water\b",
+             "gsl_brine": r"|\bsalt\s+lake\b", "hydrothermal": r"|\bhydrothermal\s+fluid\b",
+             "seawater": r"|\bsea\s+water\b"}.get(key, "")
+    return rf"\b{re.escape(key)}\b|\b{re.escape(label.lower())}\b" + extra
 
 
 def _tidy(name: str) -> str:
@@ -381,6 +407,10 @@ def _reactant_edit(text: str, low: str, card: Scenario, clay_talk: bool) -> tupl
         for pattern in _POSITIVE:
             for m in pattern.finditer(positive):
                 name = _tidy(m.group("name"))
+                if _negated(positive, m.start()):         # "we should not react olivine"
+                    if _usable(name, clay_talk):
+                        removed.append(name)
+                    continue
                 if _usable(name, clay_talk) and not any(_same(name, f[2]) for f in named) \
                         and not any(_same(name, b) for b in bare) and not any(name == r for r in removed):
                     bare.append(name)
@@ -393,6 +423,8 @@ def _reactant_edit(text: str, low: str, card: Scenario, clay_talk: bool) -> tupl
         return None, ""
     append = bool(_APPEND.search(low)) and not _REPLACE.search(low)
     gone = [r for r in current if any(_same(r["name"], x) for x in removed)]
+    if not named and not bare and not gone:
+        return None, ""                                # "not X" where X is not on the card changes nothing
     kept = [r for r in current if r not in gone] if append or gone else []
     replaced = gone or ([] if append else current)
     question = ""
@@ -509,18 +541,23 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
     column = {} if plotting else _column_options(low)
     if "pore_fluid" in column:                        # "a column filled with rainwater" names the pore fluid
         named = re.sub(_PORE_FLUID, " ", named)
+    mix = None if plotting else (_MIX_INTO.search(low) or _MIX.search(low))
+    mix_negated = bool(mix) and _negated(low, mix.start())
+    # the starting fluid: the first preset named that is not negated ("not seawater") and not the fluid mixed in
+    mentions = []
     for key, p in ([] if plotting else PRESETS.items()):
-        if key in named or p.label.lower() in named or (key == "vent_fluid" and re.search(r"\bvent\b|black smoker", named)) \
-                or (key == "formation_brine" and re.search(r"\bbrine\b", named) and not re.search(r"salt\s+lake", named)) \
-                or (key == "rainwater" and re.search(r"\brain\b", named)) \
-                or (key == "freshwater" and re.search(r"\bfresh\s*water\b|\briver\s*water\b", named)) \
-                or (key == "gsl_brine" and re.search(r"\bsalt\s+lake\b", named)) \
-                or (key == "hydrothermal" and re.search(r"\bhydrothermal\s+fluid\b", named)):
-            ch["fluid"] = key
+        for m in re.finditer(_preset_pattern(key, p.label), named):
+            if _negated(named, m.start()) or (mix and mix.start("b") <= m.start() < mix.end("b")):
+                continue
+            mentions.append((m.start(), key))
+    if mentions:
+        ch["fluid"] = min(mentions)[1]
     out.from_result = bool(_FROM_RESULT.search(low))
     if out.from_result:
         ch.pop("fluid", None)                          # "the seawater heating run" names the old run
-    mix = _MIX.search(low)
+    if mix_negated or re.search(r"\b(?:no|stop|without|not?|don'?t|dont|never)\s+(?:\w+\s+){0,3}?mix(?:ing|ed|es)?\b", low):
+        ch["mix_with"] = ""                            # "we are not supposed to mix with seawater", "no mixing"
+        mix = None
     if mix:
         first, second = _fluid_key(mix.group("a") or ""), _fluid_key(mix.group("b"))
         if second:
@@ -545,8 +582,6 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
                 for k in ("t_end_c", "temperature_c"):
                     if ch.get(k) == ch["t_start_c"]:
                         ch.pop(k)
-    elif re.search(r"\b(no|stop|without)\s+mixing\b", low):
-        ch["mix_with"] = ""
     pasted = analysis.parse(text, card.units, strict=False)
     if len(pasted.entries) >= 3:                       # a pasted water analysis
         ch["fluid"] = CUSTOM
@@ -595,7 +630,7 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
         held = re.search(rf"\bat\s*{_NUM}{_DEG}", low)
         if edit and held and "t_end_c" in ch and "t_start_c" not in ch and float(held.group(1)) == ch["t_end_c"]:
             ch["temperature_c"] = ch.pop("t_end_c")         # "react ... at 25 C" holds 25 C
-    out.run = bool(RUN_WORDS.search(low) or out.reactant_edit) and not re.search(r"\b(don't|do not|dont)\s+run\b", low)
+    out.run = bool(any(not _negated(low, m.start()) for m in RUN_WORDS.finditer(low)) or out.reactant_edit) and not re.search(r"\b(don't|do not|dont)\s+run\b", low)
 
     # plot requests: "plot A instead of B", "show A", "hide B", "remove B"; a column run's view words are not names
     text = re.sub(r"\s+(?:along the column|at the outlet|in the profile|(?:against|versus|vs\.?) distance|"
@@ -644,6 +679,8 @@ def change_bits(ch: dict, card: Scenario) -> list[str]:
         bits.append(f"pressure held at {ch['pressure_bar']:g} bar")
     if "mode" in ch:
         bits.append(ch["mode"].replace("_", "-"))
+    if "mix_with" in ch and not ch["mix_with"]:
+        bits.append("no mixing")
     if ch.get("mix_with"):
         bits.append(f"mixing in up to {ch.get('mix_ratio', card.mix_ratio):g} kg of "
                     f"{ch['mix_with'].replace('_', ' ')} per kg"

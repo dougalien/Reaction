@@ -20,6 +20,14 @@ from .view import apply_patch, default_view, resolve_item, sanitize
 KEEP_CHAT = 80
 
 
+# what a previous card added to its fluid, cleared when a message starts a new experiment from a named fluid
+PROCESS_FIELDS = {"reactants": "reactants", "mix_with": "mixing", "evaporate": "evaporation", "kinetics": "kinetics",
+                  "kind": "the column", "pore_fluid": "the column's pore fluid", "exchange_meq": "exchange sites",
+                  "hfo_g": "ferric oxide surface", "kaolinite_g": "kaolinite", "illite_g": "illite",
+                  "montmorillonite_g": "montmorillonite", "kd_solid_g": "partition-coefficient sediment",
+                  "follow_phase": "phase following"}
+
+
 class Session:
     def __init__(self, workspace: Path, engine: Engine, model: Ollama | None):
         self.workspace = Path(workspace)
@@ -224,11 +232,34 @@ class Session:
             self._apply(got, result)
         self._publish()
 
+    def _fresh(self, got: Interpretation) -> tuple[dict, str]:
+        """A message that names its starting fluid ("react the hydrothermal fluid with olivine") describes a new
+        experiment: what the last card added to the fluid (mixing, reactants, evaporation, a column, sorbents)
+        and the message does not mention is cleared.  Returns those changes and a sentence naming them."""
+        if "fluid" not in got.scenario_changes or got.from_result:
+            return {}, ""
+        default, card = Scenario(), self.card
+        out, said = {}, []
+        for key, label in PROCESS_FIELDS.items():
+            if key in got.scenario_changes or getattr(card, key) == getattr(default, key):
+                continue
+            if key == "mix_with":
+                label = f"mixing with {card.mix_ratio:g} kg of {card.mix_with.replace('_', ' ')} per kg"
+            elif key == "reactants":
+                label = ", ".join(f"{r['amount']:g} {r['unit']} {r['name']}" for r in card.reactants)
+            out[key] = getattr(default, key)
+            said.append(label)
+        return out, ("Cleared from the last card: " + "; ".join(said) + ".") if said else ""
+
     def _apply(self, got: Interpretation, result: dict | None) -> None:
         notes: list[str] = []
+        fresh, cleared = self._fresh(got)
+        got.scenario_changes = {**fresh, **got.scenario_changes}
         changes, carried, blocked = self._carry(got, result)
         new, problems = self.card.changed(changes)
         notes += problems
+        if changes and not problems and new.to_dict() == self.card.to_dict() and not carried:
+            got.reply = f"The card already says that: {new.describe()}."
         if "reactants" in changes and new.reactants:
             bad = self._reactant_problem(new)
             if bad:                                     # keep the old reactants rather than a name that fails
@@ -301,6 +332,8 @@ class Session:
                              f"horizontal axis.")
         if carried:
             reply = (carried + " " + reply).strip()
+        if cleared:
+            reply = (reply + " " + cleared).strip()
         if got.question:
             reply = (reply + " " + got.question).strip()
         if notes:
@@ -310,10 +343,7 @@ class Session:
             reply = (reply + " A run is still going; I will start this one as soon as it finishes.").strip()
             run_now = False
         elif run_now:
-            if self.card.reactants and "reactants" not in changes:
-                kept = ", ".join(f"{r['amount']:g} {r['unit']} {r['name']}" for r in self.card.reactants)
-                reply += f" The card still reacts {kept}; say \"no reactants\" to drop them."
-            reply = (reply + " Running now.").strip()
+            reply = (reply + f" Running: {self.card.describe()}.").strip()     # exactly what will run
         if not reply:
             reply = "I did not find anything to change. Try something like \"heat seawater to 300 C\"."
         self.say("assistant", reply)
