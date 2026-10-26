@@ -253,6 +253,10 @@ class Session:
         want_run = got.run or (self.pending_run and (got.mode_mentioned or "mode" in got.scenario_changes))
         self.pending_run = False
         run_now = want_run and not got.question and not blocked
+        if run_now and result is not None and not got.again and self.card.to_dict() == result.get("scenario"):
+            run_now = False                             # the chat understood nothing new: say so, don't repeat
+            notes.append("Nothing on the card changed from the last run, so I have not run it again. "
+                         "Say what to change, or \"run it again\".")
         if blocked:
             notes.append(blocked)
         if run_now and problems_now:
