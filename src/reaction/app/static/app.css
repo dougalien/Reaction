@@ -1,7 +1,7 @@
 :root {
   /* Dougalien Systems colours (sand, slate, rust from the logo, as on dougalien.com) */
   --sand: #D6B27C; --slate: #3E5C6B; --rust: #B4532A;
-  --bg: #f4f4f1; --panel: #ffffff; --ink: #1b1e20; --muted: #6a6963; --faint: #9a988f;
+  --bg: #f4f4f1; --panel: #ffffff; --ink: #1b1e20; --muted: #3f4a50; --faint: #56636a;
   --line: #e2e0d8; --line-strong: #c9c6bb; --accent: #3e5c6b; --accent-bg: #e4ecef;
   --ok: #1d7a4d; --ok-bg: #e5f4ec; --warn: #8a5a00; --warn-bg: #fdf1d6; --bad: #b3261e; --bad-bg: #fbe9e7;
   --grid: #ebe9e1; --axis: #8d8b82;
@@ -12,7 +12,7 @@
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #161615; --panel: #1f1f1d; --ink: #ecebe6; --muted: #a3a198; --faint: #77756d;
+    --bg: #161615; --panel: #1f1f1d; --ink: #ecebe6; --muted: #cfcdc5; --faint: #b3b1a8;
     --line: #2e2e2b; --line-strong: #43423d; --accent: #8fb3c4; --accent-bg: #1e2b31;
     --ok: #5cc592; --ok-bg: #17291f; --warn: #e3b25a; --warn-bg: #2d2412; --bad: #f08a82; --bad-bg: #331a18;
     --grid: #2a2a27; --axis: #77756d;
@@ -74,7 +74,7 @@ input, select, textarea {
 .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px 10px; }
 label.f { display: block; font-size: 12px; color: var(--muted); }
 label.f > :not(span):not(.hint) { margin-top: 2px; }
-.hint { font-size: 11px; color: var(--faint); }
+.hint { font-size: 12px; color: var(--faint); }
 .err { color: var(--bad); font-size: 12px; }
 .warnbox { background: var(--warn-bg); color: var(--warn); border-radius: var(--radius); padding: 6px 10px; font-size: 12px; }
 .errbox { background: var(--bad-bg); color: var(--bad); border-radius: var(--radius); padding: 6px 10px; font-size: 12px; }
@@ -86,6 +86,8 @@ details ul { margin: 6px 0 0; padding-left: 18px; color: var(--muted); font-size
 .control { display: grid; grid-template-columns: minmax(320px, 1fr) 380px; gap: 14px; padding: 14px; height: calc(100vh - 56px); }
 @media (max-width: 860px) { .control { grid-template-columns: 1fr; height: auto; } }
 .chatcol { display: flex; flex-direction: column; min-height: 0; }
+.chatfoot { display: flex; align-items: center; gap: 8px; }
+.chatfoot .hint { flex: 1; }
 .chat { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 4px 2px 10px; min-height: 240px; }
 .bub { padding: 8px 12px; border-radius: 12px; max-width: 88%; white-space: pre-wrap; overflow-wrap: anywhere; }
 .bub.user { align-self: flex-end; background: var(--accent-bg); color: var(--ink); }

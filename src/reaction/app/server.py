@@ -143,6 +143,9 @@ class Handler(BaseHTTPRequestHandler):
             threading.Thread(target=s.handle_chat, args=(str(body.get("text", "")),),
                              daemon=True).start()
             return self._json({"ok": True})
+        if path == "/api/clear-chat":
+            s.clear_chat()
+            return self._json({"ok": True})
         if path == "/api/card":
             return self._json({"problems": s.edit_card(dict(body.get("changes", {})))})
         if path == "/api/reset":

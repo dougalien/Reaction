@@ -207,6 +207,9 @@ $("add-reactant").addEventListener("keydown", async (ev) => {
 $("add-reactant").addEventListener("input", (ev) => ev.target.setCustomValidity(""));
 $("run").addEventListener("click", () => api("/api/run"));
 $("reset").addEventListener("click", () => api("/api/reset"));
+$("clear-chat").addEventListener("click", () => {
+  if (confirm("Clear the chat? The scenario card and earlier runs stay.")) api("/api/clear-chat");
+});
 
 function renderStarts(s) {
   const cards = s.starting_cards || [], keys = cards.map((c) => c.key).join();
