@@ -568,7 +568,7 @@ class Engine:
         def solve(balance_on=None):
             if kind != "couple":
                 return speciate(db, fluid.measured_t_c, constraints, redox=redox,
-                                balance_on=balance_on, activity_model=sc.activity_model)
+                                pressure_bar=fluid.measured_p_bar, balance_on=balance_on, activity_model=sc.activity_model)
             own = dict(constraints)
             partner = analysis.REDOX[arg]
             if partner is not None:
@@ -576,9 +576,9 @@ class Engine:
                 own[partner] = Molal(rest)
             own[arg] = Molal(molal[arg])
             first = speciate(db, fluid.measured_t_c, own, redox=Couple(arg),
-                             balance_on=balance_on, activity_model=sc.activity_model)
+                             pressure_bar=fluid.measured_p_bar, balance_on=balance_on, activity_model=sc.activity_model)
             return speciate(db, fluid.measured_t_c, constraints, redox=LogFO2(first.log_fo2),
-                            balance_on=balance_on, activity_model=sc.activity_model)
+                            pressure_bar=fluid.measured_p_bar, balance_on=balance_on, activity_model=sc.activity_model)
         notes = list(read.notes)
         sp = solve()
         if kind != "none":

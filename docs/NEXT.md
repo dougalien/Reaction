@@ -194,6 +194,18 @@ the water (in nature they are far lighter). Default δD: seawater 0, vent fluid 
 rainwater -54 (meteoric line from δ18O -8), basalt glass -70, other hydrous reactants -60; all are named in a
 note. To finish: mineral factors from the papers, once Douglas can share them.
 
+Starting cards (Douglas's request, 2026-10-26): "Start from" buttons on the scenario card and chat ("brine card",
+"load the fresh water scenario") give a ready-made card (`scenario.STARTING_CARDS`, `/api/reset` with `start`):
+seawater (the default, 2 to 350 C at 500 bar); fresh water (Livingstone 1963 world-average river water at the
+atmosphere's 420 ppm CO2 and air O2, heated 25 to 300 C: calcite, anhydrite); brine (Great Salt Lake brine from
+Drever 1997, Pitzer, evaporated 5x at 25 C: halite, anhydrite, epsomite); hydrothermal fluid (the last point of the
+seawater card, 350 C and 500 bar, mixed with 9 kg of 2 C seawater: anhydrite forms and redissolves). New presets
+`freshwater`, `gsl_brine`, `hydrothermal`; a fluid's analysis can now refer to a pressure (`fluid_p_bar`, preset
+`measured_p_bar`), so it can be measured above 300 C. `tests/test_starting_cards.py` checks that the hydrothermal
+preset still equals the end of the seawater run. Judgment calls: the pH of the fresh water and the brine is the one
+that puts them at the atmosphere's CO2 (8.14 and 8.2; the brine's is not part of Drever's analysis); the brine's
+silica (48 mg/kg) is left out so that talc and sepiolite do not form at 25 C.
+
 Also fixed: a run is marked idle only after the session is saved (a test that restarted the session right
 after a run sometimes read the old file).
 

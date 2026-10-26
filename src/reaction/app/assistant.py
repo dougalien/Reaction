@@ -222,7 +222,8 @@ RUN_WORDS = re.compile(r"\b(run|go|start|simulate|calculate|compute|react|titrat
                        r"compress|depressuri[sz]e|pressuri[sz]e|do it|what happens)\b", re.I)
 
 
-_FLUID_WORDS = r"seawater|sea water|vent fluid|vent|black smoker fluid|rainwater|rain|formation brine|brine"
+_FLUID_WORDS = (r"seawater|sea water|vent fluid|vent|black smoker fluid|rainwater|rain|formation brine|"
+                r"(?:great\s+)?salt\s+lake(?:\s+brine)?|brine|fresh\s*water|river\s*water|hydrothermal\s+fluid")
 _MIX = re.compile(rf"\bmix(?:es|ed|ing)?\s+(?:(?:the\s+)?(?P<a>{_FLUID_WORDS})\b[^.;]*?\s+)?(?:with|into|and)\s+"
                   rf"(?:(?:up\s+to\s+)?\d*\.?\d+\s*(?:kg|parts?)\s+(?:of\s+)?)?(?:the\s+)?(?P<b>{_FLUID_WORDS})\b")
 
@@ -233,6 +234,12 @@ def _fluid_key(words: str) -> str | None:
         return None
     if "vent" in w or "smoker" in w:
         return "vent_fluid"
+    if "salt lake" in w or re.search(r"salt\s+lake", w):
+        return "gsl_brine"
+    if "hydrothermal" in w:
+        return "hydrothermal"
+    if re.search(r"fresh\s*water|river\s*water", w):
+        return "freshwater"
     if "brine" in w:
         return "formation_brine"
     if "rain" in w:
@@ -308,7 +315,11 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
         named = re.sub(_PORE_FLUID, " ", named)
     for key, p in ([] if plotting else PRESETS.items()):
         if key in named or p.label.lower() in named or (key == "vent_fluid" and re.search(r"\bvent\b|black smoker", named)) \
-                or (key == "formation_brine" and re.search(r"\bbrine\b", named)) or (key == "rainwater" and re.search(r"\brain\b", named)):
+                or (key == "formation_brine" and re.search(r"\bbrine\b", named) and not re.search(r"salt\s+lake", named)) \
+                or (key == "rainwater" and re.search(r"\brain\b", named)) \
+                or (key == "freshwater" and re.search(r"\bfresh\s*water\b|\briver\s*water\b", named)) \
+                or (key == "gsl_brine" and re.search(r"\bsalt\s+lake\b", named)) \
+                or (key == "hydrothermal" and re.search(r"\bhydrothermal\s+fluid\b", named)):
             ch["fluid"] = key
     mix = _MIX.search(low)
     if mix:
