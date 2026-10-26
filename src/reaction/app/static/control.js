@@ -22,7 +22,8 @@ function render(s) {
   $("f-methane_sulfate").value = c.methane_sulfate || "apart";
   $("f-kinetics").value = c.kinetics ? "true" : "false";
   $("f-duration_unit").value = c.duration_unit || "years";
-  for (const k of ["duration", "surface_area_cm2_per_g", "evaporate", "uncertainty_runs", "exchange_meq", "hfo_g"]) setIfIdle($("f-" + k), c[k]);
+  for (const k of ["duration", "surface_area_cm2_per_g", "evaporate", "uncertainty_runs", "exchange_meq", "hfo_g",
+    "kaolinite_g", "illite_g", "montmorillonite_g", "kd_solid_g", "kd_medium"]) setIfIdle($("f-" + k), c[k]);
   document.querySelectorAll(".kin").forEach((el) => { el.style.display = c.kinetics ? "" : "none"; });
   $("reactant-hint").textContent = c.kinetics
     ? "(what is there at the start, per kg of water; minerals without a measured rate are added steadily)"
@@ -178,7 +179,8 @@ $("f-follow_phase").addEventListener("change", (ev) => edit("follow_phase", ev.t
 $("f-isotopes").addEventListener("change", (ev) => edit("isotopes", ev.target.value === "true"));
 $("f-methane_sulfate").addEventListener("change", (ev) => edit("methane_sulfate", ev.target.value));
 $("f-kinetics").addEventListener("change", (ev) => edit("kinetics", ev.target.value === "true"));
-for (const k of ["duration", "duration_unit", "surface_area_cm2_per_g", "evaporate", "uncertainty_runs", "exchange_meq", "hfo_g"]) {
+for (const k of ["duration", "duration_unit", "surface_area_cm2_per_g", "evaporate", "uncertainty_runs", "exchange_meq", "hfo_g",
+  "kaolinite_g", "illite_g", "montmorillonite_g", "kd_solid_g", "kd_medium"]) {
   $("f-" + k).addEventListener("change", (ev) => edit(k, ev.target.value));
 }
 document.querySelectorAll("#modeseg button").forEach((b) => b.addEventListener("click", () => edit("mode", b.dataset.mode)));

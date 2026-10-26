@@ -18,7 +18,9 @@ def engine():
 
 @pytest.fixture(scope="module")
 def runs(engine):
-    return {key: engine.run(starting_card(key)) for key in STARTING_CARDS}
+    # the column card (stream) runs for a minute; test_clays.py runs it shortened
+    return {key: engine.run(starting_card(key)) for key, c in STARTING_CARDS.items()
+            if c.changes.get("kind") != "transport"}
 
 
 def test_fresh_water_and_brine_sit_at_the_atmospheres_co2(engine):

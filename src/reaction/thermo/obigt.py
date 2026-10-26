@@ -234,7 +234,10 @@ def load_obigt(folder: str | Path, files=DEFAULT_FILES) -> ObigtData:
                     continue
                 if sp.eos is None:
                     data.skipped.append(f"{fname}: {row['name']} ({row['state']}) has no usable EOS")
-                    data.species.pop((sp.name, sp.state), None)
+                    if sp.state != "aq":
+                        data.species.pop((sp.name, sp.state), None)
+                    # an aqueous species keeps an earlier complete entry (the arsenate ions of SLOP98, whose
+                    # newer inorganic_aq rows give no HKF parameters)
                     continue
                 if re.fullmatch(r"cr\d", sp.state) and (sp.name, "cr") not in data.species:
                     data.skipped.append(f"{fname}: {row['name']} ({row['state']}) has no low-"

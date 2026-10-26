@@ -36,7 +36,7 @@ function frame(res = result) {
 const UNIT_SCALE = { mol: 1, mmol: 1e3, umol: 1e6, mg: 1e3 };
 const UNIT_TEXT = { mol: "mol", mmol: "mmol", umol: "µmol", mg: "mg" };
 const TABS = [["species", "Species"], ["elements", "Elements"], ["minerals", "Mineral amounts"],
-  ["gas", "Gas phase"], ["kinetic", "Rates"], ["composition", "Solid solutions"], ["phases", "Brine and vapour"], ["isotopes", "Isotopes"], ["sorbed", "Sorbed"], ["saturation", "Saturation index"], ["property", "Properties"]];
+  ["gas", "Gas phase"], ["kinetic", "Rates"], ["composition", "Solid solutions"], ["phases", "Brine and vapour"], ["isotopes", "Isotopes"], ["sorbed", "Sorbed"], ["partition", "Partition coefficients"], ["saturation", "Saturation index"], ["property", "Properties"]];
 const PROPS = { pH: "pH", ionic_strength: "Ionic strength", water_kg: "Solvent mass", log_aw: "log water activity", log_fO2: "log fO2", Eh: "Eh (V)", surface_potential_mV: "Surface potential (mV)" };
 
 function pill(el, text, kind) { el.textContent = text; el.className = "pill " + (kind || ""); }
@@ -68,6 +68,7 @@ function labelOf(item) {
   if (item.group === "saturation") return "SI " + cat.minerals[item.key].label;
   if (item.group === "phases") return (cat.phases && cat.phases[item.key] ? cat.phases[item.key].label : item.key);
   if (item.group === "sorbed") return (cat.sorbed && cat.sorbed[item.key] ? cat.sorbed[item.key].label : item.key);
+  if (item.group === "partition") return (cat.partition && cat.partition[item.key] ? cat.partition[item.key].label : item.key);
   if (item.group === "isotopes") return (cat.isotopes && cat.isotopes[item.key] ? cat.isotopes[item.key].label : item.key);
   if (item.group === "composition") return (cat.composition && cat.composition[item.key] ? cat.composition[item.key].label : item.key);
   if (item.group === "kinetic") return (cat.kinetic && cat.kinetic[item.key] ? cat.kinetic[item.key].label : item.key);
@@ -121,6 +122,7 @@ function yLabel(items, view) {
   if (g === "species" || g === "elements") return `${UNIT_TEXT[view.unit]} per kg of water`;
   if (g === "minerals" || g === "gas" || g === "sorbed") return `${UNIT_TEXT[view.unit]} per kg of original water`;
   if (g === "saturation") return "log Q/K (0 = at saturation)";
+  if (g === "partition") return "Kd, L/kg (sorbed per kg of solid over dissolved per litre)";
   if (g === "composition") return "mole fraction in the solid solution";
   if (g === "isotopes") {
     const c = result.catalog.isotopes && result.catalog.isotopes[items[0].key];
@@ -226,7 +228,7 @@ function draw() {
 
   const items = view.items;
   const g = items.length ? items[0].group : "";
-  const logOk = g === "species" || g === "elements" || g === "minerals" || g === "gas" || g === "sorbed" || (g === "property" && items[0].key === "ionic_strength")
+  const logOk = g === "species" || g === "elements" || g === "minerals" || g === "gas" || g === "sorbed" || g === "partition" || (g === "property" && items[0].key === "ionic_strength")
     || (g === "kinetic" && items[0].key.startsWith("rate:")) || g === "phases";
   const useLog = view.log && logOk;
   document.querySelectorAll("#axis button").forEach((b) => {
@@ -287,6 +289,9 @@ function candidates() {
   if (tab === "sorbed") {
     return Object.keys(run.sorbed || {}).map((k) => ({ group: "sorbed", key: k, label: labelOf({ group: "sorbed", key: k }) }));
   }
+  if (tab === "partition") {
+    return Object.keys(run.partition || {}).map((k) => ({ group: "partition", key: k, label: labelOf({ group: "partition", key: k }) }));
+  }
   if (tab === "isotopes") {
     return Object.keys(run.isotopes || {}).map((k) => ({ group: "isotopes", key: k, label: labelOf({ group: "isotopes", key: k }) }));
   }
@@ -302,7 +307,7 @@ function candidates() {
 
 function drawPicker() {
   const run0 = lead();
-  const shown = TABS.filter(([id]) => (id !== "kinetic" && id !== "composition" && id !== "phases" && id !== "isotopes" && id !== "sorbed") ||
+  const shown = TABS.filter(([id]) => (id !== "kinetic" && id !== "composition" && id !== "phases" && id !== "isotopes" && id !== "sorbed" && id !== "partition") ||
     (id === "phases" ? "vapour_share" in (run0.phases || {}) : Object.keys(run0[id] || {}).length));
   if (!shown.some(([id]) => id === tab)) tab = "species";
   $("tabs").replaceChildren(...shown.map(([id, label]) => h("button", {

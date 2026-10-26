@@ -561,7 +561,7 @@ def test_diagram_requests_in_the_chat_open_and_close_it(session):
 # ---- starting cards -----------------------------------------------------------------------------
 def test_starting_cards_load_from_the_chat_and_the_reset_button(session):
     snap = session.snapshot()
-    assert [c["key"] for c in snap["starting_cards"]] == ["seawater", "freshwater", "brine", "hydrothermal"]
+    assert [c["key"] for c in snap["starting_cards"]] == ["seawater", "freshwater", "brine", "hydrothermal", "stream"]
     chat_and_wait(session, "load the brine card")
     assert session.card.fluid == "gsl_brine" and session.card.activity_model == "pitzer"
     assert "Brine card loaded" in session.chat[-1]["text"]

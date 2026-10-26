@@ -206,6 +206,31 @@ preset still equals the end of the seawater run. Judgment calls: the pH of the f
 that puts them at the atmosphere's CO2 (8.14 and 8.2; the brine's is not part of Drever's analysis); the brine's
 silica (48 mg/kg) is left out so that talc and sepiolite do not form at 25 C.
 
+Metals on clays and the contaminated-stream card (Douglas's request, 2026-10-26): clay minerals on the card
+(`kaolinite_g`, `illite_g`, `montmorillonite_g`, g per kg of water; chat "with 100 g kaolinite and 20 g
+montmorillonite") carry exchange sites at their cation exchange capacity (`data/clays.tsv`: kaolinite KGa-1b 20 and
+montmorillonite SWy-1 764 meq/kg, van Olphen and Fripiat 1979 via the CMS Source Clays; illite du Puy 225 meq/kg,
+Nagra NTB 23-05) with phreeqc.dat's Gaines-Thomas constants; checked against PHREEQC 3.7.3 for a metal-bearing river
+water at pH 6.5: Ca, Mg, Na, K fractions within 0.5%, Zn, Cd within 6%, Pb and Cu within 30% (their carbonate and
+hydroxide complexes differ between OBIGT and phreeqc.dat). Partition coefficients (`data/kd_allison_2005.tsv`, the
+U.S. EPA compilation of Allison and Allison 2005, soil, bed sediment and suspended matter for As, Cd, Cr(III), Cr(VI),
+Cu, Hg, Ni, Pb, Zn): `kd_solid_g` grams of solid per kg of water and `kd_medium`; `sorption.LinearSorber` holds
+Kd M times every dissolved species of the metal inside the Newton system (no unknowns of its own), and the solid
+starts loaded from the fluid like the exchanger. With exchange sites on the card the Kd holds only the metals without
+an exchange constant (Ni, Hg, As, Cr). Results: a Partition coefficients tab (each metal's Kd on each clay and on the
+Kd solid, L/kg) and a story sentence. Arsenic (H2AsO4-) and chromium (CrO4-2) are now components; the arsenate ions
+come from SLOP98 because OBIGT's newer rows have no HKF parameters (`obigt.load_obigt` keeps an earlier complete
+aqueous entry). New fluid preset `contaminated_stream` and starting card "Contaminated stream" (10 m streambed of
+clays and bed sediment at 15 C, 25 pore volumes, about a minute): Cu and Pb break through first, then Zn and Cd;
+cerussite forms at the inlet; the Kd metals barely move. Judgment calls: one set of exchange constants for all clays
+(phreeqc.dat has no clay-specific ones), so per-clay Kd differ only by capacity; edge-site surface complexation on
+the clays (Bradbury and Baeyens 2SPNE) is not in: the site capacities and protolysis constants are public (NTB
+23-05 Table 2-1) but the metal binding constants are in papers I could not open, so the clays understate metal
+uptake above about pH 6; Kd values are the report's medians (means where it gives no median) and are held at all
+temperatures; a complex of two Kd metals takes the larger Kd; the stream card blocks quartz and chalcedony (silica
+does not precipitate in a stream on this time scale). Next: the 2SPNE edge sites once Douglas can share Bradbury and
+Baeyens (2005, 2009) or the ClaySor appendix.
+
 Also fixed: a run is marked idle only after the session is saved (a test that restarted the session right
 after a run sometimes read the old file).
 

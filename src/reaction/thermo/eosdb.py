@@ -53,7 +53,7 @@ DEFAULT_MASTERS = {
     "Cl": "Cl-", "F": "F-", "Br": "Br-", "I": "I-", "S": "SO4-2", "C": "HCO3-",
     "Si": "SiO2", "Al": "Al+3", "Fe": "Fe+2", "Mn": "Mn+2", "Zn": "Zn+2", "Cu": "Cu+2",
     "Pb": "Pb+2", "Cd": "Cd+2", "Ni": "Ni+2", "Co": "Co+2", "Ag": "Ag+", "Hg": "Hg+2",
-    "N": "NH3", "P": "HPO4-2", "B": "B(OH)3",
+    "N": "NH3", "P": "HPO4-2", "B": "B(OH)3", "As": "H2AsO4-", "Cr": "CrO4-2",
 }
 
 # Helgeson (1969) B-dot, kg/mol, on the grid of the EQ3/6 databases

@@ -57,6 +57,8 @@ SOLUTES: dict[str, tuple[int, str, tuple[str, ...]]] = {
     "B(OH)3": (0, "BO3H3", ("boric acid",)),
     "NH3": (0, "NH3", ("ammonia",)),
     "HPO4-2": (-2, "HPO4", ("phosphate",)),
+    "H2AsO4-": (-1, "As", ("arsenic", "arsenate", "As(V)")),
+    "CrO4-2": (-2, "Cr", ("chromium", "chromate", "Cr(VI)")),
     # oxidation states other than the basis one: they need the redox state of the fluid
     "Fe+3": (3, "Fe", ("ferric iron",)),
     "H2S": (0, "H2S", ("hydrogen sulfide", "hydrogen sulphide", "sulfide", "sulphide")),
@@ -81,6 +83,7 @@ EXTRA_NAMES: dict[str, tuple[str, str]] = {
     "CO3-2": ("HCO3-", "CO3"), "CO32-": ("HCO3-", "CO3"), "CO3--": ("HCO3-", "CO3"),
     "HS": ("H2S", "HS"), "HS-": ("H2S", "HS"), "total sulfide": ("H2S", "S"),
     "Fe(III)": ("Fe+3", "Fe"), "Fe3": ("Fe+3", "Fe"),
+    "As": ("H2AsO4-", "As"), "AsO4": ("H2AsO4-", "AsO4"), "Cr": ("CrO4-2", "Cr"),
 }
 
 # unit -> (amount: "mass" in mg, "mole" in mol or "eq" in equivalents; scale; per "solution", "water" or "litre")
