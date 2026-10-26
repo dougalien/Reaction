@@ -64,6 +64,8 @@ Rules:
 - "show" lists species, minerals, or properties to plot exactly as the user wrote them (for example
   "CaCl+", "anhydrite", "pH", "SO4--"). "hide" lists ones to remove. "axis" is log, linear or unchanged.
   "x_axis" is temperature, pressure or unchanged.
+- To go on from the fluid at the end of the last run ("take that fluid", "the result", "cool it back
+  down"), leave fluid and the start temperature and pressure alone: the calculator carries that fluid over.
 - Set run to true only when the user asks to run, calculate, simulate, react, or heat something.
 - If something essential is unclear, put ONE short question in "question"; otherwise leave it empty.
 - reply: one or two short sentences saying what you changed. No chemistry claims.
@@ -99,6 +101,8 @@ class Interpretation:
     source: str = "rules"                  # "model" or "rules"
     mode_mentioned: bool = False
     column_view: str = ""                  # a column run's view: "outlet", "start", "profile" or ""
+    from_result: bool = False              # start from the fluid at the end of the last run
+    direction: str = ""                    # "heat" or "cool" when the user said which way
 
 
 class Ollama:
@@ -170,6 +174,9 @@ def interpret(text: str, card: Scenario, plotted: list[str], history: list[dict]
         got.x_axis = rules.x_axis
     got.mode_mentioned = rules.mode_mentioned
     got.column_view = rules.column_view
+    got.from_result, got.direction = rules.from_result, rules.direction
+    if got.from_result:
+        got.scenario_changes.pop("fluid", None)         # "the seawater heating run" names the old run
     for key in ("kind", "cells", "pore_volumes", "column_m", "dispersivity_m", "pore_fluid"):
         if key in rules.scenario_changes:
             got.scenario_changes[key] = rules.scenario_changes[key]
@@ -228,6 +235,28 @@ _MIX = re.compile(rf"\bmix(?:es|ed|ing)?\s+(?:(?:the\s+)?(?P<a>{_FLUID_WORDS})\b
                   rf"(?:(?:up\s+to\s+)?\d*\.?\d+\s*(?:kg|parts?)\s+(?:of\s+)?)?(?:the\s+)?(?P<b>{_FLUID_WORDS})\b")
 
 
+_FROM_RESULT = re.compile(
+    r"\b(?:the\s+)?(?:result|results|product|outcome|output)\s+(?:of|from)\b|\bresulting (?:fluid|water|solution)\b|"
+    r"\b(?:end|final|heated|cooled|reacted|evolved|altered|modified|produced|left[- ]?over) (?:fluid|water|solution|brine)\b|"
+    r"\b(?:fluid|water|solution) (?:from|at the end of|left (?:from|after|by)|produced by|made by|of) "
+    r"(?:the |that |this )?(?:last |previous |earlier |first )?(?:run|result|heating|cooling|calculation|model)\b|"
+    r"\b(?:that|this|the last|the previous|previous|last) (?:run's |result's )?(?:fluid|result)\b|"
+    r"\b(?:continue|carry on|go on|pick up) from\b|\bit back (?:down|up)?\b|\b(?:cool|heat|warm|bring) it back\b")
+
+
+def _direction(low: str) -> str:
+    """Which way the user asked the temperature to go: "cool" ("cool", "quench", "chill"), "heat" or ""."""
+    cool = re.search(r"\b(?:cool|chill|quench)\w*\b", low)
+    heat = re.search(r"\b(?:heat|warm)\w*\b", low)
+    if cool and not heat:
+        return "cool"
+    if heat and not cool:
+        return "heat"
+    if cool and heat:                                  # "the seawater heating fluid ... cool it": the verb said last
+        return "cool" if cool.start() > heat.start() else "heat"
+    return ""
+
+
 def _fluid_key(words: str) -> str | None:
     w = words.strip()
     if not w:
@@ -268,10 +297,12 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
     isothermal = bool(re.search(r"isotherm|constant temperature|fixed temperature|hold the temperature", low))
 
     t_single = None
+    out.direction = _direction(low)
     if t_range:
         ch["t_start_c"], ch["t_end_c"] = float(t_range.group(1)), float(t_range.group(2))
     else:
-        m = re.search(rf"(?:to|up to|until|at)\s*{_NUM}{_DEG}", low) or re.search(rf"{_NUM}{_DEG}", low)
+        m = re.search(rf"(?:to|up to|until|at)\s*{_NUM}{_DEG}", low) or re.search(rf"{_NUM}{_DEG}", low) \
+            or (out.direction and re.search(rf"\b(?:to|until)\s*{_NUM}(?!\d|\.\d|\s*(?:%|[a-z]|/|×))", low))
         if m:
             t_single = float(m.group(1))
     if t_single is not None:
@@ -321,6 +352,9 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
                 or (key == "gsl_brine" and re.search(r"\bsalt\s+lake\b", named)) \
                 or (key == "hydrothermal" and re.search(r"\bhydrothermal\s+fluid\b", named)):
             ch["fluid"] = key
+    out.from_result = bool(_FROM_RESULT.search(low))
+    if out.from_result:
+        ch.pop("fluid", None)                          # "the seawater heating run" names the old run
     mix = _MIX.search(low)
     if mix:
         first, second = _fluid_key(mix.group("a") or ""), _fluid_key(mix.group("b"))
