@@ -17,6 +17,7 @@ function render(s) {
   $("f-activity_model").value = c.activity_model;
   $("f-gas_phase").value = c.gas_phase === false ? "false" : "true";
   $("f-solid_solutions").value = c.solid_solutions ? "true" : "false";
+  $("f-clay_edges").value = c.clay_edges === false ? "false" : "true";
   $("f-follow_phase").value = c.follow_phase || "whole";
   $("f-isotopes").value = c.isotopes ? "true" : "false";
   $("f-methane_sulfate").value = c.methane_sulfate || "apart";
@@ -175,6 +176,7 @@ for (const k of ["analysis", "units", "ph", "fluid_t_c", "fluid_p_bar", "charge_
 $("f-activity_model").addEventListener("change", (ev) => edit("activity_model", ev.target.value));
 $("f-gas_phase").addEventListener("change", (ev) => edit("gas_phase", ev.target.value === "true"));
 $("f-solid_solutions").addEventListener("change", (ev) => edit("solid_solutions", ev.target.value === "true"));
+$("f-clay_edges").addEventListener("change", (ev) => edit("clay_edges", ev.target.value === "true"));
 $("f-follow_phase").addEventListener("change", (ev) => edit("follow_phase", ev.target.value));
 $("f-isotopes").addEventListener("change", (ev) => edit("isotopes", ev.target.value === "true"));
 $("f-methane_sulfate").addEventListener("change", (ev) => edit("methane_sulfate", ev.target.value));

@@ -564,6 +564,8 @@ def change_bits(ch: dict, card: Scenario) -> list[str]:
     clays = [(c, ch[f"{c}_g"]) for c in ("kaolinite", "illite", "montmorillonite") if f"{c}_g" in ch]
     if clays:
         bits.append(", ".join(f"{g:g} g {c}" if g else f"no {c}" for c, g in clays))
+    if "clay_edges" in ch:
+        bits.append("clay edge sites bind metals" if ch["clay_edges"] else "clays exchange only (no edge sites)")
     if "kd_solid_g" in ch:
         bits.append(f"{ch['kd_solid_g']:g} g of solid holding metals by Kd" if ch["kd_solid_g"] else "no Kd solid")
     if "kd_medium" in ch:
@@ -761,6 +763,9 @@ def _clay_options(low: str) -> dict:
             out[f"{clay_name(m.group(3))}_g"] = grams
         for m in re.finditer(rf"\b(?:no|without)\s+{_CLAY_RE}\b", low):
             out[f"{clay_name(m.group(1))}_g"] = 0.0
+    if re.search(r"\bedge[- ]?sites?\b|\bsurface complexation\b|\b2spne\b", low):
+        out["clay_edges"] = not re.search(r"\b(?:no|without|turn off|switch off|disable|drop)\b[^.]*"
+                                          r"(?:edge|surface complexation|2spne)", low)
     if re.search(r"\b(?:no|without|remove(?: the)?)\s+(?:the\s+)?(?:kd|partition coefficients?)\b", low):
         out["kd_solid_g"] = 0.0
     else:

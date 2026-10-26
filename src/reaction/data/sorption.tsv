@@ -16,6 +16,10 @@ exchange	Cu+2 + 2 X- = CuX2	0.6
 exchange	Zn+2 + 2 X- = ZnX2	0.8	
 exchange	Cd+2 + 2 X- = CdX2	0.8	
 exchange	Pb+2 + 2 X- = PbX2	1.05	
+# Ni and Co are not in phreeqc.dat: Gaines-Thomas coefficients on Na-illite, Bradbury and Baeyens (2009)
+# Geochim. Cosmochim. Acta 73, 990-1003, Table 11.
+exchange	Ni+2 + 2 X- = NiX2	1.1	
+exchange	Co+2 + 2 X- = CoX2	1.3	
 exchange	Al+3 + 3 X- = AlX3	0.41	
 exchange	AlOH+2 + 2 X- = AlOHX2	0.89	
 surface	Hfo_sOH + H+ = Hfo_sOH2+	7.29	
