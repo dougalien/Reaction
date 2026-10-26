@@ -28,6 +28,10 @@ PROCESS_FIELDS = {"reactants": "reactants", "mix_with": "mixing", "evaporate": "
                   "follow_phase": "phase following"}
 
 
+GREETING = ("Tell me what to model, for example: \"heat seawater to 350 C at 500 bar\". "
+            "You can also edit the card by hand.")
+
+
 class Session:
     def __init__(self, workspace: Path, engine: Engine, model: Ollama | None):
         self.workspace = Path(workspace)
@@ -51,8 +55,7 @@ class Session:
         self._llm_ok = False
         self._load()
         if not self.chat:
-            self.say("assistant", "Tell me what to model, for example: \"heat seawater to 350 C at "
-                                  "500 bar\". You can also edit the card by hand.", log=False)
+            self.say("assistant", GREETING, log=False)
 
     # ---- persistence --------------------------------------------------------------------------
     @property
@@ -170,6 +173,13 @@ class Session:
             self.chat.append({"role": role, "text": text, "t": time.strftime("%H:%M")})
             if log:
                 self._save()
+
+    def clear_chat(self) -> None:
+        """Empty the chat window (and the history the language model reads); the card and runs stay."""
+        with self.lock:
+            self.chat = []
+            self.say("assistant", GREETING)
+        self._publish()
 
     def check_model(self) -> bool:
         ok = bool(self.model and self.model.available())
