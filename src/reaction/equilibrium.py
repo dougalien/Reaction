@@ -852,7 +852,10 @@ def equilibrate(system: System, temperature_c: float, bulk: dict[str, float], *,
     for sb in sorbs:
         v = last["sorb"][at:at + sb.nvar]
         amounts_sb = sb.evaluate(last["u"], v, last["ionic"])[0]
-        sorbed.update({nm: float(a) for nm, a in zip(sb.names, amounts_sb)})
+        if hasattr(sb, "report"):                       # a linear sorber reports by element
+            sorbed.update(sb.report(amounts_sb))
+        else:
+            sorbed.update({nm: float(a) for nm, a in zip(sb.names, amounts_sb)})
         if isinstance(sb, sorption.Surface):
             potential = sb.potential_mv(v, temperature_c)
         at += sb.nvar

@@ -31,6 +31,7 @@
         <h2>Scenario card</h2>
         <button class="ghost" id="reset" title="Back to the default card">Reset</button>
       </div>
+      <div class="starts" id="starts" role="group" aria-label="Start from a ready-made card"><span class="small muted">Start from</span></div>
       <label class="f">Title<input id="f-title" type="text" placeholder="optional"></label>
       <div style="margin-top:8px">
         <div class="seg" id="kindseg" role="group" aria-label="Kind of run">
@@ -60,7 +61,8 @@
             <option value="mmolal">mmol/kg water</option><option value="molal">mol/kg water</option>
             <option value="meq/l">meq/L</option></select></label>
           <label class="f">pH<input id="f-ph" type="number" min="0" max="14" step="any"></label>
-          <label class="f">Measured at (&deg;C)<input id="f-fluid_t_c" type="number" min="0" max="300" step="any"></label>
+          <label class="f">Measured at (&deg;C)<input id="f-fluid_t_c" type="number" min="0" max="600" step="any"></label>
+          <label class="f" title="Pressure the analysis and pH refer to; empty means 1 bar (or the boiling curve above 100 C). Needed above 300 C">Measured at (bar)<input id="f-fluid_p_bar" type="number" min="1" max="5000" step="any" placeholder="1 bar"></label>
           <label class="f">Charge balance<select id="f-charge_balance"></select></label>
           <label class="f">Redox state<select id="f-redox"></select></label>
           <label class="f" id="redox-value-box">Value<input id="f-redox_value" type="number" step="any"></label>
@@ -81,6 +83,16 @@
       <label class="f" style="margin-top:8px" title="Extra runs with every log K shifted at random by its uncertainty (larger where the reliability check is worse); the plots then shade the middle 90% of them. 0 = a single run. Each run takes as long as the main one, spread over the processors">Uncertainty range (extra runs, 0 = off)<input id="f-uncertainty_runs" type="number" min="0" max="200" step="1"></label>
       <label class="f" style="margin-top:8px" title="Cation exchange sites per kg of water (Gaines-Thomas, PHREEQC constants); the exchanger starts in equilibrium with the fluid. 0 = none">Exchange sites (meq per kg water)<input id="f-exchange_meq" type="number" min="0" step="any"></label>
       <label class="f" style="margin-top:8px" title="Hydrous ferric oxide (ferrihydrite) per kg of water, with Dzombak and Morel surface complexation on its strong and weak sites. 0 = none">Ferric oxide surface (g per kg water)<input id="f-hfo_g" type="number" min="0" step="any"></label>
+      <div class="small muted" style="margin:10px 0 4px" title="Clay minerals per kg of water. Each carries exchange sites at its cation exchange capacity (kaolinite 20, illite 225, montmorillonite 764 meq per kg of clay); the Partition coefficients tab of the results gives each metal's Kd on each clay">Clays (g per kg water, 0 = none)</div>
+      <div class="grid3">
+        <label class="f">Kaolinite<input id="f-kaolinite_g" type="number" min="0" step="any"></label>
+        <label class="f">Illite<input id="f-illite_g" type="number" min="0" step="any"></label>
+        <label class="f">Montmorillonite<input id="f-montmorillonite_g" type="number" min="0" step="any"></label>
+      </div>
+      <div class="grid2" style="margin-top:8px">
+        <label class="f" title="Grams of sediment or soil per kg of water that hold metals by their partition coefficient Kd (Allison and Allison 2005, U.S. EPA). With clays or exchange sites on the card it holds only the metals they cannot exchange (Ni, Hg, As, Cr). 0 = none">Kd solid (g per kg water)<input id="f-kd_solid_g" type="number" min="0" step="any"></label>
+        <label class="f" title="Which set of partition coefficients the Kd solid uses">Kd values for<select id="f-kd_medium"><option value="sediment">Bed sediment</option><option value="suspended">Suspended matter</option><option value="soil">Soil</option></select></label>
+      </div>
       <div class="grid2" style="margin-top:8px">
         <label class="f" title="Plagioclase, alkali feldspar, carbonate, chlorite, epidote, garnet, olivine, pyroxenes, biotite and actinolite form as ideal mixtures of their endmembers instead of pure minerals">Solid solutions<select id="f-solid_solutions"><option value="false">Pure minerals only</option><option value="true">Can form</option></select></label>
         <label class="f" title="Where a saline fluid splits into brine and vapour (NaCl-H2O): follow the whole fluid, the brine as the vapour boils off, or the vapour as it leaves the brine behind">Follow<select id="f-follow_phase"><option value="whole">Whole fluid</option><option value="brine">Brine</option><option value="vapour">Vapour</option></select></label>

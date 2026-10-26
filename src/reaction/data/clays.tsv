@@ -1,0 +1,12 @@
+# Clay minerals as sorbents: cation exchange capacity (meq per kg of clay) and N2 (BET) surface area.
+# Kaolinite and montmorillonite: the Clay Minerals Society Source Clays KGa-1 (KGa-1b) and SWy-1 (SWy-2), from
+# van Olphen and Fripiat (1979, Data Handbook for Clay Materials and Other Non-metallic Minerals, Pergamon) as
+# listed by the Source Clays Repository (2.0 and 76.4 meq/100 g; 10.05 and 31.82 m2/g).
+# Illite: Na-illite du Puy, CEC 225 meq/kg, the value of the PSI clay sorption model (Marinich, Marques Fernandes,
+# Miron and Kulik 2024, ClaySor 2023, Nagra Technical Report NTB 23-05, Table A-1); no N2 area is used here.
+# The exchange constants are phreeqc.dat's (sorption.tsv): one set of Gaines-Thomas constants for every clay,
+# so the clays differ only in how many sites they carry.
+clay	cec_meq_per_kg	area_m2_per_g	sample	aliases
+kaolinite	20	10.05	KGa-1b	kaolin
+illite	225		illite du Puy	
+montmorillonite	764	31.82	SWy-1	smectite,bentonite

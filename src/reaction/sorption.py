@@ -8,8 +8,16 @@ Surface complexation (Dzombak and Morel 1990, hydrous ferric oxide): strong and 
 species n_i = K_i a(reactants) n(SOH) exp(-z_i F psi / RT), and the Gouy-Chapman relation between the surface
 charge and the potential psi (the diffuse layer is not given its own composition, as in PHREEQC's default).
 
+Clay minerals (``data/clays.tsv``): kaolinite, illite and montmorillonite carry exchange sites in proportion to
+their cation exchange capacity; they share the exchange constants above.
+
+Partition coefficients (``data/kd_allison_2005.tsv``, Allison and Allison 2005): a linear sorber holds Kd M times
+the dissolved amount of each metal, M being the mass of solid.  Every dissolved species of the metal is copied
+onto the solid in proportion (so the sorbed matter keeps its charge and ligands, and the fluid stays neutral);
+Kd is set by the element and, for chromium, its oxidation state.
+
 Data: ``data/sorption.tsv`` (PHREEQC's phreeqc.dat).  The log K are for 25 C; the exchange constants that have an
-enthalpy follow van 't Hoff, the rest are held at 25 C.
+enthalpy follow van 't Hoff, the rest are held at 25 C.  Partition coefficients are held at their values.
 """
 from __future__ import annotations
 
@@ -19,12 +27,17 @@ import re
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 
 from .thermo.electrostatics import epsilon
 
 DATA = Path(__file__).parent / "data" / "sorption.tsv"
+CLAYS = Path(__file__).parent / "data" / "clays.tsv"
+KD_DATA = Path(__file__).parent / "data" / "kd_allison_2005.tsv"
+KD_MEDIA = {"sediment": "bed sediment and its pore water", "suspended": "suspended matter in stream water",
+            "soil": "soil and soil water"}
 LN10 = math.log(10.0)
 FARADAY = 96485.33212            # C/mol
 GAS_R = 8.314462618              # J/mol/K
@@ -91,16 +104,88 @@ def reactions() -> tuple[Reaction, ...]:
     return tuple(out)
 
 
+def _table(path: Path) -> list[dict]:
+    rows = [line for line in path.read_text(encoding="utf-8").splitlines() if line and not line.startswith("#")]
+    return list(csv.DictReader(rows, delimiter="\t"))
+
+
+@dataclass(frozen=True)
+class Clay:
+    name: str
+    cec_eq_per_kg: float
+    area_m2_per_g: float | None
+    sample: str
+    aliases: tuple[str, ...]
+
+
+@lru_cache(maxsize=1)
+def clays() -> dict[str, Clay]:
+    out = {}
+    for r in _table(CLAYS):
+        out[r["clay"]] = Clay(r["clay"], float(r["cec_meq_per_kg"]) / 1000.0,
+                              float(r["area_m2_per_g"]) if r["area_m2_per_g"] else None, r["sample"],
+                              tuple(a.strip() for a in r["aliases"].split(",") if a.strip()))
+    return out
+
+
+def clay_name(word: str) -> str | None:
+    """The clay a word names (kaolinite, kaolin, smectite ...), or None."""
+    w = word.strip().lower()
+    for c in clays().values():
+        if w == c.name or w in c.aliases:
+            return c.name
+    return None
+
+
+@dataclass(frozen=True)
+class KdRow:
+    element: str
+    oxidation: int | None          # None: every oxidation state
+    medium: str
+    log_kd: float
+    stat: str
+    log_min: float
+    log_max: float
+    n: int | None
+
+    @property
+    def label(self) -> str:
+        return f"{self.element}({_roman(self.oxidation)})" if self.oxidation else self.element
+
+
+def _roman(n: int) -> str:
+    return {2: "II", 3: "III", 4: "IV", 5: "V", 6: "VI"}.get(n, str(n))
+
+
+@lru_cache(maxsize=1)
+def kd_table() -> tuple[KdRow, ...]:
+    return tuple(KdRow(r["element"], int(r["oxidation"]) if r["oxidation"] else None, r["medium"],
+                       float(r["log_kd"]), r["stat"], float(r["log_min"]), float(r["log_max"]),
+                       int(r["n"]) if r["n"] else None) for r in _table(KD_DATA))
+
+
+def kd_rows(medium: str, elements=None, skip=()) -> tuple[KdRow, ...]:
+    """The partition coefficients of one medium (sediment, suspended, soil), for ``elements`` (default all)
+    and leaving out the elements in ``skip``."""
+    if medium not in KD_MEDIA:
+        raise ValueError(f"unknown Kd medium {medium!r} (known: {', '.join(KD_MEDIA)})")
+    return tuple(r for r in kd_table() if r.medium == medium and r.element not in set(skip)
+                 and (elements is None or r.element in set(elements)))
+
+
 @dataclass(frozen=True)
 class Sorption:
-    """What sorbs in a system: exchange capacity (equivalents) and hydrous ferric oxide (grams), both for the
-    whole system (per kg of the starting water)."""
+    """What sorbs in a system: exchange capacity (equivalents), hydrous ferric oxide (grams) and a solid with
+    partition coefficients (kg of solid, and its Kd rows), all for the whole system (per kg of the starting
+    water)."""
     exchange_eq: float = 0.0
     hfo_g: float = 0.0
+    kd_solid_kg: float = 0.0
+    kd: tuple[KdRow, ...] = ()
 
     @property
     def active(self) -> bool:
-        return self.exchange_eq > 0 or self.hfo_g > 0
+        return self.exchange_eq > 0 or self.hfo_g > 0 or (self.kd_solid_kg > 0 and bool(self.kd))
 
 
 def _row(model, name: str):
@@ -262,6 +347,112 @@ class Surface:
         return 1000.0 * float(v[-1]) * GAS_R * (t_c + 273.15) / FARADAY
 
 
+def _oxidation(sp) -> float | None:
+    """Oxidation state of the one element other than H and O in a species made of it, H and O (CrO4-2: 6)."""
+    other = [(el, n) for el, n in sp.elements.items() if el not in ("H", "O")]
+    if len(other) != 1:
+        return None
+    el, n = other[0]
+    return (sp.charge - sp.elements.get("H", 0.0) + 2.0 * sp.elements.get("O", 0.0)) / n
+
+
+class LinearSorber:
+    """Partition coefficients: n(sorbed copy of species s) = Kd(s) M m(s), for every dissolved species s of a
+    metal with a Kd; no unknowns of its own."""
+    nvar = 0
+
+    def __init__(self, model, rows: tuple[KdRow, ...], solid_kg: float):
+        db = model.db
+        self.solid_kg = solid_kg
+        i_o2 = model.ib.get("O2(g)")
+        by_el: dict[str, list[KdRow]] = {}
+        for r in rows:
+            by_el.setdefault(r.element, []).append(r)
+
+        def pick(el, ox):
+            cands = by_el[el]
+            exact = [r for r in cands if r.oxidation is None or (ox is not None and abs(r.oxidation - ox) < 0.01)]
+            if exact:
+                return exact[0]
+            return cands[0] if ox is None else min(cands, key=lambda r: abs(r.oxidation - ox))
+
+        # each species once: (where, index) -> {element: (atoms of it, its Kd row)}
+        found: dict[tuple[str, int], dict[str, tuple[float, KdRow]]] = {}
+        for j, bname in enumerate(model.names):
+            sp = db.species.get(bname)
+            els = [el for el in (sp.elements if sp else ()) if el in by_el]
+            if len(els) != 1:
+                continue
+            el = els[0]
+            n_el = sp.elements[el]
+            ox_b = _oxidation(sp)
+            found.setdefault(("b", j), {})[el] = (n_el, pick(el, ox_b))
+            for k in np.nonzero(np.abs(model.nu[:, j]) > 1e-12)[0]:
+                c = float(model.nu[k, j])
+                ox = None
+                if ox_b is not None:          # O2 given off per atom: four electrons each
+                    ox = ox_b + (4.0 * float(model.nu[k, i_o2]) / (c * n_el) if i_o2 is not None else 0.0)
+                found.setdefault(("d", int(k)), {})[el] = (c * n_el, pick(el, ox))
+        names, rows_e, lnk, lead, held = [], [], [], [], []
+        self.used: dict[str, KdRow] = {}
+        for (where, i), els in found.items():
+            r = max((row for _, row in els.values()), key=lambda row: row.log_kd)   # two metals: the larger Kd
+            if where == "b":
+                name, e, off = model.names[i], np.eye(model.nbf)[i], 0.0
+            else:
+                name, e, off = model.dep_names[i], np.asarray(model.nu[i], dtype=float), float(model.logk_dep[i])
+            names.append(name)
+            rows_e.append(e)
+            lnk.append(LN10 * (r.log_kd - off) + math.log(solid_kg))
+            lead.append((where, i))
+            held.append({el: atoms for el, (atoms, _) in els.items()})
+            self.used[name] = r
+        self.names = names
+        self.sp = SimpleNamespace(e=np.array(rows_e).reshape(-1, model.nbf))
+        self.lnk = np.array(lnk)
+        self.lead, self.held = lead, held
+        self._model_names = list(model.names)
+        self.ln_g = np.zeros(len(names))
+
+    def set_gammas(self, lg_b_ln, lg_d_ln) -> None:
+        self.ln_g = np.array([lg_b_ln[i] if w == "b" else lg_d_ln[i] for w, i in self.lead])
+
+    def start(self, u):
+        return np.zeros(0)
+
+    def evaluate(self, u, v, ionic):
+        e = self.sp.e
+        n = np.exp(np.clip(self.lnk + e @ u - self.ln_g, -700.0, 300.0))
+        nbf = e.shape[1]
+        return (n, n @ e, e.T @ (n[:, None] * e), np.zeros((nbf, 0)), np.zeros(0), np.zeros((0, nbf)),
+                np.zeros((0, 0)))
+
+    def scale(self) -> float:
+        return 1.0
+
+    def report(self, n) -> dict[str, float]:
+        """Moles of each element held, as "Pb (Kd)"."""
+        out: dict[str, float] = {}
+        for held, a in zip(self.held, n):
+            for el, atoms in held.items():
+                out[f"{el} (Kd)"] = out.get(f"{el} (Kd)", 0.0) + float(a * atoms)
+        return out
+
+    def loading(self, molality: dict[str, float]) -> dict[str, float]:
+        """Moles of each component held in equilibrium with a fluid of the given species molalities (the fluid
+        unchanged, as the exchanger's starting load)."""
+        tot = np.zeros(self.sp.e.shape[1])
+        for name, e in zip(self.names, self.sp.e):
+            m = molality.get(name, 0.0)
+            if m > 0:
+                tot += self.factor(name) * m * e
+        return {nm: float(v) for nm, v in zip(self._model_names, tot) if abs(v) > 0}
+
+    def factor(self, name: str) -> float:
+        """Kd M of a species (litres of fluid whose dissolved load the solid holds)."""
+        return 10.0 ** self.used[name].log_kd * self.solid_kg
+
+
 def sorbents(sorption: Sorption | None, model, t_c: float, p_bar: float | None) -> list:
     if sorption is None or not sorption.active:
         return []
@@ -270,6 +461,10 @@ def sorbents(sorption: Sorption | None, model, t_c: float, p_bar: float | None) 
         out.append(Exchanger(model, sorption.exchange_eq, t_c))
     if sorption.hfo_g > 0:
         out.append(Surface(model, sorption.hfo_g, t_c, p_bar))
+    if sorption.kd_solid_kg > 0 and sorption.kd:
+        lin = LinearSorber(model, sorption.kd, sorption.kd_solid_kg)
+        if lin.names:
+            out.append(lin)
     return out
 
 

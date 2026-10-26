@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 
 from .names import pretty_mineral
+from .scenario import Scenario
 
 ELEMENT_WORDS = {"Mg": "magnesium", "Ca": "calcium", "S": "sulfur", "C": "carbon", "K": "potassium",
                  "Na": "sodium", "Cl": "chlorine", "Si": "silicon", "Fe": "iron", "Al": "aluminium",
@@ -232,7 +233,7 @@ def _sorption_clause(result: dict, run: dict) -> str:
     sc = result["scenario"]
     sorbed = run.get("sorbed") or {}
     bits = []
-    cec = sc.get("exchange_meq", 0.0) / 1000.0
+    cec = (sc.get("exchange_meq", 0.0) + Scenario.from_dict(sc).clay_meq) / 1000.0
     if cec > 0:
         last = max((i for i in range(len(run["properties"]["pH"])) if run["properties"]["pH"][i] is not None),
                    default=None)
@@ -247,6 +248,18 @@ def _sorption_clause(result: dict, run: dict) -> str:
             if shares:
                 bits.append("the exchange sites end up holding " + ", ".join(
                     f"{100 * f:.0f}% {ion}" for f, ion in shares) + " (by charge)")
+    part = run.get("partition") or {}
+    metals = ("Pb", "Cu", "Zn", "Cd", "Ni", "Hg", "As", "Cr")
+    kd = {}
+    for k, line in part.items():
+        el, where = k.split("|", 1)
+        vals = [v for v in line if v is not None]
+        if el in metals and vals:
+            kd.setdefault(el, []).append((vals[-1], where))
+    if kd:
+        bits.append("partition coefficients at the end (L/kg): " + "; ".join(
+            f"{el} " + ", ".join(f"{v:.3g} on {'bed sediment' if w == 'sediment' else w}" for v, w in sorted(vals, reverse=True))
+            for el, vals in sorted(kd.items(), key=lambda kv: -max(v for v, _ in kv[1]))))
     pot = [v for v in run["properties"].get("surface_potential_mV", []) if v is not None]
     if pot:
         bits.append(f"the ferric oxide surface potential goes from {pot[0]:+.0f} to {pot[-1]:+.0f} mV")

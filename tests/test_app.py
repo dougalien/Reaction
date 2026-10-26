@@ -556,3 +556,26 @@ def test_diagram_requests_in_the_chat_open_and_close_it(session):
     assert session.snapshot()["diagram"] == session.diagram
     session.handle_chat("close the diagram")
     assert session.diagram is None
+
+
+# ---- starting cards -----------------------------------------------------------------------------
+def test_starting_cards_load_from_the_chat_and_the_reset_button(session):
+    snap = session.snapshot()
+    assert [c["key"] for c in snap["starting_cards"]] == ["seawater", "freshwater", "brine", "hydrothermal", "stream"]
+    chat_and_wait(session, "load the brine card")
+    assert session.card.fluid == "gsl_brine" and session.card.activity_model == "pitzer"
+    assert "Brine card loaded" in session.chat[-1]["text"]
+    chat_and_wait(session, "hydrothermal scenario")
+    assert session.card.fluid == "hydrothermal" and session.card.mix_with == "seawater"
+    session.reset_card("freshwater")
+    assert session.card.fluid == "freshwater" and session.card.t_start_c == 25.0
+    session.reset_card()
+    assert session.card.to_dict() == Scenario().to_dict()
+
+
+def test_reset_endpoint_takes_a_starting_card(server):
+    assert request(server, "POST", "/api/reset", {"start": "hydrothermal"})[0] == 200
+    assert server.session.card.fluid == "hydrothermal"
+    assert request(server, "POST", "/api/reset", {"start": "nonsense"})[0] == 400
+    assert request(server, "POST", "/api/reset", {})[0] == 200
+    assert server.session.card.fluid == "seawater"

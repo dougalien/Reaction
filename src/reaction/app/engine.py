@@ -33,7 +33,8 @@ from ..network import PROTON, WATER
 from ..path import PathPoint, ReactionPath, Reactant, _composition_row, mineral_reactant
 from ..phasesep import phase_state, salinity_from_chloride
 from ..solidsolution import table as solid_solution_table
-from ..sorption import Sorption, exchanger_loading
+from .. import sorption as sorption_mod
+from ..sorption import LinearSorber, Sorption, exchanger_loading
 from ..speciation import PH, Couple, Eh, LogFO2, Molal, Pe, Speciation, speciate
 from ..thermo import validity
 from ..transport import Column
@@ -183,12 +184,13 @@ class Engine:
             _phase_split(run, points)
             notes.extend(phase_notes(run, points, MODE_LABELS[mode] if len(runs) > 1 else "",
                                      sc.follow_phase))
-        if sc.exchange_meq > 0 or sc.hfo_g > 0:
+        if sc.exchange_meq > 0 or sc.hfo_g > 0 or sc.clay_grams():
             notes.append("Sorption uses PHREEQC's constants (phreeqc.dat): Gaines-Thomas exchange, the exchange species "
                          "taking their cation's activity coefficient, and the Dzombak and Morel (1990) diffuse-layer model "
                          "for hydrous ferric oxide (89 g/mol Fe, 600 m2/g, 0.2 weak and 0.005 strong sites per Fe). "
                          "The constants are for 25 °C; exchange constants with an enthalpy follow van 't Hoff, the rest "
                          "are held at their 25 °C values.")
+        notes.extend(clay_notes(sc))
         if sc.solid_solutions:
             notes.append("Solid solutions mix ideally on their sites (the EQ3/6 models). Real carbonates and "
                          "feldspars unmix at low temperature, so there the minor endmember is overstated.")
@@ -297,6 +299,8 @@ class Engine:
         outlet = _pack(rows(res.outlet, outlet_at))
         profile = _pack(rows(res.profile, cells))
         start = _pack(rows(res.snapshots[0], cells))
+        for run in (outlet, profile, start):
+            add_partition(run, sc)
         rel_cells = self.reliability(cells)
         dx = sc.column_m / n
         pv_axis = {"key": "pore_volumes", "label": "Pore volumes", "unit": "of the column",
@@ -335,10 +339,11 @@ class Engine:
             notes.append(f"No equilibrium was found {len(res.failures)} times (first in cell {first[1] + 1} at "
                          f"shift {first[0]}: {first[2]}); those cells kept their last state, with their matter "
                          f"still counted.")
-        if sc.exchange_meq > 0 or sc.hfo_g > 0:
+        if sc.exchange_meq > 0 or sc.hfo_g > 0 or sc.clay_grams():
             notes.append("Sorption uses PHREEQC's constants (phreeqc.dat): Gaines-Thomas exchange and the Dzombak "
                          "and Morel (1990) diffuse-layer model for hydrous ferric oxide; the exchanger and the "
                          "surface start in equilibrium with the pore fluid.")
+        notes.extend(clay_notes(sc))
         notes = [x for x in notes if not x.startswith("water density")]
         notes.extend(reliability_notes(cells, rel_cells, sc.varies))
         notes.extend(fluid.caveats)
@@ -395,7 +400,7 @@ class Engine:
         basis = [b for b in sp0.basis_names if b not in (WATER, PROTON)]
         added = self._reactant_names(sc)
         for name in added.values():                      # components the fluid does not carry yet
-            elements = (rocks.elements_per_gram(rocks.ROCKS[name[5:]])[0] if name.startswith("rock:")
+            elements = (rocks.elements_per_gram(rocks.get(name[5:]))[0] if name.startswith("rock:")
                         else db.species[name].elements)
             for el in elements:
                 if name.startswith("rock:") and (el == "Fe3" or DEFAULT_MASTERS.get(el) is None):
@@ -422,7 +427,7 @@ class Engine:
         hold = [b for b in basis if db.species[b].kind != Kind.BASIS]     # CH4, held apart
         blocked = {b.lower() for b in sc.blocked_minerals}
         mixes = [ss for ss in solid_solution_table() if ss.name not in blocked] if sc.solid_solutions else []
-        sorb = Sorption(exchange_eq=sc.exchange_meq / 1000.0, hfo_g=sc.hfo_g)
+        sorb = sorption_for(sc)
         system = System(db, [b for b in basis if b not in hold], activity_model=sc.activity_model,
                         gas_phase=sc.gas_phase, hold_apart=hold, solid_solutions=mixes,
                         sorption=sorb if sorb.active else None)
@@ -438,6 +443,13 @@ class Engine:
             gam = {n: st.log_activity * math.log(10.0) - math.log(st.molality)
                    for n, st in sp0.species.items() if st.molality > 0}
             for comp, moles in exchanger_loading(model, u, sorb.exchange_eq, t0, gam).items():
+                bulk0[comp] = bulk0.get(comp, 0.0) + moles
+        if sorb.kd_solid_kg > 0 and sorb.kd:
+            # so does the solid with partition coefficients: Kd M times each dissolved species of its metals
+            model = system.model(sp0.temperature_c, sp0.pressure_bar)
+            held = LinearSorber(model, sorb.kd, sorb.kd_solid_kg).loading(
+                {n: st.molality for n, st in sp0.species.items()})
+            for comp, moles in held.items():
                 bulk0[comp] = bulk0.get(comp, 0.0) + moles
         return sp0, fluid_notes, added, mix, system, bulk0
 
@@ -486,7 +498,7 @@ class Engine:
         for r in sc.reactants:
             name = names[r["name"]]
             if name.startswith("rock:"):                 # dissolves congruently, never precipitates
-                rock = rocks.ROCKS[name[5:]]
+                rock = rocks.get(name[5:])
                 comp, rock_notes = rocks.components_per_gram(rock, self.db, system.basis)
                 if notes is not None:
                     notes.extend(n for n in rock_notes if n not in notes)
@@ -568,7 +580,7 @@ class Engine:
         def solve(balance_on=None):
             if kind != "couple":
                 return speciate(db, fluid.measured_t_c, constraints, redox=redox,
-                                balance_on=balance_on, activity_model=sc.activity_model)
+                                pressure_bar=fluid.measured_p_bar, balance_on=balance_on, activity_model=sc.activity_model)
             own = dict(constraints)
             partner = analysis.REDOX[arg]
             if partner is not None:
@@ -576,15 +588,15 @@ class Engine:
                 own[partner] = Molal(rest)
             own[arg] = Molal(molal[arg])
             first = speciate(db, fluid.measured_t_c, own, redox=Couple(arg),
-                             balance_on=balance_on, activity_model=sc.activity_model)
+                             pressure_bar=fluid.measured_p_bar, balance_on=balance_on, activity_model=sc.activity_model)
             return speciate(db, fluid.measured_t_c, constraints, redox=LogFO2(first.log_fo2),
-                            balance_on=balance_on, activity_model=sc.activity_model)
+                            pressure_bar=fluid.measured_p_bar, balance_on=balance_on, activity_model=sc.activity_model)
         notes = list(read.notes)
         sp = solve()
         if kind != "none":
             how = {"air": "equilibrium with air", "log_fo2": "the log fO2 given",
                    "eh": "the Eh given", "pe": "the pe given"}.get(
-                kind, f"dissolved {analysis.SOLUTES_LABEL(arg) if arg else ''}")
+                kind, f"dissolved {analysis.SOLUTES_LABEL(arg) if kind == 'couple' else ''}")
             notes.append(f"Redox state from {how}: log fO2 {sp.log_fo2:.1f}, Eh {sp.eh_volts:+.2f} V "
                          f"at {fluid.measured_t_c:g} C.")
         equivalents = sum(abs(analysis.SOLUTES[n][0]) * m for n, m in molal.items()) or 1.0
@@ -642,6 +654,7 @@ class Engine:
         solved = path.run([i * step for i in range(n)], on_failure=failed, progress=tick)
         kinetic = [r for r in reactants if r.kinetic]
         run = _pack([None if pt is None else self._record(db, pt, kinetic) for pt in solved])
+        add_partition(run, sc)
         if separate is not None:
             run["split"] = [split.get(round(i * step, 9)) for i in range(n)]
         if sc.isotopes:
@@ -972,6 +985,95 @@ class Engine:
                 "surface_potential_mV": state.surface_potential_mv}
 
 
+def add_partition(run: dict, sc: Scenario) -> None:
+    """Partition coefficients along a run, L/kg: what each clay holds of an element per kg of clay over the
+    element's dissolved molality (the clays share one exchanger, so each holds in proportion to its exchange
+    capacity), and the same for the Kd solid.  Stored as run["partition"]["Pb|montmorillonite"]."""
+    clays = sc.clay_grams()
+    sorb = sorption_for(sc)
+    sorbed, elements = run.get("sorbed") or {}, run.get("elements") or {}
+    if not sorbed or not (clays or sorb.kd_solid_kg > 0):
+        return
+    n = len(next(iter(sorbed.values())))
+    held: dict[str, list] = {}                         # element -> moles on the exchanger at each point
+    for key, vals in sorbed.items():
+        m = re.fullmatch(r"([A-Z][a-z]?)\w*?X(\d*)", key)
+        if key.endswith(" (Kd)") or key.startswith("Hfo_") or not m:
+            continue
+        el = m.group(1)
+        acc = held.setdefault(el, [0.0] * n)
+        for i, v in enumerate(vals):
+            acc[i] = None if v is None or acc[i] is None else acc[i] + v
+    out: dict[str, list] = {}
+
+    def ratio(a, d, per_kg):
+        return None if a is None or not d or d <= 0 else _sig(a / per_kg / d)
+    for el, moles in held.items():
+        dissolved = elements.get(el)
+        if not dissolved:
+            continue
+        for clay in clays:
+            cec = sorption_mod.clays()[clay].cec_eq_per_kg
+            out[f"{el}|{clay}"] = [ratio(a, d, sorb.exchange_eq / cec) for a, d in zip(moles, dissolved)]
+    for key, moles in sorbed.items():
+        if key.endswith(" (Kd)") and sorb.kd_solid_kg > 0:
+            el = key[:-5]
+            if elements.get(el):
+                out[f"{el}|{sc.kd_medium}"] = [ratio(a, d, sorb.kd_solid_kg) for a, d in zip(moles, elements[el])]
+    if out:                                            # heavy metals first, then the major cations
+        first = ("Pb", "Cu", "Zn", "Cd", "Ni", "Hg", "As", "Cr")
+        rank = lambda k: (first.index(k.split("|")[0]) if k.split("|")[0] in first else len(first), k)  # noqa: E731
+        run["partition"] = {k: out[k] for k in sorted(out, key=rank)}
+
+
+def clay_notes(sc: Scenario) -> list[str]:
+    """What the clays and the partition coefficients on the card stand for, with their sources."""
+    notes = []
+    clays = sc.clay_grams()
+    if clays:
+        table = sorption_mod.clays()
+        parts = [f"{c} {table[c].cec_eq_per_kg * 1000:g} meq/kg ({table[c].sample})" for c in clays]
+        notes.append(f"The clays carry {sc.clay_meq:.3g} meq of exchange sites per kg of water ({'; '.join(parts)}; "
+                     "kaolinite and montmorillonite from the Clay Minerals Society Source Clays, van Olphen and Fripiat "
+                     "1979; illite du Puy from the PSI clay sorption model, Nagra NTB 23-05). All clays use phreeqc.dat's "
+                     "Gaines-Thomas exchange constants, so they differ only in capacity; the Partition coefficients "
+                     "tab gives each metal's Kd on each clay. Metal binding on the clays' edge sites (surface "
+                     "complexation, which dominates above about pH 6 at trace loadings) is not included yet, so "
+                     "the clays here hold Pb, Cu, Zn and Cd less strongly than real clays do at neutral pH.")
+    if sc.kd_solid_g > 0:
+        rows = sorption_for(sc).kd
+        if rows:
+            vals = ", ".join(f"{r.label} 10^{r.log_kd:g}" for r in rows)
+            notes.append(f"Partition coefficients (L/kg, {sc.kd_medium}) from Allison and Allison (2005, U.S. EPA "
+                         f"EPA/600/R-05/074), {'medians' if all(r.stat == 'median' for r in rows) else 'medians or means'}: "
+                         f"{vals}. Every dissolved species of the metal is held in proportion; the reported ranges span "
+                         "two to five orders of magnitude, so treat the result as a central estimate."
+                         + (" With exchange sites on the card the Kd is used only for metals without an exchange "
+                            "constant." if sorption_for(sc).exchange_eq > 0 else ""))
+        else:
+            notes.append("No metal on this card has a partition coefficient that applies (the exchange sites "
+                         "already hold the others).")
+    return notes
+
+
+def exchanged_elements() -> set[str]:
+    """Elements with an exchange constant (phreeqc.dat): Na, K, Ca, Mg ... and Mn, Fe, Cu, Zn, Cd, Pb, Al."""
+    return {re.match(r"[A-Z][a-z]?", next(iter(r.reactants))).group(0)
+            for r in sorption_mod.reactions() if r.kind == "exchange"}
+
+
+def sorption_for(sc: Scenario) -> Sorption:
+    """The card's sorbents: exchange sites (given directly and carried by the clays), ferric oxide, and a solid
+    with partition coefficients.  With exchange sites present the Kd is used only for the metals that have
+    no exchange constant (so a metal is not held twice)."""
+    clay_eq = sum(g / 1000.0 * sorption_mod.clays()[c].cec_eq_per_kg for c, g in sc.clay_grams().items())
+    exchange_eq = sc.exchange_meq / 1000.0 + clay_eq
+    kd: tuple = ()
+    if sc.kd_solid_g > 0:
+        kd = sorption_mod.kd_rows(sc.kd_medium, skip=exchanged_elements() if exchange_eq > 0 else ())
+    return Sorption(exchange_eq=exchange_eq, hfo_g=sc.hfo_g, kd_solid_kg=sc.kd_solid_g / 1000.0, kd=kd)
+
+
 def reliability_notes(points: list[tuple[float, float]], rels: list[validity.Reliability],
                       varies: list[str]) -> list[str]:
     """One sentence per stretch of the path where the thermodynamics is not 'good'."""
@@ -1209,9 +1311,17 @@ def _catalog(db, runs: dict[str, dict], sc: Scenario) -> dict:
                 isotope[k] = {"label": "87Sr/86Sr of the fluid", "unit": "ratio"}
             else:
                 isotope[k] = {"label": f"δ{what[1:]} {shown}", "unit": f"‰ {isotopes.STANDARDS[what]}"}
-    sorbed = {}
+    sorbed, partition = {}, {}
+    kd_words = {"sediment": "bed sediment", "suspended": "suspended matter", "soil": "soil"}
     for run in runs.values():
+        for k in run.get("partition", {}):
+            el, where = k.split("|", 1)
+            partition[k] = {"label": f"{el} on {kd_words.get(where, where) if where in kd_words else where}"
+                            + (" (Kd)" if where in kd_words else ""), "unit": "L/kg"}
         for k in run.get("sorbed", {}):
+            if k.endswith(" (Kd)"):
+                sorbed[k] = {"label": f"{k[:-5]} held by partition coefficient (Kd)", "unit": "mol"}
+                continue
             if k.startswith("Hfo_"):
                 site = "strong" if k.startswith("Hfo_s") else "weak"
                 sorbed[k] = {"label": f"{k[5:]} on ferric oxide ({site} sites)", "unit": "mol"}
@@ -1220,7 +1330,7 @@ def _catalog(db, runs: dict[str, dict], sc: Scenario) -> dict:
                 sorbed[k] = {"label": f"{ion} on exchange sites ({k})", "unit": "mol"}
     return {"species": species, "elements": elements, "minerals": minerals, "gas": gases,
             "kinetic": kinetic, "composition": composition, "phases": phases, "isotopes": isotope,
-            "sorbed": sorbed}
+            "sorbed": sorbed, "partition": partition}
 
 
 def _mw(db, name: str) -> float | None:

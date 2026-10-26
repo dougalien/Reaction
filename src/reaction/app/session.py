@@ -10,11 +10,11 @@ import traceback
 from pathlib import Path
 
 from .assistant import Interpretation, Ollama, interpret
-from . import analysis, diagrams
+from . import analysis, carryover, diagrams
 from .engine import Engine, EngineUnavailable
 from .fluids import CUSTOM, CUSTOM_LABEL, PRESETS
 from .narrate import story
-from .scenario import Scenario
+from .scenario import STARTING_CARDS, Scenario, starting_card
 from .view import apply_patch, default_view, resolve_item, sanitize
 
 KEEP_CHAT = 80
@@ -120,10 +120,12 @@ class Session:
                     "fluid_read": {**analysis.preview(spec.analysis, spec.units),
                                    "analysis": spec.analysis, "units": spec.units,
                                    "ph": spec.ph if spec.ph == spec.ph else None,   # NaN is not JSON
-                                   "measured_t_c": spec.measured_t_c,
+                                   "measured_t_c": spec.measured_t_c, "measured_p_bar": spec.measured_p_bar,
                                    "charge_balance": spec.charge_balance,
                                    "redox": spec.redox, "redox_value": spec.redox_value,
                                    "redox_species": _couples(analysis.parse(spec.analysis, spec.units).species)},
+                    "starting_cards": [{"key": c.key, "label": c.label, "description": c.description}
+                                       for c in STARTING_CARDS.values()],
                     "card_problems": self.card_problems(), "advisories": advice,
                     "chat": self.chat[-KEEP_CHAT:],
                     "run": dict(self.run_state), "runs": self.list_runs(), "current": self.current,
@@ -191,6 +193,14 @@ class Session:
             self.say("assistant", "Card reset to the defaults.")
             self._publish()
             return
+        start = _starting_card_named(text)
+        if start is not None:
+            self.reset_card(start)
+            card = STARTING_CARDS[start]
+            self.say("assistant", f"{card.label} card loaded. {card.description} Change anything on the card, "
+                                  "then run it.")
+            self._publish()
+            return
         request = diagrams.parse_request(text)
         if request is not None:
             self.say("assistant", self.set_diagram(request, publish=False))
@@ -204,9 +214,10 @@ class Session:
 
     def _apply(self, got: Interpretation, result: dict | None) -> None:
         notes: list[str] = []
-        new, problems = self.card.changed(got.scenario_changes)
+        changes, carried, blocked = self._carry(got, result)
+        new, problems = self.card.changed(changes)
         notes += problems
-        if got.scenario_changes:
+        if changes:
             self.card = new
         if got.mode_mentioned or "mode" in got.scenario_changes:
             self.mode_confirmed = True
@@ -241,7 +252,13 @@ class Session:
         # answering the mode question counts as the go-ahead for the run that prompted it
         want_run = got.run or (self.pending_run and (got.mode_mentioned or "mode" in got.scenario_changes))
         self.pending_run = False
-        run_now = want_run and not got.question
+        run_now = want_run and not got.question and not blocked
+        if run_now and result is not None and not got.again and self.card.to_dict() == result.get("scenario"):
+            run_now = False                             # the chat understood nothing new: say so, don't repeat
+            notes.append("Nothing on the card changed from the last run, so I have not run it again. "
+                         "Say what to change, or \"run it again\".")
+        if blocked:
+            notes.append(blocked)
         if run_now and problems_now:
             reply = (reply + " I can't run that yet: " + "; ".join(problems_now) + ".").strip()
             run_now = False
@@ -262,6 +279,8 @@ class Session:
             else:
                 notes.append(f"{name.capitalize()} does not change in this run, so it cannot be the "
                              f"horizontal axis.")
+        if carried:
+            reply = (carried + " " + reply).strip()
         if got.question:
             reply = (reply + " " + got.question).strip()
         if notes:
@@ -277,6 +296,44 @@ class Session:
         self.say("assistant", reply)
         if run_now:
             self.start_run()
+
+    def _carry(self, got: Interpretation, result: dict | None) -> tuple[dict, str, str]:
+        """The card changes to make, with the fluid at the end of the last run as the starting fluid when the
+        user asked for it ("take that fluid and cool it to 25 C"), or when they asked to cool and only the
+        last run's fluid is hotter than where they want to go.  Returns (changes, what was carried, why the
+        run must wait)."""
+        changes = dict(got.scenario_changes)
+        trial, _ = self.card.changed(changes)
+        t0, t1 = trial.t_start_c, trial.t_end_c
+        wrong_way = ((got.direction == "cool" and t1 > t0) or (got.direction == "heat" and t1 < t0)) \
+            and "t_start_c" not in changes
+        end = carryover.end_point(result) if result is not None else None
+        carry = got.from_result or (wrong_way and end is not None and "fluid" not in changes and (
+            end[2] > t1 if got.direction == "cool" else end[2] < t1))
+        if not carry and wrong_way and "fluid" in changes:
+            start = Scenario().t_start_c                # a newly named fluid starts where a fresh card does
+            if (start < t1) == (got.direction == "heat"):
+                return {**changes, "t_start_c": start}, f"Starting the {got.direction}ing at {start:g} °C.", ""
+        if not carry:
+            if wrong_way:
+                verb = "cool" if got.direction == "cool" else "heat"
+                return changes, "", (f"That would {'heat' if verb == 'cool' else 'cool'} the fluid from {t0:g} to "
+                                     f"{t1:g} °C, not {verb} it, so I have not run it. Give the start temperature, "
+                                     f"or say \"take the fluid from the last run\".")
+            return changes, "", ""
+        if result is None:
+            return changes, "", "There is no run yet to take the fluid from, so I have not run anything."
+        try:
+            fluid, note = carryover.fluid_from_result(result)
+        except ValueError as exc:
+            return changes, "", f"I could not take the fluid from the last run: {exc}."
+        for single, pair in (("temperature_c", ("t_start_c", "t_end_c")), ("pressure_bar", ("p_start_bar", "p_end_bar"))):
+            if single in changes:                       # the user's held value replaces both ends
+                for k in pair:
+                    fluid.pop(k)
+        if "p_end_bar" in changes and "p_start_bar" not in changes:
+            fluid.pop("p_end_bar")
+        return {**fluid, **changes}, note, ""
 
     # ---- diagrams ---------------------------------------------------------------------------------
     def set_diagram(self, request: dict, publish: bool = True) -> str:
@@ -317,9 +374,10 @@ class Session:
         self._publish()
         return problems
 
-    def reset_card(self) -> None:
+    def reset_card(self, start: str = "seawater") -> None:
+        """Back to a fresh card: the default one, or one of the starting cards."""
         with self.lock:
-            self.card = Scenario()
+            self.card = starting_card(start)
             self.mode_confirmed = False
             self._save()
         self._publish()
@@ -463,6 +521,20 @@ class Session:
         with self.lock:
             self.run_state = {"state": "error", "progress": 0.0, "message": "", "error": message}
             self.say("assistant", f"The run failed: {message}")
+
+
+_STARTING_WORDS = {"seawater": r"sea\s*water", "freshwater": r"fresh\s*water|river\s*water",
+                   "brine": r"brine|(?:great\s+)?salt\s+lake", "hydrothermal": r"hydrothermal(?:\s+fluid)?",
+                   "stream": r"(?:contaminated\s+)?stream|contaminated\s+site"}
+
+
+def _starting_card_named(text: str) -> str | None:
+    """The starting card a message asks for on its own: "brine card", "load the fresh water scenario"."""
+    for key, words in _STARTING_WORDS.items():
+        if re.fullmatch(rf"\s*(?:(?:load|use|open|start\s+(?:from|with)|give\s+me|new)\s+)?(?:the\s+|a\s+)?"
+                        rf"(?:{words})\s+(?:scenario\s+)?(?:card|scenario)\s*[.!]?\s*", text, re.I):
+            return key
+    return None
 
 
 def _couples(species: list[str]) -> list[str]:

@@ -40,12 +40,42 @@ ROCKS: dict[str, Rock] = {
 _OXIDE = re.compile(r"([A-Z][a-z]?)(\d*)O(\d*)$")
 
 
+DEFAULT_FO = 90.0
+_OLIVINE = re.compile(r"(?:(?:olivine|ol)\s*\(?\s*fo\s*(?P<a>\d+(?:\.\d+)?)\s*\)?|fo\s*(?P<b>\d+(?:\.\d+)?)"
+                      r"(?:\s+olivine)?|(?P<plain>olivine))")
+
+
+def olivine(fo: float = DEFAULT_FO) -> Rock:
+    """Olivine (Mg,Fe)2SiO4 with ``fo`` mole percent forsterite, as a rock that dissolves congruently."""
+    x = fo / 100.0
+    w = ATOMIC_WEIGHTS
+    oxides = {"MgO": 2 * x * (w["Mg"] + w["O"]), "FeO": 2 * (1 - x) * (w["Fe"] + w["O"]),
+              "SiO2": w["Si"] + 2 * w["O"]}
+    total = sum(oxides.values())
+    return Rock(f"olivine_fo{fo:g}", f"Olivine (Fo{fo:g})", {k: 100.0 * v / total for k, v in oxides.items()},
+                0.0, f"stoichiometric olivine, {fo:g} mole percent forsterite; it dissolves congruently and "
+                     f"is not itself allowed to precipitate (forsterite, fayalite or the olivine solid "
+                     f"solution can form)", (f"olivine fo{fo:g}", f"fo{fo:g}"))
+
+
 def find(name: str) -> Rock | None:
     low = name.strip().lower().replace("_", " ")
     for rock in ROCKS.values():
         if low == rock.key.replace("_", " ") or low == rock.label.lower() or low in rock.names:
             return rock
+    m = _OLIVINE.fullmatch(re.sub(r"\s+", " ", low.replace("(", " ").replace(")", " ")).strip())
+    if m:
+        fo = float(m.group("a") or m.group("b") or DEFAULT_FO)
+        return olivine(fo) if 0.0 <= fo <= 100.0 else None
     return None
+
+
+def get(key: str) -> Rock:
+    """The rock with this key (a named rock, or an olivine such as ``olivine_fo88``)."""
+    rock = ROCKS.get(key) or find(key)
+    if rock is None:
+        raise KeyError(key)
+    return rock
 
 
 def elements_per_gram(rock: Rock) -> tuple[dict[str, float], dict[str, float]]:

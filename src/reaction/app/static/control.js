@@ -4,6 +4,7 @@ const $ = (id) => document.getElementById(id);
 let snap = null, waiting = false, chatCount = 0;
 
 let fluidKeys = "";
+let startKeys = "";
 
 function pill(el, text, kind) { el.textContent = text; el.className = "pill " + (kind || ""); }
 
@@ -11,6 +12,7 @@ function render(s) {
   snap = s;
   const c = s.card;
   setIfIdle($("f-title"), c.title);
+  renderStarts(s);
   renderFluid(s);
   $("f-activity_model").value = c.activity_model;
   $("f-gas_phase").value = c.gas_phase === false ? "false" : "true";
@@ -20,7 +22,8 @@ function render(s) {
   $("f-methane_sulfate").value = c.methane_sulfate || "apart";
   $("f-kinetics").value = c.kinetics ? "true" : "false";
   $("f-duration_unit").value = c.duration_unit || "years";
-  for (const k of ["duration", "surface_area_cm2_per_g", "evaporate", "uncertainty_runs", "exchange_meq", "hfo_g"]) setIfIdle($("f-" + k), c[k]);
+  for (const k of ["duration", "surface_area_cm2_per_g", "evaporate", "uncertainty_runs", "exchange_meq", "hfo_g",
+    "kaolinite_g", "illite_g", "montmorillonite_g", "kd_solid_g", "kd_medium"]) setIfIdle($("f-" + k), c[k]);
   document.querySelectorAll(".kin").forEach((el) => { el.style.display = c.kinetics ? "" : "none"; });
   $("reactant-hint").textContent = c.kinetics
     ? "(what is there at the start, per kg of water; minerals without a measured rate are added steadily)"
@@ -120,6 +123,7 @@ function renderFluid(s) {
     $("f-units").value = read.units;
     setIfIdle($("f-ph"), read.ph === null ? "" : read.ph);
     setIfIdle($("f-fluid_t_c"), read.measured_t_c);
+    setIfIdle($("f-fluid_p_bar"), read.measured_p_bar ?? "");
     const ions = read.lines.filter((l) => l.charge !== 0).map((l) => l.species);
     const opts = [["auto", "Auto"], ["none", "None (use as given)"], ...ions.map((i) => [i, "On " + i])];
     if (!opts.some(([v]) => v === read.charge_balance)) opts.push([read.charge_balance, "On " + read.charge_balance]);
@@ -137,7 +141,7 @@ function renderFluid(s) {
     if (needsValue) setIfIdle($("f-redox_value"), read.redox_value === null ? "" : read.redox_value);
   }
   const n = read.lines.length;
-  $("fluid-sum").textContent = n ? `As read: ${n} solute${n > 1 ? "s" : ""}, pH ${read.ph ?? "not given"} at ${read.measured_t_c} °C, ` +
+  $("fluid-sum").textContent = n ? `As read: ${n} solute${n > 1 ? "s" : ""}, pH ${read.ph ?? "not given"} at ${read.measured_t_c} °C${read.measured_p_bar ? " and " + read.measured_p_bar + " bar" : ""}, ` +
     `${fmtVal(read.tds_mg_per_kg)} mg/kg dissolved solids` : "Nothing read yet";
   const rows = read.lines.map((l) => h("tr", {}, h("td", {}, l.written), h("td", {}, `${l.value} ${l.unit}`),
     h("td", { class: "muted" }, l.molal === null ? "" : fmtVal(l.molal) + " mol/kg water")));
@@ -165,7 +169,7 @@ for (const k of ["title", "p_start_bar", "p_end_bar", "t_start_c", "t_end_c", "s
   $("f-" + k).addEventListener("change", (ev) => edit(k, ev.target.value));
 }
 $("f-fluid").addEventListener("change", (ev) => edit("fluid", ev.target.value));
-for (const k of ["analysis", "units", "ph", "fluid_t_c", "charge_balance", "redox", "redox_value", "mix_with", "mix_ratio", "mix_t_c"]) {
+for (const k of ["analysis", "units", "ph", "fluid_t_c", "fluid_p_bar", "charge_balance", "redox", "redox_value", "mix_with", "mix_ratio", "mix_t_c"]) {
   $("f-" + k).addEventListener("change", (ev) => edit(k, ev.target.value));
 }
 $("f-activity_model").addEventListener("change", (ev) => edit("activity_model", ev.target.value));
@@ -175,7 +179,8 @@ $("f-follow_phase").addEventListener("change", (ev) => edit("follow_phase", ev.t
 $("f-isotopes").addEventListener("change", (ev) => edit("isotopes", ev.target.value === "true"));
 $("f-methane_sulfate").addEventListener("change", (ev) => edit("methane_sulfate", ev.target.value));
 $("f-kinetics").addEventListener("change", (ev) => edit("kinetics", ev.target.value === "true"));
-for (const k of ["duration", "duration_unit", "surface_area_cm2_per_g", "evaporate", "uncertainty_runs", "exchange_meq", "hfo_g"]) {
+for (const k of ["duration", "duration_unit", "surface_area_cm2_per_g", "evaporate", "uncertainty_runs", "exchange_meq", "hfo_g",
+  "kaolinite_g", "illite_g", "montmorillonite_g", "kd_solid_g", "kd_medium"]) {
   $("f-" + k).addEventListener("change", (ev) => edit(k, ev.target.value));
 }
 document.querySelectorAll("#modeseg button").forEach((b) => b.addEventListener("click", () => edit("mode", b.dataset.mode)));
@@ -200,6 +205,17 @@ $("add-reactant").addEventListener("keydown", async (ev) => {
 $("add-reactant").addEventListener("input", (ev) => ev.target.setCustomValidity(""));
 $("run").addEventListener("click", () => api("/api/run"));
 $("reset").addEventListener("click", () => api("/api/reset"));
+
+function renderStarts(s) {
+  const cards = s.starting_cards || [], keys = cards.map((c) => c.key).join();
+  if (keys === startKeys) return;
+  startKeys = keys;
+  $("starts").replaceChildren($("starts").firstElementChild, ...cards.map((c) => {
+    const b = h("button", { type: "button", title: c.description }, c.label);
+    b.addEventListener("click", () => api("/api/reset", { start: c.key }));
+    return b;
+  }));
+}
 $("open-results").addEventListener("click", () => {
   window.open("/results", "reaction-results", "popup=no");
 });

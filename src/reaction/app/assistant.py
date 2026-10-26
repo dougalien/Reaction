@@ -14,6 +14,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 
+from ..sorption import clay_name
 from . import analysis, config, rocks
 from .fluids import CUSTOM, PRESETS
 from .scenario import DEFAULT_UNCERTAINTY_RUNS, FIELD_HELP, Scenario
@@ -64,6 +65,8 @@ Rules:
 - "show" lists species, minerals, or properties to plot exactly as the user wrote them (for example
   "CaCl+", "anhydrite", "pH", "SO4--"). "hide" lists ones to remove. "axis" is log, linear or unchanged.
   "x_axis" is temperature, pressure or unchanged.
+- To go on from the fluid at the end of the last run ("take that fluid", "the result", "cool it back
+  down"), leave fluid and the start temperature and pressure alone: the calculator carries that fluid over.
 - Set run to true only when the user asks to run, calculate, simulate, react, or heat something.
 - If something essential is unclear, put ONE short question in "question"; otherwise leave it empty.
 - reply: one or two short sentences saying what you changed. No chemistry claims.
@@ -99,6 +102,9 @@ class Interpretation:
     source: str = "rules"                  # "model" or "rules"
     mode_mentioned: bool = False
     column_view: str = ""                  # a column run's view: "outlet", "start", "profile" or ""
+    from_result: bool = False              # start from the fluid at the end of the last run
+    direction: str = ""                    # "heat" or "cool" when the user said which way
+    again: bool = False                    # "run it again": repeat a run whose card has not changed
 
 
 class Ollama:
@@ -170,6 +176,9 @@ def interpret(text: str, card: Scenario, plotted: list[str], history: list[dict]
         got.x_axis = rules.x_axis
     got.mode_mentioned = rules.mode_mentioned
     got.column_view = rules.column_view
+    got.from_result, got.direction, got.again = rules.from_result, rules.direction, rules.again
+    if got.from_result:
+        got.scenario_changes.pop("fluid", None)         # "the seawater heating run" names the old run
     for key in ("kind", "cells", "pore_volumes", "column_m", "dispersivity_m", "pore_fluid"):
         if key in rules.scenario_changes:
             got.scenario_changes[key] = rules.scenario_changes[key]
@@ -179,6 +188,11 @@ def interpret(text: str, card: Scenario, plotted: list[str], history: list[dict]
     got.hide = got.hide or rules.hide
     if got.axis == "unchanged":
         got.axis = rules.axis
+    got.question = rules.question or got.question
+    if got.scenario_changes and "analysis" not in got.scenario_changes:
+        # the reply says what the card now holds, never what the model hoped it would
+        bits = change_bits(got.scenario_changes, card)
+        got.reply = "Set " + ", ".join(bits) + "." if bits else got.reply
     return got
 
 
@@ -222,9 +236,59 @@ RUN_WORDS = re.compile(r"\b(run|go|start|simulate|calculate|compute|react|titrat
                        r"compress|depressuri[sz]e|pressuri[sz]e|do it|what happens)\b", re.I)
 
 
-_FLUID_WORDS = r"seawater|sea water|vent fluid|vent|black smoker fluid|rainwater|rain|formation brine|brine"
+_FLUID_WORDS = (r"seawater|sea water|vent fluid|vent|black smoker fluid|rainwater|rain|formation brine|"
+                r"(?:great\s+)?salt\s+lake(?:\s+brine)?|brine|fresh\s*water|river\s*water|hydrothermal\s+fluid")
 _MIX = re.compile(rf"\bmix(?:es|ed|ing)?\s+(?:(?:the\s+)?(?P<a>{_FLUID_WORDS})\b[^.;]*?\s+)?(?:with|into|and)\s+"
                   rf"(?:(?:up\s+to\s+)?\d*\.?\d+\s*(?:kg|parts?)\s+(?:of\s+)?)?(?:the\s+)?(?P<b>{_FLUID_WORDS})\b")
+
+
+_FROM_RESULT = re.compile(
+    r"\b(?:the\s+)?(?:result|results|product|outcome|output)\s+(?:of|from)\b|\bresulting (?:fluid|water|solution)\b|"
+    r"\b(?:end|final|heated|cooled|reacted|evolved|altered|modified|produced|left[- ]?over) (?:fluid|water|solution|brine)\b|"
+    r"\b(?:fluid|water|solution) (?:from|at the end of|left (?:from|after|by)|produced by|made by|of) "
+    r"(?:the |that |this )?(?:last |previous |earlier |first )?(?:run|result|heating|cooling|calculation|model)\b|"
+    r"\b(?:that|this|the last|the previous|previous|last) (?:run's |result's )?(?:fluid|result)\b|"
+    r"\b(?:continue|carry on|go on|pick up) from\b|\bit back (?:down|up)?\b|\b(?:cool|heat|warm|bring) it back\b")
+
+
+def _direction(low: str) -> str:
+    """Which way the user asked the temperature to go: "cool" ("cool", "quench", "chill"), "heat" or ""."""
+    cool = re.search(r"\b(?:cool|chill|quench)\w*\b", low)
+    heat = re.search(r"\b(?:heat|warm)\w*\b", low)
+    if cool and not heat:
+        return "cool"
+    if heat and not cool:
+        return "heat"
+    if cool and heat:                                  # "the seawater heating fluid ... cool it": the verb said last
+        return "cool" if cool.start() > heat.start() else "heat"
+    return ""
+
+
+_BARE_REACTANT = re.compile(
+    r"\b(?:react(?:s|ed|ing)?|dissolv(?:e|es|ed|ing)|alter(?:s|ed|ing)?)\b[^.;]*?\bwith\s+(?:some\s+|an?\s+|the\s+)?"
+    r"(?P<name>[a-z][a-z0-9 \-]*?(?:\s*\(+\s*fo\s*\d+(?:\.\d+)?\s*\)+)?)"
+    r"(?=\s*(?:,|;|\.(?!\d)|$)|\s+(?:at|and|for|to|in|until|from|under|using|w\s*/\s*r|water)\b)")
+_WR = re.compile(r"\b(?:w\s*/\s*r|water\s*[-/:]?\s*(?:to\s+)?\s*rock)(?:\s+(?:mass\s+)?ratio)?\s*(?:of|=|:|is|at)?\s*"
+                 r"(\d*\.?\d+)(?:\s*:\s*(\d*\.?\d+))?")
+
+
+def _water_rock(low: str) -> float | None:
+    """A water/rock mass ratio: "W/R=1", "water to rock ratio of 10", "water:rock 2:1"."""
+    m = _WR.search(low)
+    if not m:
+        return None
+    ratio = float(m.group(1)) / float(m.group(2)) if m.group(2) else float(m.group(1))
+    return ratio if ratio > 0 else None
+
+
+def _reactant_name(words: str) -> str:
+    """A reactant named without an amount, tidied: "olivine ((fo88)" -> "olivine fo88"."""
+    w = re.sub(r"[()]", " ", words)
+    w = re.sub(r"\s+", " ", w).strip(" -")
+    if re.fullmatch(r"(?:it|them|this|that|rock|minerals?|isotopes?|uncertainty|solid solutions?|kinetics|"
+                    r"measured rates?|pitzer|.*\bexchange\b.*|.*\bsurface\b.*)", w):
+        return ""
+    return w
 
 
 def _fluid_key(words: str) -> str | None:
@@ -233,6 +297,12 @@ def _fluid_key(words: str) -> str | None:
         return None
     if "vent" in w or "smoker" in w:
         return "vent_fluid"
+    if "salt lake" in w or re.search(r"salt\s+lake", w):
+        return "gsl_brine"
+    if "hydrothermal" in w:
+        return "hydrothermal"
+    if re.search(r"fresh\s*water|river\s*water", w):
+        return "freshwater"
     if "brine" in w:
         return "formation_brine"
     if "rain" in w:
@@ -261,10 +331,13 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
     isothermal = bool(re.search(r"isotherm|constant temperature|fixed temperature|hold the temperature", low))
 
     t_single = None
+    out.direction = _direction(low)
+    out.again = bool(re.search(r"\b(?:again|re-?run|repeat|once more)\b", low))
     if t_range:
         ch["t_start_c"], ch["t_end_c"] = float(t_range.group(1)), float(t_range.group(2))
     else:
-        m = re.search(rf"(?:to|up to|until|at)\s*{_NUM}{_DEG}", low) or re.search(rf"{_NUM}{_DEG}", low)
+        m = re.search(rf"(?:to|up to|until|at)\s*{_NUM}{_DEG}", low) or re.search(rf"{_NUM}{_DEG}", low) \
+            or (out.direction and re.search(rf"\b(?:to|until)\s*{_NUM}(?!\d|\.\d|\s*(?:%|[a-z]|/|×))", low))
         if m:
             t_single = float(m.group(1))
     if t_single is not None:
@@ -308,8 +381,15 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
         named = re.sub(_PORE_FLUID, " ", named)
     for key, p in ([] if plotting else PRESETS.items()):
         if key in named or p.label.lower() in named or (key == "vent_fluid" and re.search(r"\bvent\b|black smoker", named)) \
-                or (key == "formation_brine" and re.search(r"\bbrine\b", named)) or (key == "rainwater" and re.search(r"\brain\b", named)):
+                or (key == "formation_brine" and re.search(r"\bbrine\b", named) and not re.search(r"salt\s+lake", named)) \
+                or (key == "rainwater" and re.search(r"\brain\b", named)) \
+                or (key == "freshwater" and re.search(r"\bfresh\s*water\b|\briver\s*water\b", named)) \
+                or (key == "gsl_brine" and re.search(r"\bsalt\s+lake\b", named)) \
+                or (key == "hydrothermal" and re.search(r"\bhydrothermal\s+fluid\b", named)):
             ch["fluid"] = key
+    out.from_result = bool(_FROM_RESULT.search(low))
+    if out.from_result:
+        ch.pop("fluid", None)                          # "the seawater heating run" names the old run
     mix = _MIX.search(low)
     if mix:
         first, second = _fluid_key(mix.group("a") or ""), _fluid_key(mix.group("b"))
@@ -357,6 +437,7 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
     ch.update(_brine_options(low))
     ch.update(_uncertainty_options(low))
     ch.update(_sorption_options(low))
+    ch.update(_clay_options(low))
     if re.search(r"\bsolid[- ]solutions?\b", low):
         ch["solid_solutions"] = not re.search(r"\b(no|without|turn off|switch off|disable)\b[^.]*\bsolid[- ]solution", low)
     elif re.search(r"\bpure (?:minerals|endmembers|phases) only\b|\bonly pure minerals\b", low):
@@ -383,6 +464,21 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
             rest = rest[more.end():]
     found = [f for f in found if not re.fullmatch(_FLUID_WORDS, f[2].lower())]   # "with 10 kg of seawater" is mixing
     found = [f for f in found if not re.fullmatch(_HFO_WORDS, f[2].lower())]     # "with 1 g ferrihydrite" sorbs
+    clay_talk = _clay_talk(low)
+    found = [f for f in found if not (clay_talk and _clay_word(f[2]))]           # "with 40 g illite" sorbs
+    found = [f for f in found if not re.match(r"(?:bed|stream\s*bed|suspended|sediment|soil|solids?)\b",
+                                              f[2].lower())]                    # "4 kg of bed sediment" (Kd)
+    if not found and not plotting:
+        bare = _BARE_REACTANT.search(low)
+        name = _reactant_name(bare.group("name")) if bare else ""
+        if name and not re.fullmatch(_FLUID_WORDS, name) and not re.fullmatch(_HFO_WORDS, name) \
+                and not (clay_talk and _clay_word(name)):
+            wr = _water_rock(low)
+            if wr:
+                found.append((f"{1000.0 / wr:g}", "g", name))       # per kg of water
+            else:
+                out.question = (f"How much {name}? Give grams per kg of water (\"100 g {name}\") or a "
+                                f"water/rock ratio (\"W/R 1\").")
     if found:
         ch["reactants"] = "; ".join(f"{amount} {unit} {name}" for amount, unit, name in found)
         held = re.search(rf"\bat\s*{_NUM}{_DEG}", low)
@@ -412,92 +508,105 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
     elif re.search(r"\blinear\b", low):
         out.axis = "linear"
     if ch:
-        bits = []
-        if "t_start_c" in ch and "t_end_c" in ch:
-            bits.append(f"temperature {ch['t_start_c']:g} to {ch['t_end_c']:g} C")
-        elif "t_end_c" in ch:
-            bits.append(f"end temperature {ch['t_end_c']:g} C")
-        if "temperature_c" in ch:
-            bits.append(f"temperature held at {ch['temperature_c']:g} C")
-        if "p_start_bar" in ch and "p_end_bar" in ch:
-            bits.append(f"pressure {ch['p_start_bar']:g} to {ch['p_end_bar']:g} bar")
-        elif "p_end_bar" in ch:
-            bits.append(f"end pressure {ch['p_end_bar']:g} bar")
-        if "pressure_bar" in ch:
-            bits.append(f"pressure held at {ch['pressure_bar']:g} bar")
-        if "mode" in ch:
-            bits.append(ch["mode"].replace("_", "-"))
-        if ch.get("mix_with"):
-            bits.append(f"mixing in up to {ch.get('mix_ratio', card.mix_ratio):g} kg of "
-                        f"{ch['mix_with'].replace('_', ' ')} per kg"
-                        + (f" at {ch['mix_t_c']:g} C" if "mix_t_c" in ch else ""))
-        if ch.get("reactants") and ch.get("kind", card.kind) == "transport":
-            bits.append(ch["reactants"].replace(";", ",") + " per kg of pore water in each cell")
-        elif ch.get("reactants"):
-            verb = "reacting with " if ch.get("kinetics", card.kinetics) else "adding "
-            bits.append(verb + ch["reactants"].replace(";", ","))
-        elif "reactants" in ch:
-            bits.append("no reactants")
-        if ch.get("kinetics") and "duration" in ch:
-            bits.append(f"measured rates over {ch['duration']:g} {ch['duration_unit']}")
-        elif ch.get("kinetics"):
-            bits.append("measured rates")
-        elif "kinetics" in ch:
-            bits.append("no kinetics (reactants react completely)")
-        if "evaporate" in ch:
-            bits.append(f"evaporated to {ch['evaporate']:g} times" if ch["evaporate"] > 1 else "no evaporation")
-        if "activity_model" in ch:
-            bits.append({"pitzer": "Pitzer activity coefficients", "bdot": "B-dot activity coefficients",
-                         "davies": "Davies activity coefficients"}[ch["activity_model"]])
-        if "solid_solutions" in ch:
-            bits.append("solid solutions can form" if ch["solid_solutions"] else "pure minerals only")
-        if "exchange_meq" in ch:
-            bits.append(f"{ch['exchange_meq']:g} meq of exchange sites" if ch["exchange_meq"] else "no exchanger")
-        if "hfo_g" in ch:
-            bits.append(f"{ch['hfo_g']:g} g of ferric oxide surface" if ch["hfo_g"] else "no ferric oxide surface")
-        if "isotopes" in ch:
-            bits.append("isotopes on" if ch["isotopes"] else "isotopes off")
-        if "isotope_inputs" in ch:
-            bits.append("starting isotope values " + "; ".join(
-                f"{src} " + ", ".join(f"{k} {v:g}" for k, v in vals.items())
-                for src, vals in ch["isotope_inputs"].items()))
-        if "follow_phase" in ch:
-            bits.append({"whole": "the whole fluid followed", "brine": "following the brine as vapour boils off",
-                         "vapour": "following the vapour, leaving the brine"}[ch["follow_phase"]])
-        if "uncertainty_runs" in ch:
-            bits.append(f"a log K uncertainty range from {ch['uncertainty_runs']} runs" if ch["uncertainty_runs"]
-                        else "no uncertainty range")
-        if ch.get("kind") == "transport":
-            bits.append("a column run" + "".join(
-                f", {label}" for key, label in (("column_m", f"{ch.get('column_m', 0):g} m long"),
-                                                ("cells", f"{ch.get('cells', 0)} cells"),
-                                                ("pore_volumes", f"{ch.get('pore_volumes', 0):g} pore volumes"),
-                                                ("dispersivity_m", f"dispersivity {ch.get('dispersivity_m', 0):g} m"))
-                if key in ch))
-        elif ch.get("kind") == "path":
-            bits.append("a single-fluid path (no column)")
-        else:
-            for key, label in (("column_m", "column {:g} m long"), ("cells", "{} cells"),
-                               ("pore_volumes", "{:g} pore volumes"), ("dispersivity_m", "dispersivity {:g} m")):
-                if key in ch:
-                    bits.append(label.format(ch[key]))
-        if "pore_fluid" in ch:
-            bits.append(f"the column first filled with {ch['pore_fluid'].replace('_', ' ')}" if ch["pore_fluid"]
-                        else "the column first filled with the same fluid")
-        if "surface_area_cm2_per_g" in ch:
-            bits.append(f"surface area {ch['surface_area_cm2_per_g']:g} cm2/g")
-        if "ph" in ch and ch["ph"] is not None and "analysis" not in ch:
-            bits.append(f"pH {ch['ph']:g}")
-        if "redox" in ch:
-            bits.append({"air": "redox from equilibrium with air", "none": "redox not tracked",
-                         "log_fo2": f"log fO2 {ch.get('redox_value', 0):g}",
-                         "eh": f"Eh {ch.get('redox_value', 0):g} V",
-                         "pe": f"pe {ch.get('redox_value', 0):g}"}[ch["redox"]])
+        bits = change_bits(ch, card)
         if "analysis" not in ch:
             out.reply = "Set " + ", ".join(bits) + "." if bits else ""
         elif bits:
             out.reply += " Set " + ", ".join(bits) + "."
     return out
+
+
+def change_bits(ch: dict, card: Scenario) -> list[str]:
+    """Plain words for each card change in ``ch``, as the reply says them."""
+    bits: list[str] = []
+    if "t_start_c" in ch and "t_end_c" in ch:
+        bits.append(f"temperature {ch['t_start_c']:g} to {ch['t_end_c']:g} C")
+    elif "t_end_c" in ch:
+        bits.append(f"end temperature {ch['t_end_c']:g} C")
+    if "temperature_c" in ch:
+        bits.append(f"temperature held at {ch['temperature_c']:g} C")
+    if "p_start_bar" in ch and "p_end_bar" in ch:
+        bits.append(f"pressure {ch['p_start_bar']:g} to {ch['p_end_bar']:g} bar")
+    elif "p_end_bar" in ch:
+        bits.append(f"end pressure {ch['p_end_bar']:g} bar")
+    if "pressure_bar" in ch:
+        bits.append(f"pressure held at {ch['pressure_bar']:g} bar")
+    if "mode" in ch:
+        bits.append(ch["mode"].replace("_", "-"))
+    if ch.get("mix_with"):
+        bits.append(f"mixing in up to {ch.get('mix_ratio', card.mix_ratio):g} kg of "
+                    f"{ch['mix_with'].replace('_', ' ')} per kg"
+                    + (f" at {ch['mix_t_c']:g} C" if "mix_t_c" in ch else ""))
+    if ch.get("reactants") and ch.get("kind", card.kind) == "transport":
+        bits.append(ch["reactants"].replace(";", ",") + " per kg of pore water in each cell")
+    elif ch.get("reactants"):
+        verb = "reacting with " if ch.get("kinetics", card.kinetics) else "adding "
+        bits.append(verb + ch["reactants"].replace(";", ","))
+    elif "reactants" in ch:
+        bits.append("no reactants")
+    if ch.get("kinetics") and "duration" in ch:
+        bits.append(f"measured rates over {ch['duration']:g} {ch['duration_unit']}")
+    elif ch.get("kinetics"):
+        bits.append("measured rates")
+    elif "kinetics" in ch:
+        bits.append("no kinetics (reactants react completely)")
+    if "evaporate" in ch:
+        bits.append(f"evaporated to {ch['evaporate']:g} times" if ch["evaporate"] > 1 else "no evaporation")
+    if "activity_model" in ch:
+        bits.append({"pitzer": "Pitzer activity coefficients", "bdot": "B-dot activity coefficients",
+                     "davies": "Davies activity coefficients"}[ch["activity_model"]])
+    if "solid_solutions" in ch:
+        bits.append("solid solutions can form" if ch["solid_solutions"] else "pure minerals only")
+    if "exchange_meq" in ch:
+        bits.append(f"{ch['exchange_meq']:g} meq of exchange sites" if ch["exchange_meq"] else "no exchanger")
+    if "hfo_g" in ch:
+        bits.append(f"{ch['hfo_g']:g} g of ferric oxide surface" if ch["hfo_g"] else "no ferric oxide surface")
+    clays = [(c, ch[f"{c}_g"]) for c in ("kaolinite", "illite", "montmorillonite") if f"{c}_g" in ch]
+    if clays:
+        bits.append(", ".join(f"{g:g} g {c}" if g else f"no {c}" for c, g in clays))
+    if "kd_solid_g" in ch:
+        bits.append(f"{ch['kd_solid_g']:g} g of solid holding metals by Kd" if ch["kd_solid_g"] else "no Kd solid")
+    if "kd_medium" in ch:
+        bits.append(f"{ch['kd_medium']} partition coefficients")
+    if "isotopes" in ch:
+        bits.append("isotopes on" if ch["isotopes"] else "isotopes off")
+    if "isotope_inputs" in ch:
+        bits.append("starting isotope values " + "; ".join(
+            f"{src} " + ", ".join(f"{k} {v:g}" for k, v in vals.items())
+            for src, vals in ch["isotope_inputs"].items()))
+    if "follow_phase" in ch:
+        bits.append({"whole": "the whole fluid followed", "brine": "following the brine as vapour boils off",
+                     "vapour": "following the vapour, leaving the brine"}[ch["follow_phase"]])
+    if "uncertainty_runs" in ch:
+        bits.append(f"a log K uncertainty range from {ch['uncertainty_runs']} runs" if ch["uncertainty_runs"]
+                    else "no uncertainty range")
+    if ch.get("kind") == "transport":
+        bits.append("a column run" + "".join(
+            f", {label}" for key, label in (("column_m", f"{ch.get('column_m', 0):g} m long"),
+                                            ("cells", f"{ch.get('cells', 0)} cells"),
+                                            ("pore_volumes", f"{ch.get('pore_volumes', 0):g} pore volumes"),
+                                            ("dispersivity_m", f"dispersivity {ch.get('dispersivity_m', 0):g} m"))
+            if key in ch))
+    elif ch.get("kind") == "path":
+        bits.append("a single-fluid path (no column)")
+    else:
+        for key, label in (("column_m", "column {:g} m long"), ("cells", "{} cells"),
+                           ("pore_volumes", "{:g} pore volumes"), ("dispersivity_m", "dispersivity {:g} m")):
+            if key in ch:
+                bits.append(label.format(ch[key]))
+    if "pore_fluid" in ch:
+        bits.append(f"the column first filled with {ch['pore_fluid'].replace('_', ' ')}" if ch["pore_fluid"]
+                    else "the column first filled with the same fluid")
+    if "surface_area_cm2_per_g" in ch:
+        bits.append(f"surface area {ch['surface_area_cm2_per_g']:g} cm2/g")
+    if "ph" in ch and ch["ph"] is not None and "analysis" not in ch:
+        bits.append(f"pH {ch['ph']:g}")
+    if "redox" in ch:
+        bits.append({"air": "redox from equilibrium with air", "none": "redox not tracked",
+                     "log_fo2": f"log fO2 {ch.get('redox_value', 0):g}",
+                     "eh": f"Eh {ch.get('redox_value', 0):g} V",
+                     "pe": f"pe {ch.get('redox_value', 0):g}"}[ch["redox"]])
+    return bits
 
 
 _TIME = re.compile(r"\b(?:for|over|during|after|lasting)\s+(?:a\s+period\s+of\s+)?(\d*\.?\d+(?:e\d+)?)\s*"
@@ -623,6 +732,48 @@ def _sorption_options(low: str) -> dict:
         m = re.search(rf"(\d*\.?\d+)\s*(?:g|grams?)\s+(?:of\s+)?{_HFO_WORDS}", low)
         if m:
             out["hfo_g"] = float(m.group(1))
+    return out
+
+
+_CLAY_RE = r"(kaolinite|kaolin|illite|montmorillonite|smectite|bentonite)"
+
+
+def _clay_word(name: str) -> str | None:
+    return clay_name(re.sub(r"\s+clays?$", "", name.strip().lower()))
+
+
+def _clay_talk(low: str) -> bool:
+    """Clay words name sorbents when the message is about clays: illite, montmorillonite or smectite (never
+    reactants here), the word "clay", or sorption words; otherwise kaolinite stays an ordinary mineral."""
+    return bool(re.search(r"\b(?:illite|montmorillonite|smectite|bentonite|clays?|sorb\w*|partition|kd|exchange)\b",
+                          low))
+
+
+def _clay_options(low: str) -> dict:
+    """Clays and partition coefficients: "with 100 g kaolinite and 20 g montmorillonite", "no clays",
+    "with 4 kg of sediment Kd", "suspended matter Kd", "no Kd"."""
+    out: dict = {}
+    if re.search(r"\b(?:no|without|remove(?: the)?)\s+(?:the\s+)?clays?\b", low):
+        out.update(kaolinite_g=0.0, illite_g=0.0, montmorillonite_g=0.0)
+    elif _clay_talk(low):
+        for m in re.finditer(rf"(\d*\.?\d+)\s*(g|grams?|kg)\s+(?:of\s+)?{_CLAY_RE}\b", low):
+            grams = float(m.group(1)) * (1000.0 if m.group(2) == "kg" else 1.0)
+            out[f"{clay_name(m.group(3))}_g"] = grams
+        for m in re.finditer(rf"\b(?:no|without)\s+{_CLAY_RE}\b", low):
+            out[f"{clay_name(m.group(1))}_g"] = 0.0
+    if re.search(r"\b(?:no|without|remove(?: the)?)\s+(?:the\s+)?(?:kd|partition coefficients?)\b", low):
+        out["kd_solid_g"] = 0.0
+    else:
+        m = re.search(r"(\d*\.?\d+)\s*(g|grams?|kg)\s+(?:of\s+)?(?:bed\s+|stream\s*bed\s+|suspended\s+)?"
+                      r"(sediment|soil|solids?|suspended matter|matter)\b", low)
+        if m and re.search(r"\b(?:kd|partition|sorb\w*)\b", low):
+            out["kd_solid_g"] = float(m.group(1)) * (1000.0 if m.group(2) == "kg" else 1.0)
+        if re.search(r"\bsuspended\b", low) and re.search(r"\b(?:kd|partition)", low):
+            out["kd_medium"] = "suspended"
+        elif re.search(r"\bsoil\b", low) and re.search(r"\b(?:kd|partition)", low):
+            out["kd_medium"] = "soil"
+        elif re.search(r"\bsediment\b", low) and re.search(r"\b(?:kd|partition)", low):
+            out["kd_medium"] = "sediment"
     return out
 
 

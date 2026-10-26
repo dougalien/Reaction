@@ -19,6 +19,7 @@ from urllib.parse import parse_qs, urlparse
 from . import config
 from .assistant import Ollama
 from .engine import Engine, EngineUnavailable
+from .scenario import STARTING_CARDS
 from .session import Session
 
 STATIC = Path(__file__).resolve().parent / "static"
@@ -145,7 +146,10 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/card":
             return self._json({"problems": s.edit_card(dict(body.get("changes", {})))})
         if path == "/api/reset":
-            s.reset_card()
+            start = str(body.get("start") or "seawater")
+            if start not in STARTING_CARDS:
+                return self._error(400, f"unknown starting card {start!r}")
+            s.reset_card(start)
             return self._json({"ok": True})
         if path == "/api/run":
             return self._json({"started": s.start_run()})

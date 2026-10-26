@@ -18,6 +18,7 @@ from typing import Any
 from ..thermo import water
 from . import analysis
 from .analysis import DEFAULT_UNIT
+from ..sorption import KD_MEDIA
 from .fluids import CUSTOM, CUSTOM_LABEL, PRESETS, REDOX_CHOICES, FluidPreset, label as fluid_label
 
 MODES = ("static", "flow_through", "both")
@@ -25,7 +26,7 @@ KINDS = ("path", "transport")
 MAX_COLUMN_SOLVES = 40000             # cells x shifts x (1 + dispersion mixes) in one column run
 MODE_LABELS = {"static": "Static", "flow_through": "Flow-through", "both": "Both"}
 ACTIVITY_MODELS = ("bdot", "davies", "pitzer")
-FLUID_FIELDS = ("analysis", "units", "ph", "fluid_t_c", "charge_balance", "redox",
+FLUID_FIELDS = ("analysis", "units", "ph", "fluid_t_c", "fluid_p_bar", "charge_balance", "redox",
                 "redox_value")                                       # what a custom fluid is
 REACTANT_UNITS = {"g": ("g", 1.0), "gram": ("g", 1.0), "grams": ("g", 1.0), "mg": ("g", 1e-3),
                   "kg": ("g", 1e3), "mol": ("mol", 1.0), "mole": ("mol", 1.0), "moles": ("mol", 1.0),
@@ -75,6 +76,7 @@ class Scenario:
     units: str = DEFAULT_UNIT
     ph: float | None = None
     fluid_t_c: float = 25.0
+    fluid_p_bar: float | None = None      # pressure of the measurement; None = 1 bar or the boiling curve
     charge_balance: str = "auto"
     # the redox state of a custom fluid: one of fluids.REDOX_CHOICES or a redox species of the analysis
     # (O2, H2, Fe+3, H2S, NO3-) used as the couple; ``redox_value`` for log_fo2, eh and pe
@@ -121,6 +123,15 @@ class Scenario:
     # start in equilibrium with the fluid, and hydrous ferric oxide (g) with Dzombak and Morel surface sites
     exchange_meq: float = 0.0
     hfo_g: float = 0.0
+    # clay minerals (g per kg of water), each with the exchange sites of its cation exchange capacity
+    # (sorption.clays: kaolinite 20, illite 225, montmorillonite 764 meq/kg); and a solid with the partition
+    # coefficients (Kd) of Allison and Allison (2005) for ``kd_medium`` (sediment, suspended or soil), g per kg
+    # of water (0 = none).  With exchange sites the Kd holds only the metals that have no exchange constant.
+    kaolinite_g: float = 0.0
+    illite_g: float = 0.0
+    montmorillonite_g: float = 0.0
+    kd_medium: str = "sediment"
+    kd_solid_g: float = 0.0
     # a column (kind = "transport", see transport.py): the card's fluid flows into ``cells`` cells filled with
     # ``pore_fluid`` (empty: the same fluid) and, in each, the reactants per kg of pore water brought to
     # equilibrium first; temperature and pressure run from the start values at the inlet to the end values at
@@ -171,6 +182,7 @@ class Scenario:
             p = PRESETS[start]
             new.analysis, new.units, new.ph = p.analysis, p.units, p.ph
             new.fluid_t_c, new.charge_balance = p.measured_t_c, p.charge_balance
+            new.fluid_p_bar = p.measured_p_bar
             new.redox, new.redox_value = p.redox, p.redox_value
             new.fluid = CUSTOM
         for key, value in changes.items():
@@ -232,7 +244,8 @@ class Scenario:
         return FluidPreset(CUSTOM, CUSTOM_LABEL, "A fluid entered as an analysis.", self.fluid_t_c,
                            self.analysis, self.ph if self.ph is not None else float("nan"),
                            "entered on the card", units=self.units, charge_balance=self.charge_balance,
-                           redox=self.redox, redox_value=self.redox_value)
+                           redox=self.redox, redox_value=self.redox_value,
+                           measured_p_bar=self.fluid_p_bar)
 
     def fluid_analysis(self) -> analysis.Analysis:
         spec = self.fluid_spec()
@@ -317,6 +330,13 @@ class Scenario:
             out.append("the exchange capacity must be between 0 and 100000 meq per kg of water")
         if not 0.0 <= self.hfo_g <= 1000.0:
             out.append("the hydrous ferric oxide must be between 0 and 1000 g per kg of water")
+        for name in ("kaolinite", "illite", "montmorillonite"):
+            if not 0.0 <= getattr(self, f"{name}_g") <= 100000.0:
+                out.append(f"the {name} must be between 0 and 100000 g per kg of water")
+        if not 0.0 <= self.kd_solid_g <= 100000.0:
+            out.append("the solid with partition coefficients must be between 0 and 100000 g per kg of water")
+        if self.kd_medium not in KD_MEDIA:
+            out.append(f"kd_medium must be one of {', '.join(KD_MEDIA)}")
         if self.follow_phase not in FOLLOW_PHASES:
             out.append(f"follow_phase must be one of {', '.join(FOLLOW_PHASES)}")
         if self.mode not in MODES:
@@ -324,6 +344,17 @@ class Scenario:
         if self.activity_model not in ACTIVITY_MODELS:
             out.append(f"activity_model must be one of {', '.join(ACTIVITY_MODELS)}")
         return out
+
+    def clay_grams(self) -> dict[str, float]:
+        """Grams of each clay per kg of water (only those on the card)."""
+        out = {"kaolinite": self.kaolinite_g, "illite": self.illite_g, "montmorillonite": self.montmorillonite_g}
+        return {k: v for k, v in out.items() if v > 0}
+
+    @property
+    def clay_meq(self) -> float:
+        """Exchange sites the clays carry, meq per kg of water."""
+        from ..sorption import clays
+        return sum(g * clays()[c].cec_eq_per_kg for c, g in self.clay_grams().items())
 
     @property
     def transport(self) -> bool:
@@ -381,8 +412,18 @@ class Scenario:
             out.append("give the pH of the fluid")
         elif not (0.0 <= self.ph <= 14.0):
             out.append("pH must be between 0 and 14")
-        if not (0.0 <= self.fluid_t_c <= 300.0):
-            out.append("the analysis temperature must be between 0 and 300 C")
+        if self.fluid_p_bar is None:
+            if not (0.0 <= self.fluid_t_c <= 300.0):
+                out.append("the analysis temperature must be between 0 and 300 C (or give the pressure "
+                           "it was measured at)")
+        elif not (P_MIN <= self.fluid_p_bar <= P_MAX):
+            out.append(f"the analysis pressure must be between {P_MIN:g} and {P_MAX:g} bar")
+        elif not (T_MIN <= self.fluid_t_c <= T_MAX):
+            out.append(f"the analysis temperature must be between {T_MIN:g} and {T_MAX:g} C")
+        elif self.fluid_t_c + 273.15 < water.T_CRIT and self.fluid_p_bar < 0.99 * (
+                water.saturation_pressure_mpa(self.fluid_t_c + 273.15) * water.BAR_PER_MPA):
+            out.append(f"at {self.fluid_t_c:g} C and {self.fluid_p_bar:g} bar water is steam; give a higher "
+                       "pressure for the analysis")
         try:
             self.redox_setting()
         except ValueError as exc:
@@ -431,6 +472,8 @@ class Scenario:
         if self.hfo_g > 0:
             text = text.replace(f" ({self._how()}", f", with {self.hfo_g:g} g of ferric oxyhydroxide surface "
                                                    f"({self._how()}")
+        for bit in self._sorbent_bits():
+            text = text.replace(f" ({self._how()}", f", with {bit} ({self._how()}")
         if self.uncertainty_runs:
             text = text.replace(f" ({self._how()}", f", with a log K uncertainty range from {self.uncertainty_runs} "
                                                    f"runs ({self._how()}")
@@ -457,11 +500,22 @@ class Scenario:
             bits.append(f"{self.exchange_meq:g} meq of exchange sites")
         if self.hfo_g > 0:
             bits.append(f"{self.hfo_g:g} g of ferric oxyhydroxide surface")
+        bits.extend(self._sorbent_bits())
         if self.solid_solutions:
             bits.append("solid solutions")
         if bits:
             text += ", with " + "; ".join(bits)
         return text + f" (dispersivity {self.dispersivity_m:g} m)"
+
+    def _sorbent_bits(self) -> list[str]:
+        out = []
+        clays = self.clay_grams()
+        if clays:
+            out.append(" and ".join(", ".join(f"{g:g} g {c}" for c, g in clays.items()).rsplit(", ", 1)))
+        if self.kd_solid_g > 0:
+            what = {"sediment": "bed sediment", "suspended": "suspended matter"}.get(self.kd_medium, self.kd_medium)
+            out.append(f"{self.kd_solid_g:g} g of {what} holding metals by partition coefficients (Kd)")
+        return out
 
     def _how(self) -> str:
         return {"static": "static", "flow_through": "flow-through",
@@ -550,7 +604,8 @@ def _coerce(key: str, value: Any) -> Any:
             return None
         return float(value)
     if key in ("t_start_c", "t_end_c", "p_start_bar", "p_end_bar", "fluid_t_c", "mix_ratio", "duration",
-               "surface_area_cm2_per_g", "evaporate", "exchange_meq", "hfo_g", "column_m", "dispersivity_m",
+               "surface_area_cm2_per_g", "evaporate", "exchange_meq", "hfo_g", "kaolinite_g", "illite_g",
+               "montmorillonite_g", "kd_solid_g", "column_m", "dispersivity_m",
                "pore_volumes"):
         return float(value)
     if key == "duration_unit":
@@ -559,7 +614,7 @@ def _coerce(key: str, value: Any) -> Any:
         if low not in TIME_UNITS:
             raise ValueError(f"'{value}' is not a time unit (use {', '.join(TIME_UNITS)})")
         return low
-    if key == "mix_t_c":
+    if key in ("mix_t_c", "fluid_p_bar"):
         if value is None or (isinstance(value, str) and not value.strip()):
             return None
         return float(value)
@@ -636,6 +691,14 @@ def _coerce(key: str, value: Any) -> Any:
                 return False
             raise ValueError(f"'{value}' is not yes or no")
         return bool(value)
+    if key == "kd_medium":
+        low = str(value).strip().lower()
+        low = {"bed sediment": "sediment", "sediments": "sediment", "streambed": "sediment",
+               "suspended matter": "suspended", "suspended sediment": "suspended", "spm": "suspended",
+               "soils": "soil"}.get(low, low)
+        if low not in KD_MEDIA:
+            raise ValueError(f"'{value}' is not one of {', '.join(KD_MEDIA)}")
+        return low
     if key == "follow_phase":
         low = str(value).strip().lower()
         low = {"vapor": "vapour", "liquid": "brine", "all": "whole", "fluid": "whole", "both": "whole",
@@ -701,12 +764,65 @@ def _rejoin_comma_names(parts: list[str]) -> list[str]:
     return out
 
 
+# Ready-made cards to start from.  Each is a fluid with a path that suits it; anything on the card can
+# be changed afterwards.  The fluids and their sources are in fluids.py.
+@dataclass(frozen=True)
+class StartingCard:
+    key: str
+    label: str
+    description: str
+    changes: dict
+
+
+STARTING_CARDS: dict[str, StartingCard] = {c.key: c for c in (
+    StartingCard("seawater", "Seawater",
+                 "Seawater heated from 2 to 350 C at 500 bar: anhydrite from about 150 C, brucite near 350 C.",
+                 {}),
+    StartingCard("freshwater", "Fresh water",
+                 "World-average river water in equilibrium with the atmosphere, heated from 25 to 300 C at "
+                 "500 bar: calcite and anhydrite come out as their solubilities fall.",
+                 {"fluid": "freshwater", "t_start_c": 25.0, "t_end_c": 300.0, "steps": 28}),
+    StartingCard("brine", "Brine",
+                 "Great Salt Lake brine evaporated to a fifth of its water at 25 C and 1 bar, with Pitzer "
+                 "activities: halite, then anhydrite, then epsomite.",
+                 {"fluid": "gsl_brine", "activity_model": "pitzer", "t_start_c": 25.0, "t_end_c": 25.0,
+                  "p_start_bar": 1.0, "p_end_bar": 1.0, "evaporate": 5.0, "steps": 30}),
+    StartingCard("hydrothermal", "Hydrothermal fluid",
+                 "The fluid from the seawater heating run (350 C, 500 bar) mixed with nine times its mass of "
+                 "2 C seawater, as where a vent fluid meets the ocean: anhydrite forms in the hot mixture "
+                 "and dissolves again as it cools.",
+                 {"fluid": "hydrothermal", "t_start_c": 350.0, "t_end_c": 350.0, "mix_with": "seawater",
+                  "mix_ratio": 9.0, "mix_t_c": 2.0, "steps": 30}),
+    StartingCard("stream", "Contaminated stream",
+                 "Stream water carrying metals from a contaminated site flows through 10 m of clay-bearing streambed "
+                 "(kaolinite, illite and montmorillonite on exchange sites, the rest of the sediment holding Ni, As, "
+                 "Cr and Hg by the EPA partition coefficients) at 15 C: Cu and Pb break through first, then Zn and "
+                 "Cd; some Pb stays at the inlet as cerussite, and the Kd metals barely move.",
+                 {"kind": "transport", "fluid": "contaminated_stream", "pore_fluid": "freshwater",
+                  "t_start_c": 15.0, "t_end_c": 15.0, "p_start_bar": 1.0, "p_end_bar": 1.0,
+                  "cells": 10, "column_m": 10.0, "dispersivity_m": 0.3, "pore_volumes": 25.0,
+                  "kaolinite_g": 100.0, "illite_g": 40.0, "montmorillonite_g": 20.0,
+                  "kd_medium": "sediment", "kd_solid_g": 4000.0,
+                  "blocked_minerals": DEFAULT_BLOCKED + ["quartz", "quartz,beta", "chalcedony"]}),
+)}
+
+
+def starting_card(key: str) -> Scenario:
+    """A fresh card from one of STARTING_CARDS."""
+    try:
+        return Scenario(**STARTING_CARDS[key].changes)
+    except KeyError:
+        raise KeyError(f"unknown starting card {key!r}; known cards: {', '.join(STARTING_CARDS)}") from None
+
+
 # What the language model is told about the card.
 FIELD_HELP = {
     "title": "short name for the run (text); leave out unless the user gives one",
     "fluid": f"starting fluid, one of: {', '.join(PRESETS)}, or {CUSTOM} for an analysis the user gives",
     "ph": "pH of the fluid (number); changing it makes the fluid custom",
     "fluid_t_c": "temperature the fluid's analysis and pH were measured at, degrees C",
+    "fluid_p_bar": "pressure the fluid's analysis and pH refer to, bar; leave out for 1 bar (or the boiling "
+                   "curve above 100 C); needed above 300 C",
     "charge_balance": "auto (adjust the main ion that is short), none, or an ion name such as Cl-",
     "redox": "redox state of the fluid: auto, none, air, log_fo2, eh, pe, or a redox species of the "
              "analysis used as the couple (O2, H2, Fe+3, H2S)",
@@ -741,6 +857,14 @@ FIELD_HELP = {
                     "equilibrium with the fluid (Gaines-Thomas, PHREEQC constants)",
     "hfo_g": "grams of hydrous ferric oxide per kg of water (0 = none): surface complexation on its strong and "
              "weak sites (Dzombak and Morel 1990)",
+    "kaolinite_g": "grams of kaolinite per kg of water (0 = none): exchange sites at 20 meq/kg of clay",
+    "illite_g": "grams of illite per kg of water (0 = none): exchange sites at 225 meq/kg of clay",
+    "montmorillonite_g": "grams of montmorillonite (smectite) per kg of water (0 = none): exchange sites at "
+                         "764 meq/kg of clay",
+    "kd_medium": "which partition coefficients (Allison and Allison 2005) the Kd solid uses: sediment (bed sediment, "
+                 "default), suspended (suspended matter in a stream) or soil",
+    "kd_solid_g": "grams of solid per kg of water holding metals by their partition coefficient Kd (0 = none); "
+                  "with clays or exchange sites it holds only the metals they cannot exchange (Ni, Hg, As, Cr)",
     "isotopes": "false (default); true: d18O, dD, d13C, d34S and 87Sr/86Sr of the fluid and minerals, "
                 "along the run",
     "isotope_inputs": "starting isotope values, e.g. {\"fluid\": {\"d18O\": -5}, \"basalt glass\": {\"Sr\": 120, "
