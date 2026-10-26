@@ -184,7 +184,7 @@ function drawPickers(view) {
 }
 $("run-pick").addEventListener("change", (ev) => api("/api/current", { id: ev.target.value, window: W }));
 $("cmp-pick").addEventListener("change", (ev) => setView({ compare: ev.target.value || null }));
-if (W === "2") { document.title = "Reaction: results 2"; $("open-second").style.display = "none"; }
+if (W === "2") { document.title = "Reaction: results 2 | Dougalien Systems"; $("open-second").style.display = "none"; }
 $("open-second").addEventListener("click", () => window.open("/results?w=2", "reaction-results-2", "popup=no"));
 
 function draw() {
@@ -198,7 +198,7 @@ function draw() {
   $("meta").textContent = `${result.summary} · ${result.created.replace("T", " ")} · ${result.elapsed_s} s`;
   $("story").replaceChildren(...(result.story || []).map((p) => h("p", {}, p)));
   $("notes").replaceChildren(...result.notes.map((n) => h("li", {}, n)));
-  document.title = `Reaction${W === "2" ? " (2)" : ""}: ` + (result.title || result.scenario.title);
+  document.title = `Reaction${W === "2" ? " (2)" : ""}: ${result.title || result.scenario.title} | Dougalien Systems`;
 
   // horizontal axis: only a quantity that changes along the path, and a choice if both do
   const fr = frame();

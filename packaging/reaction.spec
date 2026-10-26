@@ -19,4 +19,6 @@ exe = EXE(
     name="Reaction",
     console=True,          # the window shows where the app runs; closing it stops the app
     upx=False,
+    icon=str(ROOT / "packaging" / "reaction.ico"),           # the Dougalien Systems mark
+    version=str(ROOT / "packaging" / "version_info.txt"),  # company and product in Properties > Details
 )

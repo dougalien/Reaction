@@ -369,6 +369,14 @@ def test_server_serves_pages_and_state(server):
     assert state["card"]["fluid"] == "seawater" and state["llm"]["ready"] is False
 
 
+def test_pages_carry_the_dougalien_systems_brand(server):
+    for path in ("/control", "/results"):
+        page = request(server, "GET", path)[1].decode()
+        assert "Dougalien Systems" in page and "/static/dougalien_mark.svg" in page, path
+    status, data = request(server, "GET", "/static/dougalien_mark.svg")
+    assert status == 200 and data.startswith(b"<svg")
+
+
 def test_server_edit_run_and_fetch_result(server):
     assert request(server, "POST", "/api/card", {"changes": {"mode": "both", "t_end_c": 240}})[0] == 200
     status, data = request(server, "POST", "/api/run", {})
