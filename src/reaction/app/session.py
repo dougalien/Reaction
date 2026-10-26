@@ -9,7 +9,7 @@ import time
 import traceback
 from pathlib import Path
 
-from .assistant import Interpretation, Ollama, interpret
+from .assistant import Interpretation, Ollama, change_bits, interpret
 from . import analysis, carryover, diagrams
 from .engine import Engine, EngineUnavailable
 from .fluids import CUSTOM, CUSTOM_LABEL, PRESETS
@@ -137,12 +137,24 @@ class Session:
     def card_problems(self) -> list[str]:
         """The card's own checks, plus reactant names once the database is loaded to check them."""
         out = self.card.problems()
-        if self.card.reactants and getattr(self.engine, "_db", None) is not None:
-            try:
-                self.engine._reactant_names(self.card)
-            except (ValueError, AttributeError) as exc:
-                out.append(str(exc))
+        problem = self._reactant_problem(self.card)
+        if problem:
+            out.append(problem)
         return out
+
+    def _reactant_problem(self, card: Scenario) -> str:
+        """Why the card's reactants cannot be used ("'xyz' is not a mineral ..."), or "".  Loads the database
+        when a reactant needs checking, so a run never starts on a name it cannot find."""
+        if not card.reactants or not hasattr(self.engine, "_reactant_names"):
+            return ""
+        try:
+            self.engine.db
+            self.engine._reactant_names(card)
+        except EngineUnavailable:
+            return ""                                   # reported when a run is attempted
+        except ValueError as exc:
+            return str(exc)
+        return ""
 
     # ---- chat ---------------------------------------------------------------------------------
     def say(self, role: str, text: str, log: bool = True) -> None:
@@ -217,6 +229,14 @@ class Session:
         changes, carried, blocked = self._carry(got, result)
         new, problems = self.card.changed(changes)
         notes += problems
+        if "reactants" in changes and new.reactants:
+            bad = self._reactant_problem(new)
+            if bad:                                     # keep the old reactants rather than a name that fails
+                new.reactants = self.card.reactants
+                had = ", ".join(f"{r['amount']:g} {r['unit']} {r['name']}" for r in self.card.reactants) or "none"
+                blocked = blocked or f"I can't use that: {bad}. The reactants stay as they were ({had})."
+                rest = {k: v for k, v in got.scenario_changes.items() if k != "reactants"}
+                got.reply = ("Set " + ", ".join(change_bits(rest, self.card)) + ".") if change_bits(rest, self.card) else " "
         if changes:
             self.card = new
         if got.mode_mentioned or "mode" in got.scenario_changes:
@@ -290,6 +310,9 @@ class Session:
             reply = (reply + " A run is still going; I will start this one as soon as it finishes.").strip()
             run_now = False
         elif run_now:
+            if self.card.reactants and "reactants" not in changes:
+                kept = ", ".join(f"{r['amount']:g} {r['unit']} {r['name']}" for r in self.card.reactants)
+                reply += f" The card still reacts {kept}; say \"no reactants\" to drop them."
             reply = (reply + " Running now.").strip()
         if not reply:
             reply = "I did not find anything to change. Try something like \"heat seawater to 300 C\"."
