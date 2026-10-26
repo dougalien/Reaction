@@ -96,6 +96,27 @@ details ul { margin: 6px 0 0; padding-left: 18px; color: var(--muted); font-size
 .compose { display: flex; gap: 8px; align-items: flex-end; }
 .compose textarea { resize: none; height: 44px; }
 .side { overflow-y: auto; display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+/* Chat off: the card takes the window, in larger grouped panels, with earlier runs beside it */
+.control.nochat { grid-template-columns: minmax(0, 1fr) 300px; height: auto; align-items: start; }
+.nochat .chat-only, .chat-only[hidden] { display: none; }
+.nochat .side { display: contents; }
+.nochat #card { font-size: 15px; padding: 18px 20px 0; }
+.nochat #card h2 { font-size: 18px; }
+.nochat #card label.f { font-size: 14px; color: var(--ink); }
+.nochat #card .hint { font-size: 13px; }
+.nochat #card .small { font-size: 14px; }
+.nochat #card input, .nochat #card select, .nochat #card textarea { padding: 7px 10px; }
+.nochat #card .seg button { padding: 7px 14px; }
+.nochat #card .grid2, .nochat #card .grid3 { gap: 10px 12px; }
+.nochat .side > .panel:last-child { position: sticky; top: 14px; }
+.nochat .hist { max-height: calc(100vh - 140px); }
+.cardgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 14px; margin-top: 10px; align-items: start; }
+fieldset.group { margin: 0; min-width: 0; border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px 14px; }
+fieldset.group > legend { padding: 0 6px; font-weight: 600; color: var(--slate); }
+.runbar { position: sticky; bottom: 0; background: var(--panel); border-top: 1px solid var(--line);
+  margin: 14px -20px 0; padding: 4px 20px 14px; z-index: 2; }
+.runbar #run { padding: 8px 28px; font-size: 16px; }
+@media (max-width: 860px) { .control.nochat { grid-template-columns: 1fr; } .cardgrid { grid-template-columns: 1fr; } }
 .hist { display: flex; flex-direction: column; gap: 4px; max-height: 220px; overflow-y: auto; }
 .hist button { text-align: left; padding: 6px 9px; display: block; width: 100%; }
 .hist button.on { border-color: var(--accent); background: var(--accent-bg); }

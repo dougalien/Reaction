@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Reaction: chat and scenario | Dougalien Systems</title>
+<title>Reaction: scenario | Dougalien Systems</title>
 <meta name="author" content="Dougalien Systems">
 <link rel="icon" type="image/svg+xml" href="/static/dougalien_mark.svg">
 <link rel="stylesheet" href="/static/app.css">
@@ -13,15 +13,17 @@
   <img class="mark" src="/static/dougalien_mark.svg" alt="" width="26" height="26">
   <h1>Reaction</h1>
   <a class="brand small" href="https://dougalien.com" target="_blank" rel="noopener" title="Visit dougalien.com (opens in your browser)">by Dougalien Systems</a>
-  <span class="muted small">chat and scenario</span>
+  <span class="muted small">scenario</span>
   <span class="spacer"></span>
   <span id="pill-link" class="pill">connecting</span>
-  <span id="pill-llm" class="pill">language model</span>
+  <span id="pill-llm" class="pill chat-only">language model</span>
   <span id="pill-engine" class="pill">data</span>
   <button id="open-results" title="Open the results in a second window to drag to the other screen">Open results window</button>
 </div>
-<main class="control">
-  <section class="chatcol">
+<main class="control nochat">
+  <!-- The chat is off for now (Douglas, 2026-10-26: the free-form input still misreads requests).
+       Its code stays; remove "nochat" from <main> and "hidden" here to bring it back. -->
+  <section class="chatcol chat-only" hidden>
     <div id="chat" class="chat" aria-live="polite"></div>
     <form id="compose" class="compose">
       <textarea id="msg" rows="2" placeholder="Describe what to model, or ask to change the plot" aria-label="Message"></textarea>
@@ -40,111 +42,132 @@
       </div>
       <div class="starts" id="starts" role="group" aria-label="Start from a ready-made card"><span class="small muted">Start from</span></div>
       <label class="f">Title<input id="f-title" type="text" placeholder="optional"></label>
-      <div style="margin-top:8px">
-        <div class="seg" id="kindseg" role="group" aria-label="Kind of run">
-          <button data-kind="path">One fluid along a path</button><button data-kind="transport">Flow through a column</button>
+      <div class="cardgrid">
+        <fieldset class="group">
+          <legend>Fluid</legend>
+          <div class="grid2">
+            <label class="f"><span id="fluid-label">Fluid</span><select id="f-fluid"></select></label>
+            <label class="f col-only" title="What fills the column before the flow starts">Column first filled with<select id="f-pore_fluid"></select></label>
+          </div>
+          <div id="fluid-desc" class="hint" style="margin-top:4px"></div>
+          <div id="custom" style="display:none;margin-top:8px">
+            <label class="f">Analysis <span class="hint">one solute per line: name, amount, unit if not the default</span>
+              <textarea id="f-analysis" rows="6" spellcheck="false" placeholder="Na 10768&#10;Ca2+ 10.3 mmol/kg&#10;SiO2 12"></textarea></label>
+            <div class="grid2" style="margin-top:6px">
+              <label class="f">Default unit<select id="f-units">
+                <option value="mg/kg">mg/kg</option><option value="mg/l">mg/L</option>
+                <option value="mmol/kg">mmol/kg</option><option value="mol/kg">mol/kg</option>
+                <option value="mmolal">mmol/kg water</option><option value="molal">mol/kg water</option>
+                <option value="meq/l">meq/L</option></select></label>
+              <label class="f">pH<input id="f-ph" type="number" min="0" max="14" step="any"></label>
+              <label class="f">Measured at (&deg;C)<input id="f-fluid_t_c" type="number" min="0" max="600" step="any"></label>
+              <label class="f" title="Pressure the analysis and pH refer to; empty means 1 bar (or the boiling curve above 100 C). Needed above 300 C">Measured at (bar)<input id="f-fluid_p_bar" type="number" min="1" max="5000" step="any" placeholder="1 bar"></label>
+              <label class="f">Charge balance<select id="f-charge_balance"></select></label>
+              <label class="f">Redox state<select id="f-redox"></select></label>
+              <label class="f" id="redox-value-box">Value<input id="f-redox_value" type="number" step="any"></label>
+            </div>
+            <div class="hint" style="margin-top:4px">Per kg means per kg of solution; mg/L is read at 1 kg/L. Auto balance adjusts the main ion of the side that is short. Redox: Fe(III), sulfide, H2 or O2 in the analysis set it; otherwise choose air, a log fO2, Eh or pe.</div>
+          </div>
+          <details id="fluid-read" style="margin-top:6px"><summary id="fluid-sum" class="small"></summary><div id="fluid-table"></div></details>
+          <label class="f" style="margin-top:8px">Activity model<select id="f-activity_model"><option value="bdot">B-dot</option><option value="davies">Davies</option><option value="pitzer">Pitzer (brines)</option></select></label>
+          <label class="f" style="margin-top:8px" title="Water is taken away until the fluid is this many times more concentrated; 1 means no evaporation">Evaporate to (times concentrated)<input id="f-evaporate" type="number" min="1" max="10000" step="any"></label>
+        </fieldset>
+        <fieldset class="group">
+          <legend>Path</legend>
+          <div style="margin-top:8px">
+            <div class="seg" id="kindseg" role="group" aria-label="Kind of run">
+              <button data-kind="path">One fluid along a path</button><button data-kind="transport">Flow through a column</button>
+            </div>
+          </div>
+          <div class="grid2 path-only" style="margin-top:8px">
+              <label class="f path-only">Steps<input id="f-steps" type="number" min="2" max="200" step="1"></label>
+          </div>
+          <div class="small muted" style="margin:10px 0 4px" id="path-label">Path: a straight line from start to end</div>
+          <div class="grid2">
+            <label class="f"><span class="tp-label" data-path="Temperature start" data-col="Temperature at the inlet">Temperature start</span> (&deg;C)<input id="f-t_start_c" type="number" min="0" max="600" step="any"></label>
+            <label class="f"><span class="tp-label" data-path="Temperature end" data-col="Temperature at the outlet">Temperature end</span> (&deg;C)<input id="f-t_end_c" type="number" min="0" max="600" step="any"></label>
+            <label class="f"><span class="tp-label" data-path="Pressure start" data-col="Pressure at the inlet">Pressure start</span> (bar)<input id="f-p_start_bar" type="number" min="1" max="5000" step="any"></label>
+            <label class="f"><span class="tp-label" data-path="Pressure end" data-col="Pressure at the outlet">Pressure end</span> (bar)<input id="f-p_end_bar" type="number" min="1" max="5000" step="any"></label>
+          </div>
+          <div class="hint" style="margin-top:4px">Equal start and end hold that variable fixed. Equilibrium constants are computed at every point, so any temperature and pressure works (up to 600 &deg;C and 5000 bar).</div>
+          <div class="grid2 col-only" style="margin-top:8px">
+            <label class="f" title="Number of cells the column is divided into (2 to 100)">Cells<input id="f-cells" type="number" min="2" max="100" step="1"></label>
+            <label class="f" title="How many column volumes of fluid flow through">Pore volumes<input id="f-pore_volumes" type="number" min="0" max="100" step="any"></label>
+            <label class="f">Column length (m)<input id="f-column_m" type="number" min="0" step="any"></label>
+            <label class="f" title="Spreads the fronts: D = dispersivity x velocity. 0 gives sharp fronts">Dispersivity (m)<input id="f-dispersivity_m" type="number" min="0" step="any"></label>
+          </div>
+          <div class="hint col-only" style="margin-top:4px">The fluid above flows in at the inlet; minerals and sorbed matter stay in their cell, and every cell is at equilibrium at its own temperature and pressure (PHREEQC's TRANSPORT scheme).</div>
+          <div style="margin-top:10px" class="path-only">
+            <div class="small muted" style="margin-bottom:4px">Mode</div>
+            <div class="seg" id="modeseg" role="group" aria-label="Mode">
+              <button data-mode="static">Static</button><button data-mode="flow_through">Flow-through</button><button data-mode="both">Both</button>
+            </div>
+            <div class="hint" style="margin-top:4px">Static: minerals stay and can redissolve. Flow-through: each step's minerals are left behind.</div>
+          </div>
+        </fieldset>
+        <fieldset class="group">
+          <legend>Reactants and mixing</legend>
+          <div class="grid2 path-only" style="margin-top:10px">
+            <label class="f">Mix in a second fluid<select id="f-mix_with"></select></label>
+            <label class="f">Up to (kg per kg)<input id="f-mix_ratio" type="number" min="0" max="1000" step="any"></label>
+            <label class="f">Its temperature (&deg;C)<input id="f-mix_t_c" type="number" min="0" max="600" step="any" placeholder="follow the path"></label>
+          </div>
+          <div id="mix-hint" class="hint" style="margin-top:4px"></div>
+          <div style="margin-top:10px">
+            <div class="small muted" style="margin-bottom:4px">Reactants <span class="hint" id="reactant-hint">(added steadily, all of it by the last step, per kg of water)</span></div>
+            <div id="reactants" class="row" style="gap:5px"></div>
+            <input id="add-reactant" type="text" placeholder="e.g. 10 g albite or 0.05 mol HCl, press Enter" style="margin-top:6px" aria-label="Add a reactant">
+            <div class="grid2" style="margin-top:8px">
+              <label class="f" title="Minerals and basalt glass dissolve or grow at measured rates (Palandri and Kharaka 2004; Gislason and Oelkers 2003) instead of all at once">How they react<select id="f-kinetics"><option value="false">All of it, steadily</option><option value="true">At measured rates</option></select></label>
+              <label class="f kin" title="Reactive surface per gram of each reactant; 100 cm2/g is roughly 0.1 mm grains">Surface area (cm&sup2;/g)<input id="f-surface_area_cm2_per_g" type="number" min="0" step="any"></label>
+              <label class="f kin">Run for<input id="f-duration" type="number" min="0" step="any"></label>
+              <label class="f kin">Time unit<select id="f-duration_unit"><option value="seconds">seconds</option><option value="minutes">minutes</option><option value="hours">hours</option><option value="days">days</option><option value="years">years</option></select></label>
+            </div>
+          </div>
+          <div style="margin-top:10px">
+            <div class="small muted" style="margin-bottom:4px">Blocked minerals <span class="hint">(supersaturated but too slow to form)</span></div>
+            <div id="blocked" class="row" style="gap:5px"></div>
+            <input id="add-blocked" type="text" placeholder="add a mineral name, press Enter" style="margin-top:6px" aria-label="Add a blocked mineral">
+          </div>
+        </fieldset>
+        <fieldset class="group">
+          <legend>Surfaces and sorption</legend>
+          <label class="f" style="margin-top:8px" title="Cation exchange sites per kg of water (Gaines-Thomas, PHREEQC constants); the exchanger starts in equilibrium with the fluid. 0 = none">Exchange sites (meq per kg water)<input id="f-exchange_meq" type="number" min="0" step="any"></label>
+          <label class="f" style="margin-top:8px" title="Hydrous ferric oxide (ferrihydrite) per kg of water, with Dzombak and Morel surface complexation on its strong and weak sites. 0 = none">Ferric oxide surface (g per kg water)<input id="f-hfo_g" type="number" min="0" step="any"></label>
+          <div class="small muted" style="margin:10px 0 4px" title="Clay minerals per kg of water. Each carries exchange sites at its cation exchange capacity (kaolinite 20, illite 225, montmorillonite 764 meq per kg of clay), and illite and montmorillonite also have edge sites; the Partition coefficients tab of the results gives each metal's Kd on each clay">Clays (g per kg water, 0 = none)</div>
+          <div class="grid3">
+            <label class="f">Kaolinite<input id="f-kaolinite_g" type="number" min="0" step="any"></label>
+            <label class="f">Illite<input id="f-illite_g" type="number" min="0" step="any"></label>
+            <label class="f">Montmorillonite<input id="f-montmorillonite_g" type="number" min="0" step="any"></label>
+          </div>
+          <label class="f" style="margin-top:8px" title="Illite and montmorillonite also bind Ni, Co, Zn, Cd, Pb, Cu, Mn, Fe(II) and Hg on the strong sites at their crystal edges (2SPNE surface complexation, Bradbury and Baeyens 2005, 2009), which dominates above about pH 6 at trace levels. Kaolinite has exchange sites only">Clay edge sites<select id="f-clay_edges"><option value="true">Bind metals (2SPNE)</option><option value="false">Exchange sites only</option></select></label>
+          <div class="grid2" style="margin-top:8px">
+            <label class="f" title="Grams of sediment or soil per kg of water that hold metals by their partition coefficient Kd (Allison and Allison 2005, U.S. EPA). With clays or exchange sites on the card it holds only the metals they cannot hold (with clay edge sites, As and Cr). 0 = none">Kd solid (g per kg water)<input id="f-kd_solid_g" type="number" min="0" step="any"></label>
+            <label class="f" title="Which set of partition coefficients the Kd solid uses">Kd values for<select id="f-kd_medium"><option value="sediment">Bed sediment</option><option value="suspended">Suspended matter</option><option value="soil">Soil</option></select></label>
+          </div>
+        </fieldset>
+        <fieldset class="group">
+          <legend>Options</legend>
+          <div class="grid2" style="margin-top:8px">
+            <label class="f" title="Plagioclase, alkali feldspar, carbonate, chlorite, epidote, garnet, olivine, pyroxenes, biotite and actinolite form as ideal mixtures of their endmembers instead of pure minerals">Solid solutions<select id="f-solid_solutions"><option value="false">Pure minerals only</option><option value="true">Can form</option></select></label>
+            <label class="f" title="Where a saline fluid splits into brine and vapour (NaCl-H2O): follow the whole fluid, the brine as the vapour boils off, or the vapour as it leaves the brine behind">Follow<select id="f-follow_phase"><option value="whole">Whole fluid</option><option value="brine">Brine</option><option value="vapour">Vapour</option></select></label>
+            <label class="f" title="δ18O, δ13C, δ34S of the fluid and minerals and 87Sr/86Sr of the fluid along the run; starting values can be set in the chat, e.g. &quot;fluid d18O -5&quot; or &quot;basalt glass 87Sr/86Sr 0.7030&quot;">Isotopes<select id="f-isotopes"><option value="false">Off</option><option value="true">On</option></select></label>
+            <label class="f" title="A gas phase (CO2, CH4, steam, H2, H2S ...) forms when the dissolved gases' fugacities add up to the pressure">Gas phase<select id="f-gas_phase"><option value="true">Can form</option><option value="false">Suppressed</option></select></label>
+            <label class="f" title="Below about 150 C methane and sulfate do not react on human time scales; held apart, each keeps its own total">Methane and sulfate<select id="f-methane_sulfate"><option value="apart">Held apart</option><option value="react">Can react</option></select></label>
+          </div>
+          <label class="f" style="margin-top:8px" title="Extra runs with every log K shifted at random by its uncertainty (larger where the reliability check is worse); the plots then shade the middle 90% of them. 0 = a single run. Each run takes as long as the main one, spread over the processors">Uncertainty range (extra runs, 0 = off)<input id="f-uncertainty_runs" type="number" min="0" max="200" step="1"></label>
+        </fieldset>
+      </div>
+      <div class="runbar">
+        <div id="problems" style="margin-top:10px"></div>
+        <div id="advice" style="margin-top:6px"></div>
+        <div class="row" style="margin-top:12px">
+          <button class="primary" id="run">Run</button>
+          <span id="runmsg" class="small muted"></span>
         </div>
+        <progress id="prog" max="1" value="0" style="margin-top:8px;display:none"></progress>
+        <div id="runerr" class="errbox" style="margin-top:8px;display:none"></div>
       </div>
-      <div class="grid2" style="margin-top:8px">
-        <label class="f"><span id="fluid-label">Fluid</span><select id="f-fluid"></select></label>
-        <label class="f path-only">Steps<input id="f-steps" type="number" min="2" max="200" step="1"></label>
-        <label class="f col-only" title="What fills the column before the flow starts">Column first filled with<select id="f-pore_fluid"></select></label>
-      </div>
-      <div class="grid2 col-only" style="margin-top:8px">
-        <label class="f" title="Number of cells the column is divided into (2 to 100)">Cells<input id="f-cells" type="number" min="2" max="100" step="1"></label>
-        <label class="f" title="How many column volumes of fluid flow through">Pore volumes<input id="f-pore_volumes" type="number" min="0" max="100" step="any"></label>
-        <label class="f">Column length (m)<input id="f-column_m" type="number" min="0" step="any"></label>
-        <label class="f" title="Spreads the fronts: D = dispersivity x velocity. 0 gives sharp fronts">Dispersivity (m)<input id="f-dispersivity_m" type="number" min="0" step="any"></label>
-      </div>
-      <div class="hint col-only" style="margin-top:4px">The fluid above flows in at the inlet; minerals and sorbed matter stay in their cell, and every cell is at equilibrium at its own temperature and pressure (PHREEQC's TRANSPORT scheme).</div>
-      <div id="fluid-desc" class="hint" style="margin-top:4px"></div>
-      <div id="custom" style="display:none;margin-top:8px">
-        <label class="f">Analysis <span class="hint">one solute per line: name, amount, unit if not the default</span>
-          <textarea id="f-analysis" rows="6" spellcheck="false" placeholder="Na 10768&#10;Ca2+ 10.3 mmol/kg&#10;SiO2 12"></textarea></label>
-        <div class="grid2" style="margin-top:6px">
-          <label class="f">Default unit<select id="f-units">
-            <option value="mg/kg">mg/kg</option><option value="mg/l">mg/L</option>
-            <option value="mmol/kg">mmol/kg</option><option value="mol/kg">mol/kg</option>
-            <option value="mmolal">mmol/kg water</option><option value="molal">mol/kg water</option>
-            <option value="meq/l">meq/L</option></select></label>
-          <label class="f">pH<input id="f-ph" type="number" min="0" max="14" step="any"></label>
-          <label class="f">Measured at (&deg;C)<input id="f-fluid_t_c" type="number" min="0" max="600" step="any"></label>
-          <label class="f" title="Pressure the analysis and pH refer to; empty means 1 bar (or the boiling curve above 100 C). Needed above 300 C">Measured at (bar)<input id="f-fluid_p_bar" type="number" min="1" max="5000" step="any" placeholder="1 bar"></label>
-          <label class="f">Charge balance<select id="f-charge_balance"></select></label>
-          <label class="f">Redox state<select id="f-redox"></select></label>
-          <label class="f" id="redox-value-box">Value<input id="f-redox_value" type="number" step="any"></label>
-        </div>
-        <div class="hint" style="margin-top:4px">Per kg means per kg of solution; mg/L is read at 1 kg/L. Auto balance adjusts the main ion of the side that is short. Redox: Fe(III), sulfide, H2 or O2 in the analysis set it; otherwise choose air, a log fO2, Eh or pe.</div>
-      </div>
-      <details id="fluid-read" style="margin-top:6px"><summary id="fluid-sum" class="small"></summary><div id="fluid-table"></div></details>
-      <div class="small muted" style="margin:10px 0 4px" id="path-label">Path: a straight line from start to end</div>
-      <div class="grid2">
-        <label class="f"><span class="tp-label" data-path="Temperature start" data-col="Temperature at the inlet">Temperature start</span> (&deg;C)<input id="f-t_start_c" type="number" min="0" max="600" step="any"></label>
-        <label class="f"><span class="tp-label" data-path="Temperature end" data-col="Temperature at the outlet">Temperature end</span> (&deg;C)<input id="f-t_end_c" type="number" min="0" max="600" step="any"></label>
-        <label class="f"><span class="tp-label" data-path="Pressure start" data-col="Pressure at the inlet">Pressure start</span> (bar)<input id="f-p_start_bar" type="number" min="1" max="5000" step="any"></label>
-        <label class="f"><span class="tp-label" data-path="Pressure end" data-col="Pressure at the outlet">Pressure end</span> (bar)<input id="f-p_end_bar" type="number" min="1" max="5000" step="any"></label>
-      </div>
-      <div class="hint" style="margin-top:4px">Equal start and end hold that variable fixed. Equilibrium constants are computed at every point, so any temperature and pressure works (up to 600 &deg;C and 5000 bar).</div>
-      <label class="f" style="margin-top:8px">Activity model<select id="f-activity_model"><option value="bdot">B-dot</option><option value="davies">Davies</option><option value="pitzer">Pitzer (brines)</option></select></label>
-      <label class="f" style="margin-top:8px" title="Water is taken away until the fluid is this many times more concentrated; 1 means no evaporation">Evaporate to (times concentrated)<input id="f-evaporate" type="number" min="1" max="10000" step="any"></label>
-      <label class="f" style="margin-top:8px" title="Extra runs with every log K shifted at random by its uncertainty (larger where the reliability check is worse); the plots then shade the middle 90% of them. 0 = a single run. Each run takes as long as the main one, spread over the processors">Uncertainty range (extra runs, 0 = off)<input id="f-uncertainty_runs" type="number" min="0" max="200" step="1"></label>
-      <label class="f" style="margin-top:8px" title="Cation exchange sites per kg of water (Gaines-Thomas, PHREEQC constants); the exchanger starts in equilibrium with the fluid. 0 = none">Exchange sites (meq per kg water)<input id="f-exchange_meq" type="number" min="0" step="any"></label>
-      <label class="f" style="margin-top:8px" title="Hydrous ferric oxide (ferrihydrite) per kg of water, with Dzombak and Morel surface complexation on its strong and weak sites. 0 = none">Ferric oxide surface (g per kg water)<input id="f-hfo_g" type="number" min="0" step="any"></label>
-      <div class="small muted" style="margin:10px 0 4px" title="Clay minerals per kg of water. Each carries exchange sites at its cation exchange capacity (kaolinite 20, illite 225, montmorillonite 764 meq per kg of clay), and illite and montmorillonite also have edge sites; the Partition coefficients tab of the results gives each metal's Kd on each clay">Clays (g per kg water, 0 = none)</div>
-      <div class="grid3">
-        <label class="f">Kaolinite<input id="f-kaolinite_g" type="number" min="0" step="any"></label>
-        <label class="f">Illite<input id="f-illite_g" type="number" min="0" step="any"></label>
-        <label class="f">Montmorillonite<input id="f-montmorillonite_g" type="number" min="0" step="any"></label>
-      </div>
-      <label class="f" style="margin-top:8px" title="Illite and montmorillonite also bind Ni, Co, Zn, Cd, Pb, Cu, Mn, Fe(II) and Hg on the strong sites at their crystal edges (2SPNE surface complexation, Bradbury and Baeyens 2005, 2009), which dominates above about pH 6 at trace levels. Kaolinite has exchange sites only">Clay edge sites<select id="f-clay_edges"><option value="true">Bind metals (2SPNE)</option><option value="false">Exchange sites only</option></select></label>
-      <div class="grid2" style="margin-top:8px">
-        <label class="f" title="Grams of sediment or soil per kg of water that hold metals by their partition coefficient Kd (Allison and Allison 2005, U.S. EPA). With clays or exchange sites on the card it holds only the metals they cannot hold (with clay edge sites, As and Cr). 0 = none">Kd solid (g per kg water)<input id="f-kd_solid_g" type="number" min="0" step="any"></label>
-        <label class="f" title="Which set of partition coefficients the Kd solid uses">Kd values for<select id="f-kd_medium"><option value="sediment">Bed sediment</option><option value="suspended">Suspended matter</option><option value="soil">Soil</option></select></label>
-      </div>
-      <div class="grid2" style="margin-top:8px">
-        <label class="f" title="Plagioclase, alkali feldspar, carbonate, chlorite, epidote, garnet, olivine, pyroxenes, biotite and actinolite form as ideal mixtures of their endmembers instead of pure minerals">Solid solutions<select id="f-solid_solutions"><option value="false">Pure minerals only</option><option value="true">Can form</option></select></label>
-        <label class="f" title="Where a saline fluid splits into brine and vapour (NaCl-H2O): follow the whole fluid, the brine as the vapour boils off, or the vapour as it leaves the brine behind">Follow<select id="f-follow_phase"><option value="whole">Whole fluid</option><option value="brine">Brine</option><option value="vapour">Vapour</option></select></label>
-        <label class="f" title="δ18O, δ13C, δ34S of the fluid and minerals and 87Sr/86Sr of the fluid along the run; starting values can be set in the chat, e.g. &quot;fluid d18O -5&quot; or &quot;basalt glass 87Sr/86Sr 0.7030&quot;">Isotopes<select id="f-isotopes"><option value="false">Off</option><option value="true">On</option></select></label>
-        <label class="f" title="A gas phase (CO2, CH4, steam, H2, H2S ...) forms when the dissolved gases' fugacities add up to the pressure">Gas phase<select id="f-gas_phase"><option value="true">Can form</option><option value="false">Suppressed</option></select></label>
-        <label class="f" title="Below about 150 C methane and sulfate do not react on human time scales; held apart, each keeps its own total">Methane and sulfate<select id="f-methane_sulfate"><option value="apart">Held apart</option><option value="react">Can react</option></select></label>
-      </div>
-      <div style="margin-top:10px" class="path-only">
-        <div class="small muted" style="margin-bottom:4px">Mode</div>
-        <div class="seg" id="modeseg" role="group" aria-label="Mode">
-          <button data-mode="static">Static</button><button data-mode="flow_through">Flow-through</button><button data-mode="both">Both</button>
-        </div>
-        <div class="hint" style="margin-top:4px">Static: minerals stay and can redissolve. Flow-through: each step's minerals are left behind.</div>
-      </div>
-      <div class="grid2 path-only" style="margin-top:10px">
-        <label class="f">Mix in a second fluid<select id="f-mix_with"></select></label>
-        <label class="f">Up to (kg per kg)<input id="f-mix_ratio" type="number" min="0" max="1000" step="any"></label>
-        <label class="f">Its temperature (&deg;C)<input id="f-mix_t_c" type="number" min="0" max="600" step="any" placeholder="follow the path"></label>
-      </div>
-      <div id="mix-hint" class="hint" style="margin-top:4px"></div>
-      <div style="margin-top:10px">
-        <div class="small muted" style="margin-bottom:4px">Reactants <span class="hint" id="reactant-hint">(added steadily, all of it by the last step, per kg of water)</span></div>
-        <div id="reactants" class="row" style="gap:5px"></div>
-        <input id="add-reactant" type="text" placeholder="e.g. 10 g albite or 0.05 mol HCl, press Enter" style="margin-top:6px" aria-label="Add a reactant">
-        <div class="grid2" style="margin-top:8px">
-          <label class="f" title="Minerals and basalt glass dissolve or grow at measured rates (Palandri and Kharaka 2004; Gislason and Oelkers 2003) instead of all at once">How they react<select id="f-kinetics"><option value="false">All of it, steadily</option><option value="true">At measured rates</option></select></label>
-          <label class="f kin" title="Reactive surface per gram of each reactant; 100 cm2/g is roughly 0.1 mm grains">Surface area (cm&sup2;/g)<input id="f-surface_area_cm2_per_g" type="number" min="0" step="any"></label>
-          <label class="f kin">Run for<input id="f-duration" type="number" min="0" step="any"></label>
-          <label class="f kin">Time unit<select id="f-duration_unit"><option value="seconds">seconds</option><option value="minutes">minutes</option><option value="hours">hours</option><option value="days">days</option><option value="years">years</option></select></label>
-        </div>
-      </div>
-      <div style="margin-top:10px">
-        <div class="small muted" style="margin-bottom:4px">Blocked minerals <span class="hint">(supersaturated but too slow to form)</span></div>
-        <div id="blocked" class="row" style="gap:5px"></div>
-        <input id="add-blocked" type="text" placeholder="add a mineral name, press Enter" style="margin-top:6px" aria-label="Add a blocked mineral">
-      </div>
-      <div id="problems" style="margin-top:10px"></div>
-      <div id="advice" style="margin-top:6px"></div>
-      <div class="row" style="margin-top:12px">
-        <button class="primary" id="run">Run</button>
-        <span id="runmsg" class="small muted"></span>
-      </div>
-      <progress id="prog" max="1" value="0" style="margin-top:8px;display:none"></progress>
-      <div id="runerr" class="errbox" style="margin-top:8px;display:none"></div>
     </section>
     <section class="panel">
       <h2 style="margin-bottom:6px">Earlier runs</h2>
