@@ -741,7 +741,7 @@ FIELD_HELP = {
                     "equilibrium with the fluid (Gaines-Thomas, PHREEQC constants)",
     "hfo_g": "grams of hydrous ferric oxide per kg of water (0 = none): surface complexation on its strong and "
              "weak sites (Dzombak and Morel 1990)",
-    "isotopes": "false (default); true: d18O, d13C, d34S and 87Sr/86Sr of the fluid and minerals, and dD of the water, "
+    "isotopes": "false (default); true: d18O, dD, d13C, d34S and 87Sr/86Sr of the fluid and minerals, "
                 "along the run",
     "isotope_inputs": "starting isotope values, e.g. {\"fluid\": {\"d18O\": -5}, \"basalt glass\": {\"Sr\": 120, "
                       "\"87Sr/86Sr\": 0.703}}; d values in permil (VSMOW, VPDB, VCDT), Sr in mg/kg of fluid or ppm "

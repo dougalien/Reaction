@@ -197,8 +197,34 @@ note. To finish: mineral factors from the papers, once Douglas can share them.
 Also fixed: a run is marked idle only after the session is saved (a test that restarted the session right
 after a run sometimes read the old file).
 
-Next: kinetics in the column (a velocity gives each shift a time); mineral D/H factors when the papers are
-available; the Bischoff and Rosenbauer check of P5b.
+P7c part three, mineral δD (done, 2026-10-26, from the papers Douglas supplied): `isotopes.mineral_water_h`.
+Kaolinite, dickite (and halloysite as kaolinite): Sheppard and Gilg (1996), -2.2e6/T^2 - 7.7, 0 to 350 C.
+Muscovite: Suzuoki and Epstein (1976) eq. 1. Tremolite (flat -21.7 to 650 C, then -31.0e6/T^2 + 14.9), pargasite
+and ferropargasite (-23.1), actinolite and ferro-actinolite (-29, one point at 400 C): Graham and others (1984).
+Every other hydroxyl mineral with Al, Mg or Fe: Suzuoki and Epstein's general equation
+-22.4e6/T^2 + 28.2 + 2 X_Al - 4 X_Mg - 68 X_Fe over the Al, Mg and Fe of the formula. Zeolites, salt hydrates and
+minerals with S, C, P, Cl or F keep the water's δD (listed in a note). Judgment calls: below 400 C the general
+equation (and muscovite's) is held at its 400 C value, because its 1/T^2 term runs to -225 permil for a clay at
+25 C where measured clays sit near -30 to -60 (Sheppard and Gilg, figs. 3, 4); all Al is counted as octahedral
+(at most 2 permil); epidote, chlorites, boehmite, prehnite and the like have hydrogen-bonded OH that the
+general equation makes too heavy (Chacko and others 2001), and a note says so. No salt effect on D/H yet
+(Horita's NaCl terms are in Chacko and others, table 4). Mineral δD is good to about 20 permil, the spread
+between published calibrations.
+
+P5b part three (done, 2026-10-26): `nacl_h2o.py` implements Driesner and Heinrich (2007) part I: critical curve
+(eqs. 5, 7), halite liquidus (8), V+L+H pressure (10), liquid branch of V+L (11, with g0 and below 374 C Xcrit
+fixed by the two ends) and vapour branch (13-17), halite-saturated vapour (9), NaCl vapour pressure (2, 3);
+pure water's vapour pressure from IAPWS-IF97. `phasesep.phase_state` uses them for the phase compositions
+(0 to 1000 C, 1 to 5000 bar); the old lookup table now only gives densities. Checked: against the table (from
+xThermal) at its 1856 two-phase nodes, liquid within 1e-6 relative, vapour within 1% (95th percentile; the
+table's vapour differs slightly), halite liquidus within 2e-6. Against Bischoff and Rosenbauer (1988), table 1,
+the seawater (3.2 wt%) boundary from 196 to 450 C is within 3.2 bar everywhere (the grid was up to 10 bar off),
+and the critical point of seawater comes out at 408.2 C and 301 bar (measured 407 C, 298.5 bar). Consequence:
+seawater at 300 bar splits from 408 C, not 405 C; following the vapour near the critical point still often fails
+to solve (B-dot at low density), as before. The phase-separation tests moved to 400 C/305 bar to 410 C/300 bar.
+
+Next: kinetics in the column (a velocity gives each shift a time); salt effect on liquid-vapour and mineral
+D/H; Lewis and Lowell (2009) two-phase flow benchmarks once the column can follow phases.
 
 359 tests pass with the data folder present. The data folder needs `OBIGT/Berman/` (run
 `scripts/fetch_references.ps1` again); without it the old minerals are used and every run says so.

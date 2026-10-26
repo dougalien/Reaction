@@ -5,6 +5,7 @@ import pytest
 
 from reaction import isotopes
 from reaction.app.engine import Engine
+from reaction.app.narrate import story
 from reaction.app.scenario import Scenario
 
 
@@ -120,3 +121,37 @@ def test_hydrogen_isotopes(engine):
     r = _run(engine, temperature_c=350, pressure_bar=500, steps=3,
              reactants=[{"name": "basalt glass", "amount": 100, "unit": "g"}])
     assert abs(r["modes"]["static"]["isotopes"]["dD:water"][-1]) < 1.0
+
+
+def test_mineral_water_hydrogen():
+    h = isotopes.mineral_water_h
+    # Sheppard and Gilg (1996) kaolinite: -2.2e6/T^2 - 7.7, about -32 permil at 25 C
+    assert h("kaolinite", {}, 25.0)[0] == pytest.approx(-32.45, abs=0.05)
+    # Suzuoki and Epstein (1976) eq. 1 for muscovite and the general equation (which their table 3 checks at 650 C)
+    t = 650.0 + 273.15
+    assert h("muscovite", {}, 650.0)[0] == pytest.approx(-22.1e6 / t ** 2 + 19.1)
+    phlogopite = {"K": 1, "Mg": 3, "Al": 1, "Si": 3, "O": 12, "H": 2}
+    assert h("phlogopite", phlogopite, 650.0)[0] == pytest.approx(-22.4e6 / t ** 2 + 28.2 + 2 * 0.25 - 4 * 0.75)
+    annite = {"K": 1, "Fe": 3, "Al": 1, "Si": 3, "O": 12, "H": 2}
+    assert h("annite", annite, 650.0)[0] < h("phlogopite", phlogopite, 650.0)[0] - 45   # Fe takes up less D
+    # below its 400 C range the general equation is held at its 400 C value
+    assert h("phlogopite", phlogopite, 200.0)[0] == h("phlogopite", phlogopite, 400.0)[0]
+    # Graham and others (1984): tremolite flat at -21.7 to 650 C, hornblende -23.1, actinolite -29
+    assert h("tremolite", {}, 500.0)[0] == -21.7 and h("pargasite", {}, 500.0)[0] == -23.1
+    assert h("tremolite", {}, 800.0)[0] == pytest.approx(-31.0e6 / (800 + 273.15) ** 2 + 14.9)
+    # molecular water and oxyanion hydrogen take the water's dD
+    assert h("laumontite", {"Ca": 1, "Al": 2, "Si": 4, "O": 16, "H": 8}, 200.0)[0] is None
+    assert h("gypsum", {"Ca": 1, "S": 1, "O": 6, "H": 4}, 25.0)[0] is None
+
+
+def test_mineral_dd_in_a_run(engine):
+    r = _run(engine, t_start_c=2, t_end_c=350, steps=8, reactants=[{"name": "basalt glass", "amount": 100, "unit": "g"}])
+    iso = r["modes"]["static"]["isotopes"]
+    minerals = [k for k in iso if k.startswith("dD:") and k != "dD:water"]
+    assert minerals
+    for k in minerals:                    # every hydrous silicate is lighter than the water it grew from
+        for d, w in zip(iso[k], iso["dD:water"]):
+            if d is not None:
+                assert d < w - 15
+    assert any("mineral-water D/H" in n for n in r["notes"])
+    assert "lighter in δD than the water" in " ".join(story(r))

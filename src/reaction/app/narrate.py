@@ -277,6 +277,16 @@ def _isotope_clause(run: dict) -> str:
             continue
         bits.append(f"{what} goes from {fmt.format(a + 0.0)} to {fmt.format(b + 0.0)}".replace("-0.0‰", "0.0‰")
                     .replace("+0.0‰", "0.0‰"))
+    water = iso.get("dD:water") or []
+    gaps = []                                   # how much lighter than the water the hydrous minerals end up
+    for key, vals in iso.items():
+        if key.startswith("dD:") and key != "dD:water":
+            if vals and vals[-1] is not None and len(water) == len(vals) and water[-1] is not None:
+                gaps.append(water[-1] - vals[-1])       # minerals still there at the end
+    if gaps:
+        lo, hi = round(min(gaps)), round(max(gaps))
+        size = f"{lo}‰" if lo == hi else f"{lo} to {hi}‰"
+        bits.append(f"the hydrous minerals end up {size} {'lighter' if lo >= 0 else 'different'} in δD than the water")
     if not bits:
         return ""
     return "Isotopes: " + "; ".join(bits) + "."

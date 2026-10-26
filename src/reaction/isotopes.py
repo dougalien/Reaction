@@ -8,10 +8,13 @@ The system's inventory Σ n δ is carried from point to point: reactants add the
 equilibrium with the water (Horita and Wesolowski 1994).  δ_ref then follows from the mass balance
 Σ n (δ_ref + Δ) = inventory.  This is the δ-notation approximation GWB and EQ6 also use.
 
-Hydrogen: the water carries nearly all of it (111 mol per kg), and only the liquid-vapour fractionation is used
-(Horita and Wesolowski 1994).  Mineral-water D/H factors are scattered and depend on composition, so hydrous
-minerals take the water's δD for now; they hold about 1% of the hydrogen in a basalt run, which moves the water's
-δD by well under a permil.  Dissolved and gaseous H2 and CH4, far lighter in nature, are counted with the water.
+Hydrogen: the water carries nearly all of it (111 mol per kg), with the liquid-vapour fractionation of Horita
+and Wesolowski (1994).  Hydroxyl-bearing minerals take mineral-water D/H factors (``mineral_water_h``):
+measured curves for kaolinite (Sheppard and Gilg 1996), muscovite (Suzuoki and Epstein 1976) and the
+calcic amphiboles (Graham and others 1984), and otherwise Suzuoki and Epstein's (1976) general equation from
+the Al, Mg and Fe of the octahedral sites.  Minerals whose hydrogen is molecular water (zeolites, salt hydrates)
+or sits in a sulfate, carbonate or phosphate take the water's δD.  Dissolved and gaseous H2 and CH4, far lighter
+in nature, are counted with the water.
 
 Strontium does not fractionate: 87Sr/86Sr is a tracer carried with the fluid, mixed from the starting fluid and
 the Sr that dissolving rock (or a reactant given Sr) adds; secondary minerals are taken to keep none.
@@ -76,6 +79,85 @@ def liquid_vapour_h(t_c: float) -> float:
 
 
 LIQUID_VAPOUR = {"O": liquid_vapour_o, "H": liquid_vapour_h}
+
+
+# --- mineral-water D/H ------------------------------------------------------------------------------------
+# Suzuoki and Epstein (1976), calibrated 400 to 850 C on micas and amphiboles:
+#   1000 ln α = -22.4e6/T^2 + 28.2 + (2 X_Al - 4 X_Mg - 68 X_Fe), X the share of each octahedral cation.
+# Below 400 C its 1/T^2 term runs far past every low-temperature measurement (it gives -225 permil for a clay at
+# 25 C, where smectites and kaolinite are measured near -30 to -60; Sheppard and Gilg 1996, figs. 3 and 4), so
+# below its range the equation is held at its 400 C value.
+SE_T_MIN_C = 400.0
+SE_SOURCE = "Suzuoki and Epstein (1976) general equation"
+H_NOT_OCTAHEDRAL = {        # hydrogen as molecular water in channels and cages: taken at the water's δD
+    "analcime", "laumontite", "wairakite", "heulandite", "stilbite", "mordenite", "chabazite", "natrolite",
+    "scolecite", "mesolite", "clinoptilolite", "phillipsite", "stellerite", "yugawaralite", "erionite",
+    "ferrierite", "gismondine", "thomsonite", "ice"}
+H_BONDED = {"epidote", "orthoepidote", "clinozoisite", "zoisite", "boehmite", "diaspore", "prehnite",
+            "pumpellyite", "lawsonite", "clinochlore", "daphnite", "chamosite", "sudoite", "cookeite",
+            "Fe-amesite", "Mg-amesite"}
+
+
+def _suzuoki_epstein(t_c: float, x_al: float, x_mg: float, x_fe: float) -> float:
+    t = max(t_c, SE_T_MIN_C) + 273.15
+    return -22.4e6 / t ** 2 + 28.2 + 2.0 * x_al - 4.0 * x_mg - 68.0 * x_fe
+
+
+def _kaolinite_h(t_c: float) -> float:            # Sheppard and Gilg (1996), 0 to 350 C
+    t = t_c + 273.15
+    return -2.2e6 / t ** 2 - 7.7
+
+
+def _muscovite_h(t_c: float) -> float:            # Suzuoki and Epstein (1976) eq. 1, 450 to 800 C
+    t = max(t_c, SE_T_MIN_C) + 273.15
+    return -22.1e6 / t ** 2 + 19.1
+
+
+def _tremolite_h(t_c: float) -> float:            # Graham and others (1984): flat to 650 C, then a 1/T^2 curve
+    if t_c <= 650.0:
+        return -21.7
+    t = t_c + 273.15
+    return -31.0e6 / t ** 2 + 14.9
+
+
+# name: (function of T, source, calibrated range in C)
+H_CURVES = {
+    "kaolinite": (_kaolinite_h, "Sheppard and Gilg (1996)", (0.0, 350.0)),
+    "dickite": (_kaolinite_h, "Sheppard and Gilg (1996)", (0.0, 350.0)),
+    "halloysite": (_kaolinite_h, "Sheppard and Gilg (1996), as kaolinite", (0.0, 350.0)),
+    "muscovite": (_muscovite_h, "Suzuoki and Epstein (1976)", (400.0, 850.0)),
+    "tremolite": (_tremolite_h, "Graham and others (1984)", (350.0, 950.0)),
+    "pargasite": (lambda t: -23.1, "Graham and others (1984), hornblende", (350.0, 850.0)),
+    "ferropargasite": (lambda t: -23.1, "Graham and others (1984), ferroan pargasitic hornblende", (350.0, 850.0)),
+    "hornblende": (lambda t: -23.1, "Graham and others (1984)", (350.0, 850.0)),
+    "actinolite": (lambda t: -29.0, "Graham and others (1984), at 400 C", (400.0, 400.0)),
+    "ferro-actinolite": (lambda t: -29.0, "Graham and others (1984), actinolite at 400 C", (400.0, 400.0)),
+}
+
+
+def octahedral(elements: dict[str, float]) -> tuple[float, float, float] | None:
+    """Shares of Al, Mg and Fe among a mineral's octahedral cations, or None if it has none of them.  All of
+    the Al is counted: tetrahedral Al in micas and chlorites moves the result by 2 permil at most."""
+    al, mg, fe = (elements.get(e, 0.0) for e in ("Al", "Mg", "Fe"))
+    total = al + mg + fe
+    if total <= 0:
+        return None
+    return al / total, mg / total, fe / total
+
+
+def mineral_water_h(name: str, elements: dict[str, float], t_c: float) -> tuple[float | None, str]:
+    """1000 ln α (mineral − water) for D/H and where it comes from; None for minerals that take the water's δD
+    (hydrogen as molecular water, or in a sulfate, carbonate or phosphate, or no Al, Mg or Fe)."""
+    if name in H_CURVES:
+        f, source, _ = H_CURVES[name]
+        return f(t_c), source
+    if (name in H_NOT_OCTAHEDRAL or any(elements.get(e) for e in ("S", "C", "P", "Cl", "F"))
+            or not elements.get("H")):
+        return None, ""
+    x = octahedral(elements)
+    if x is None:
+        return None, ""
+    return _suzuoki_epstein(t_c, *x), SE_SOURCE
 WATER_ATOMS = {"O": 1.0, "H": 2.0}
 
 
@@ -122,7 +204,10 @@ class Fractionation:
         self.db = db
         self.analogues: dict[str, set[str]] = {}       # system -> "mineral (as analogue)"
         self.beyond: set[str] = set()                  # factors used above their calibrated range
+        self.below: set[str] = set()                   # and below it
         self.hydrous: set[str] = set()                 # minerals given the water's δD (no D/H factor)
+        self.h_sources: dict[str, set[str]] = {}       # D/H source -> minerals
+        self.h_bonded: set[str] = set()                # strongly H-bonded: the general equation is too heavy
 
     def _factor(self, system: str, phase: str, t_c: float) -> float:
         f = table()[(system, phase)]
@@ -132,8 +217,19 @@ class Fractionation:
 
     def mineral(self, system: str, name: str, t_c: float) -> float:
         if system == "H":
-            self.hydrous.add(name)
-            return 0.0
+            d, source = mineral_water_h(name, self._elements(name), t_c)
+            if d is None:
+                self.hydrous.add(name)
+                return 0.0
+            self.h_sources.setdefault(source, set()).add(name)
+            if source == SE_SOURCE and name in H_BONDED:
+                self.h_bonded.add(name)
+            rng = H_CURVES[name][2] if name in H_CURVES else (SE_T_MIN_C, 850.0)
+            if t_c > rng[1] + 1:
+                self.beyond.add(f"{name} (dD, to {rng[1]:.0f} °C)")
+            elif t_c < rng[0] - 1:
+                self.below.add(f"{name} (from {rng[0]:.0f} °C)")
+            return d
         rows = table()
         key = {"S": self._sulfur_phase, "C": self._carbon_phase}.get(system, self._oxygen_phase)(name)
         if key != name and not (system == "S" and key == "sulfate" and name in ("anhydrite", "barite")):
