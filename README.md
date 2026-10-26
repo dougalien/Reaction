@@ -9,7 +9,7 @@ paths and kinetics are next (see [docs/DESIGN.md](docs/DESIGN.md)).
 ## The calculator
 
 Reaction runs as a small local app with two browser windows that stay in step: a
-control window (chat, scenario card, run history) and a results window (what we
+control window (scenario card, run history) and a results window (what we
 found, an interactive plot, a picker for any species, element, mineral or
 property).  Put one on each screen.  Nothing leaves your machine.
 
@@ -23,7 +23,9 @@ after each change, or build it with `packaging\build_exe.ps1`).  Its console
 window shows where the app runs; closing it stops the app.  The exe keeps its
 saved runs in `%LOCALAPPDATA%\Reaction\workspace`.
 
-In the control window, say what to model ("heat seawater to 350 C at 500 bar,
+The chat is switched off for now while its free-form reading is improved; the
+control window shows only the scenario card, in larger grouped panels (to bring
+the chat back, see the comment in `control.html`).  With the chat on, say what to model ("heat seawater to 350 C at 500 bar,
 both modes") or edit the card by hand, then press Run.  Use "Open results
 window" to get the second window.  Ask for plot changes in either window
 ("plot CaCl+ instead of Ca++", "show anhydrite on a linear axis") or click.  If
