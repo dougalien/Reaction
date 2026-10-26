@@ -87,9 +87,13 @@ def test_partition_coefficients_hold_every_species(engine):
     assert st.sorbed["Ni (Kd)"] / 2.0 / ni == pytest.approx(10 ** 3.9, rel=1e-6)
 
 
-def test_kd_left_to_metals_the_clays_cannot_exchange():
+def test_kd_left_to_metals_the_clays_cannot_hold():
     sc, _ = Scenario().changed({"kd_solid_g": 1000, "illite_g": 10})
-    assert {r.element for r in sorption_for(sc).kd} == {"As", "Cr", "Hg", "Ni"}
+    assert {r.element for r in sorption_for(sc).kd} == {"As", "Cr"}
+    assert sorption_for(sc).edges == (("illite", 0.01),)
+    sc, _ = Scenario().changed({"kd_solid_g": 1000, "illite_g": 10, "clay_edges": False})
+    assert {r.element for r in sorption_for(sc).kd} == {"As", "Cr", "Hg"}
+    assert not sorption_for(sc).edges
     assert sorption_for(sc).exchange_eq == pytest.approx(0.00225)
     sc, _ = Scenario().changed({"kd_solid_g": 1000})
     assert {r.element for r in sorption_for(sc).kd} == {"As", "Cd", "Cr", "Cu", "Hg", "Ni", "Pb", "Zn"}
@@ -101,17 +105,23 @@ def test_stream_card_shortened(engine):
     r = engine.run(sc)
     out, prof = r["modes"]["outlet"], r["modes"]["profile"]
     part = out["partition"]
-    # one exchanger: each clay's Kd is in the ratio of its exchange capacity
-    assert part["Zn|montmorillonite"][-1] / part["Zn|kaolinite"][-1] == pytest.approx(764 / 20, rel=1e-3)
-    assert part["Ni|sediment"][-1] == pytest.approx(10 ** 3.9, rel=1e-3)
+    # kaolinite has exchange sites only; illite and montmorillonite add their edge sites
+    exchange_only = part["Zn|kaolinite"][-1] * 764 / 20
+    assert part["Pb|montmorillonite"][-1] > 3 * part["Pb|kaolinite"][-1] * 764 / 20
+    assert part["Zn|montmorillonite"][-1] > exchange_only
+    assert part["Hg|illite"][-1] > 10 and part["As|sediment"][-1] == pytest.approx(10 ** 2.2, rel=1e-3)
+    assert "Ni|sediment" not in part                     # Ni is held by the clays now, not by its Kd
     assert r["catalog"]["partition"]["Pb|illite"]["label"] == "Pb on illite"
-    assert r["catalog"]["partition"]["Ni|sediment"]["label"] == "Ni on bed sediment (Kd)"
-    # Cu comes through before Zn; the Kd metals stay in the first cell
+    assert r["catalog"]["partition"]["Cr|sediment"]["label"] == "Cr on bed sediment (Kd)"
     inflow = r["fluid"]["totals_molal"]
-    assert out["elements"]["Cu"][-1] / inflow["Cu²⁺"] > 10 * out["elements"]["Zn"][-1] / inflow["Zn²⁺"]
-    assert prof["elements"]["Ni"][0] > 1e3 * prof["elements"]["Ni"][-1]
+    pb_edges = out["elements"]["Pb"][-1] / inflow["Pb²⁺"]
+    assert prof["elements"]["Pb"][0] > prof["elements"]["Pb"][-1]
     assert any("Allison and Allison" in n for n in r["notes"])
-    assert any("26.3 meq" in n for n in r["notes"])
+    assert any("26.3 meq" in n for n in r["notes"]) and any("2SPNE" in n for n in r["notes"])
+    # without the edge sites lead comes through sooner
+    r = engine.run(sc.changed({"clay_edges": False})[0])
+    assert r["modes"]["outlet"]["elements"]["Pb"][-1] / inflow["Pb²⁺"] > pb_edges
+    assert any("edge sites are off" in n for n in r["notes"])
 
 
 def test_chat():
@@ -125,8 +135,64 @@ def test_chat():
     got = interpret_rules("add 4 kg of bed sediment with Kd", Scenario()).scenario_changes
     assert got == {"kd_solid_g": 4000.0, "kd_medium": "sediment"}
     assert interpret_rules("no clays", Scenario()).scenario_changes["illite_g"] == 0.0
+    assert interpret_rules("turn off the clay edge sites", Scenario()).scenario_changes["clay_edges"] is False
+    assert interpret_rules("with edge sites on the clays", Scenario()).scenario_changes["clay_edges"] is True
     from reaction.app.session import _starting_card_named
     assert _starting_card_named("load the contaminated stream card") == "stream"
     sc, _ = Scenario().changed({"illite_g": 40, "kd_solid_g": 4000})
     assert "40 g illite" in sc.describe() and "Kd" in sc.describe()
     assert not math.isnan(sc.clay_meq) and sc.clay_meq == pytest.approx(9.0)
+
+
+def test_edge_constants():
+    """Bradbury and Baeyens: fitted Ni and Co on illite (2009a Table 11), the LFER for the rest."""
+    ill = {(ion, y): (k, how) for ion, y, k, how in sorption.edge_metal_constants("illite")}
+    assert ill[("Ni+2", 0)] == (0.7, "measured") and ill[("Co+2", 2)] == (-16.5, "measured")
+    assert ill[("Zn+2", 0)] == (pytest.approx(7.9 + 0.83 * -8.68, abs=0.005), "LFER")
+    mnt = {(ion, y): (k, how) for ion, y, k, how in sorption.edge_metal_constants("montmorillonite")}
+    assert mnt[("Ni+2", 1)] == (pytest.approx(8.1 + 0.90 * -18.0, abs=0.005), "LFER")
+    assert "kaolinite" not in sorption.edge_sites()
+    assert sorption.edge_elements() == {"Ni", "Co", "Zn", "Cd", "Pb", "Cu", "Mn", "Fe", "Hg"}
+    names = [r.species for r in sorption.edge_reactions("illite")]
+    assert {"Ill_sOH", "Ill_sOH2+", "Ill_w2O-", "Ill_sONi+", "Ill_sONiOH", "Ill_sONi(OH)2-"} <= set(names)
+
+
+def _rd(engine, clay, ion, ph, g_per_l, edges=True):
+    """log Rd (L/kg) of a trace metal on a Na-clay in 0.1 M NaCl at a fixed pH."""
+    from reaction.equilibrium import System
+    el = ion.rstrip("+2")
+    kg = g_per_l / 1000.0
+    sorb = sorption.Sorption(exchange_eq=sorption.clays()[clay].cec_eq_per_kg * kg,
+                             edges=((clay, kg),) if edges else ())
+    system = System(engine.db, ["Na+", "Cl-", ion], sorption=sorb)
+    st = equilibrate(system, 25.0, {"H2O": 55.508, "Na+": 0.1, "Cl-": 0.1, ion: 1e-9}, pressure_bar=1.0,
+                     fixed={"H+": -ph}, eligible=[])
+    held = sum(v for k, v in st.sorbed.items() if el in k)
+    dissolved = sum(s.molality * engine.db.species[n].elements.get(el, 0) for n, s in st.speciation.species.items()
+                    if n in engine.db.species)
+    return math.log10(held / kg / dissolved)
+
+
+def test_edges_against_measured_sorption_edges(engine):
+    """Measured log Rd read from Bradbury and Baeyens: Ni (Fig. 3b, 2 g/L) and Co (Fig. 4, 1.6 g/L) on Na-illite
+    in 0.1 M NaClO4 (2009a), and Ni on Na-montmorillonite SWy-1 in 0.1 M NaClO4 at 1.42 g/L (2005, Table 5).
+    Illite uses the fitted constants (within 0.4 log units); montmorillonite the LFER (within 0.9)."""
+    for ion, g, edge in (("Ni+2", 2.0, ((3.5, 1.8), (6.0, 3.1), (7.0, 3.6), (8.0, 3.8), (9.0, 4.2))),
+                         ("Co+2", 1.6, ((3.0, 2.15), (6.0, 2.75), (7.0, 3.2), (8.3, 4.4), (9.3, 5.2)))):
+        for ph, measured in edge:
+            assert _rd(engine, "illite", ion, ph, g) == pytest.approx(measured, abs=0.4), (ion, ph)
+    for ph, measured in ((6.1, 2.4), (7.1, 3.3), (8.1, 3.9)):
+        assert _rd(engine, "montmorillonite", "Ni+2", ph, 1.42) == pytest.approx(measured, abs=0.9), ph
+    # without the edge sites the clay holds Ni by exchange alone, flat with pH
+    assert _rd(engine, "illite", "Ni+2", 8.0, 2.0, edges=False) < _rd(engine, "illite", "Ni+2", 8.0, 2.0) - 1.5
+
+
+def test_edges_start_in_equilibrium_with_the_fluid(engine):
+    """The edge sites are loaded from the starting fluid, so the fluid keeps its pH and metals at the start."""
+    sc = _card(analysis=METALS, ph=6.8, redox="none", charge_balance="auto", illite_g=40, montmorillonite_g=20)
+    sp0, st = _solve(engine, sc)
+    assert st.speciation.ph == pytest.approx(sp0.ph, abs=1e-4)
+    assert st.speciation.species["Zn+2"].molality == pytest.approx(sp0.species["Zn+2"].molality, rel=1e-4)
+    assert st.sorbed["Mnt_sOPb+"] > 0 and st.sorbed["Ill_w1OH"] > 0
+    strong = sum(v for k, v in st.sorbed.items() if k.startswith("Ill_s"))
+    assert strong == pytest.approx(0.002 * 0.040, rel=1e-6)          # 2 mmol/kg of strong sites, 40 g of illite

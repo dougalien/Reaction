@@ -9,7 +9,9 @@ species n_i = K_i a(reactants) n(SOH) exp(-z_i F psi / RT), and the Gouy-Chapman
 charge and the potential psi (the diffuse layer is not given its own composition, as in PHREEQC's default).
 
 Clay minerals (``data/clays.tsv``): kaolinite, illite and montmorillonite carry exchange sites in proportion to
-their cation exchange capacity; they share the exchange constants above.
+their cation exchange capacity; they share the exchange constants above.  Illite and montmorillonite also carry
+edge sites (``data/clay_edges.tsv``, ``data/clay_edge_metals.tsv``): the 2SPNE SC/CE model of Bradbury and Baeyens,
+amphoteric strong and weak sites without an electrostatic term, with metals on the strong sites.
 
 Partition coefficients (``data/kd_allison_2005.tsv``, Allison and Allison 2005): a linear sorber holds Kd M times
 the dissolved amount of each metal, M being the mass of solid.  Every dissolved species of the metal is copied
@@ -36,6 +38,8 @@ from .thermo.electrostatics import epsilon
 DATA = Path(__file__).parent / "data" / "sorption.tsv"
 CLAYS = Path(__file__).parent / "data" / "clays.tsv"
 KD_DATA = Path(__file__).parent / "data" / "kd_allison_2005.tsv"
+EDGES = Path(__file__).parent / "data" / "clay_edges.tsv"
+EDGE_METALS = Path(__file__).parent / "data" / "clay_edge_metals.tsv"
 KD_MEDIA = {"sediment": "bed sediment and its pore water", "suspended": "suspended matter in stream water",
             "soil": "soil and soil water"}
 LN10 = math.log(10.0)
@@ -182,10 +186,12 @@ class Sorption:
     hfo_g: float = 0.0
     kd_solid_kg: float = 0.0
     kd: tuple[KdRow, ...] = ()
+    edges: tuple[tuple[str, float], ...] = ()      # (clay, kg) with edge sites
 
     @property
     def active(self) -> bool:
-        return self.exchange_eq > 0 or self.hfo_g > 0 or (self.kd_solid_kg > 0 and bool(self.kd))
+        return (self.exchange_eq > 0 or self.hfo_g > 0 or (self.kd_solid_kg > 0 and bool(self.kd))
+                or bool(self.edges))
 
 
 def _row(model, name: str):
@@ -347,6 +353,116 @@ class Surface:
         return 1000.0 * float(v[-1]) * GAS_R * (t_c + 273.15) / FARADAY
 
 
+EDGE_PREFIX = {"illite": "Ill", "montmorillonite": "Mnt"}       # the clays with edge sites (data/clay_edges.tsv)
+
+
+@lru_cache(maxsize=1)
+def edge_sites() -> dict[str, tuple[tuple[str, float, float, float], ...]]:
+    """clay -> (site, capacity mol/kg, log K of SOH + H+ = SOH2+, log K of SOH = SO- + H+) per site type."""
+    out: dict[str, list] = {}
+    for r in _table(EDGES):
+        out.setdefault(r["clay"], []).append((r["site"], float(r["capacity_mol_per_kg"]), float(r["log_k_plus"]),
+                                              float(r["log_k_minus"])))
+    return {c: tuple(v) for c, v in out.items()}
+
+
+@lru_cache(maxsize=None)
+def edge_metal_constants(clay: str) -> tuple[tuple[str, int, float, str], ...]:
+    """(ion, y, log K, "measured" or "LFER") of SsOH + Me+2 + y H2O = SsOMe(OH)y + (y+1) H+ on a clay's strong
+    sites: the fitted constants where there are some, else the LFER from the hydrolysis constants."""
+    rows = _table(EDGE_METALS)
+    measured = [(r["ion"], int(r["y"]), float(r["log_k"]), "measured") for r in rows
+                if r["kind"] == "measured" and r["clay"] == clay]
+    lfer = next((float(r["y"]), float(r["log_k"])) for r in rows if r["kind"] == "lfer" and r["clay"] == clay)
+    have = {ion for ion, *_ in measured}
+    est = [(r["ion"], int(r["y"]) - 1, round(lfer[0] + lfer[1] * float(r["log_k"]), 2), "LFER") for r in rows
+           if r["kind"] == "hydrolysis" and r["ion"] not in have]
+    return tuple(measured + est)
+
+
+def edge_elements() -> set[str]:
+    """Elements that bind on clay edge sites (Ni, Co, Zn, Cd, Pb, Cu, Mn, Fe, Hg)."""
+    return {re.match(r"[A-Z][a-z]?", ion).group(0) for c in EDGE_PREFIX for ion, *_ in edge_metal_constants(c)}
+
+
+def _edge_species(prefix: str, ion: str, y: int) -> str:
+    el = re.match(r"[A-Z][a-z]?", ion).group(0)
+    oh = "" if y == 0 else "OH" if y == 1 else f"(OH){y}"
+    z = 1 - y
+    return f"{prefix}_sO{el}{oh}" + ("+" if z == 1 else "" if z == 0 else "-" if z == -1 else f"{z:+d}")
+
+
+def edge_reactions(clay: str) -> list[Reaction]:
+    """The bare sites, their protonation and deprotonation, and the metal complexes on the strong sites."""
+    prefix = EDGE_PREFIX[clay]
+    out = []
+    for site, _, k_plus, k_minus in edge_sites()[clay]:
+        m = f"{prefix}_{site}OH"
+        out += [Reaction("edge", m, m, {}, 0.0, 0.0, None),
+                Reaction("edge", m, m + "2+", {"H+": 1.0}, 1.0, k_plus, None),
+                Reaction("edge", m, m[:-1] + "-", {"H+": -1.0}, -1.0, k_minus, None)]
+    for ion, y, log_k, _ in edge_metal_constants(clay):
+        reactants = {ion: 1.0, "H+": -(y + 1.0)}
+        if y:
+            reactants["H2O"] = float(y)
+        out.append(Reaction("edge", f"{prefix}_sOH", _edge_species(prefix, ion, y), reactants, 1.0 - y, log_k, None))
+    return out
+
+
+class EdgeSites:
+    """Edge sites of clays, 2SPNE (Bradbury and Baeyens): strong and weak amphoteric sites of fixed capacity, with
+    no electrostatic term, so a species is n_i = K_i a(reactants) n(SOH) / a(H+)^k; unknowns ln n(SOH) per site
+    type.  The constants are for 25 C and are held there."""
+
+    def __init__(self, model, clay_kg, t_c: float):
+        self.sites: dict[str, float] = {}
+        rx: list[Reaction] = []
+        for clay, kg in clay_kg:
+            for site, cap, *_ in edge_sites()[clay]:
+                self.sites[f"{EDGE_PREFIX[clay]}_{site}OH"] = cap * kg
+            rx += edge_reactions(clay)
+        self.sp = _Species(model, rx, t_c)
+        self.names = list(self.sp.names)
+        self.types = list(self.sites)
+        self.member = np.array([[1.0 if m == t else 0.0 for m in self.sp.masters] for t in self.types])
+        self.nvar = len(self.types)
+        self._model_names = list(model.names)
+
+    def start(self, u: np.ndarray) -> np.ndarray:
+        """ln n(SOH) of each site type at ``u`` (exact: the site types do not interact)."""
+        a = self.sp.lnk + self.sp.e @ u
+        out = []
+        for k, t in enumerate(self.types):
+            mask = self.member[k] > 0
+            top = float(np.max(a[mask]))
+            out.append(math.log(self.sites[t]) - top - math.log(np.exp(a[mask] - top).sum()))
+        return np.array(out)
+
+    def evaluate(self, u, v, ionic):
+        sp = self.sp
+        n = np.exp(np.clip(sp.lnk + sp.e @ u + self.member.T @ v, -700.0, 300.0))
+        bound = n @ sp.e
+        d_bound_du = sp.e.T @ (n[:, None] * sp.e)
+        dn_dv = (self.member * n).T                                   # species x site types
+        d_bound_dv = sp.e.T @ dn_dv
+        w = self.member / np.array([self.sites[t] for t in self.types])[:, None]
+        eq = w @ n - 1.0
+        d_eq_du = (w * n) @ sp.e
+        d_eq_dv = w @ dn_dv
+        return n, bound, d_bound_du, d_bound_dv, eq, d_eq_du, d_eq_dv
+
+    def scale(self) -> float:
+        return sum(self.sites.values())
+
+    def set_gammas(self, lg_b_ln, lg_d_ln) -> None:
+        pass
+
+    def loading(self, u: np.ndarray) -> dict[str, float]:
+        """Moles of each component the edge sites hold in equilibrium with a fluid of ln activities ``u``."""
+        _, bound, *_ = self.evaluate(u, self.start(u), 0.0)
+        return {nm: float(b) for nm, b in zip(self._model_names, bound) if abs(b) > 0}
+
+
 def _oxidation(sp) -> float | None:
     """Oxidation state of the one element other than H and O in a species made of it, H and O (CrO4-2: 6)."""
     other = [(el, n) for el, n in sp.elements.items() if el not in ("H", "O")]
@@ -461,6 +577,8 @@ def sorbents(sorption: Sorption | None, model, t_c: float, p_bar: float | None) 
         out.append(Exchanger(model, sorption.exchange_eq, t_c))
     if sorption.hfo_g > 0:
         out.append(Surface(model, sorption.hfo_g, t_c, p_bar))
+    if sorption.edges:
+        out.append(EdgeSites(model, sorption.edges, t_c))
     if sorption.kd_solid_kg > 0 and sorption.kd:
         lin = LinearSorber(model, sorption.kd, sorption.kd_solid_kg)
         if lin.names:

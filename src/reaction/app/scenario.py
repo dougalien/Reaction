@@ -130,6 +130,8 @@ class Scenario:
     kaolinite_g: float = 0.0
     illite_g: float = 0.0
     montmorillonite_g: float = 0.0
+    # illite and montmorillonite also bind metals on their edge sites (2SPNE, Bradbury and Baeyens); false = exchange only
+    clay_edges: bool = True
     kd_medium: str = "sediment"
     kd_solid_g: float = 0.0
     # a column (kind = "transport", see transport.py): the card's fluid flows into ``cells`` cells filled with
@@ -511,7 +513,9 @@ class Scenario:
         out = []
         clays = self.clay_grams()
         if clays:
-            out.append(" and ".join(", ".join(f"{g:g} g {c}" for c, g in clays.items()).rsplit(", ", 1)))
+            out.append(" and ".join(", ".join(f"{g:g} g {c}" for c, g in clays.items()).rsplit(", ", 1))
+                       + ("" if self.clay_edges or not ({"illite", "montmorillonite"} & set(clays))
+                          else " (exchange sites only)"))
         if self.kd_solid_g > 0:
             what = {"sediment": "bed sediment", "suspended": "suspended matter"}.get(self.kd_medium, self.kd_medium)
             out.append(f"{self.kd_solid_g:g} g of {what} holding metals by partition coefficients (Kd)")
@@ -682,7 +686,7 @@ def _coerce(key: str, value: Any) -> Any:
                     raise ValueError("Sr cannot be negative")
             out[str(source).strip().lower()] = here
         return out
-    if key in ("gas_phase", "kinetics", "solid_solutions", "isotopes"):
+    if key in ("gas_phase", "kinetics", "solid_solutions", "isotopes", "clay_edges"):
         if isinstance(value, str):
             low = value.strip().lower()
             if low in ("true", "yes", "on", "1", "allowed", "allow"):
@@ -858,13 +862,15 @@ FIELD_HELP = {
     "hfo_g": "grams of hydrous ferric oxide per kg of water (0 = none): surface complexation on its strong and "
              "weak sites (Dzombak and Morel 1990)",
     "kaolinite_g": "grams of kaolinite per kg of water (0 = none): exchange sites at 20 meq/kg of clay",
-    "illite_g": "grams of illite per kg of water (0 = none): exchange sites at 225 meq/kg of clay",
+    "illite_g": "grams of illite per kg of water (0 = none): exchange sites at 225 meq/kg of clay, and edge sites",
     "montmorillonite_g": "grams of montmorillonite (smectite) per kg of water (0 = none): exchange sites at "
-                         "764 meq/kg of clay",
+                         "764 meq/kg of clay, and edge sites",
+    "clay_edges": "true (default): illite and montmorillonite also bind Ni, Co, Zn, Cd, Pb, Cu, Mn, Fe(II) and Hg "
+                  "on their edge sites (2SPNE model, Bradbury and Baeyens 2005, 2009); false: exchange sites only",
     "kd_medium": "which partition coefficients (Allison and Allison 2005) the Kd solid uses: sediment (bed sediment, "
                  "default), suspended (suspended matter in a stream) or soil",
     "kd_solid_g": "grams of solid per kg of water holding metals by their partition coefficient Kd (0 = none); "
-                  "with clays or exchange sites it holds only the metals they cannot exchange (Ni, Hg, As, Cr)",
+                  "with clays or exchange sites it holds only the metals they cannot hold (As and Cr with clay edge sites)",
     "isotopes": "false (default); true: d18O, dD, d13C, d34S and 87Sr/86Sr of the fluid and minerals, "
                 "along the run",
     "isotope_inputs": "starting isotope values, e.g. {\"fluid\": {\"d18O\": -5}, \"basalt glass\": {\"Sr\": 120, "

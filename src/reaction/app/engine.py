@@ -34,7 +34,7 @@ from ..path import PathPoint, ReactionPath, Reactant, _composition_row, mineral_
 from ..phasesep import phase_state, salinity_from_chloride
 from ..solidsolution import table as solid_solution_table
 from .. import sorption as sorption_mod
-from ..sorption import LinearSorber, Sorption, exchanger_loading
+from ..sorption import EdgeSites, LinearSorber, Sorption, exchanger_loading
 from ..speciation import PH, Couple, Eh, LogFO2, Molal, Pe, Speciation, speciate
 from ..thermo import validity
 from ..transport import Column
@@ -434,15 +434,20 @@ class Engine:
         bulk0 = dict(sp0.component_totals)
         for b in basis:
             bulk0.setdefault(b, TRACE)                   # a trace, so the solution has a start
-        if sorb.exchange_eq > 0:
-            # the exchanger starts loaded with the fluid's cations in equilibrium with it (the fluid unchanged)
-            t0 = sp0.temperature_c
+        t0 = sp0.temperature_c
+        if sorb.exchange_eq > 0 or sorb.edges:
             model = system.model(t0, sp0.pressure_bar)
             have = dict(zip(sp0.basis_names, sp0.ln_activities))
             u = np.array([have.get(b, -50.0) for b in model.names])
+        if sorb.exchange_eq > 0:
+            # the exchanger starts loaded with the fluid's cations in equilibrium with it (the fluid unchanged)
             gam = {n: st.log_activity * math.log(10.0) - math.log(st.molality)
                    for n, st in sp0.species.items() if st.molality > 0}
             for comp, moles in exchanger_loading(model, u, sorb.exchange_eq, t0, gam).items():
+                bulk0[comp] = bulk0.get(comp, 0.0) + moles
+        if sorb.edges:
+            # so do the clays' edge sites: protonated, deprotonated and holding metals as that fluid sets them
+            for comp, moles in EdgeSites(model, sorb.edges, t0).loading(u).items():
                 bulk0[comp] = bulk0.get(comp, 0.0) + moles
         if sorb.kd_solid_kg > 0 and sorb.kd:
             # so does the solid with partition coefficients: Kd M times each dissolved species of its metals
@@ -995,10 +1000,18 @@ def add_partition(run: dict, sc: Scenario) -> None:
     if not sorbed or not (clays or sorb.kd_solid_kg > 0):
         return
     n = len(next(iter(sorbed.values())))
+    edge_of = {p: c for c, p in sorption_mod.EDGE_PREFIX.items()}
+    edge: dict[tuple[str, str], list] = {}             # (clay, element) -> moles on its strong edge sites
+    for key, vals in sorbed.items():
+        m = re.match(r"([A-Z][a-z]+)_sO([A-Z][a-z]?)", key)
+        if m and m.group(1) in edge_of:
+            acc = edge.setdefault((edge_of[m.group(1)], m.group(2)), [0.0] * n)
+            for i, v in enumerate(vals):
+                acc[i] = None if v is None or acc[i] is None else acc[i] + v
     held: dict[str, list] = {}                         # element -> moles on the exchanger at each point
     for key, vals in sorbed.items():
         m = re.fullmatch(r"([A-Z][a-z]?)\w*?X(\d*)", key)
-        if key.endswith(" (Kd)") or key.startswith("Hfo_") or not m:
+        if key.endswith(" (Kd)") or key.startswith("Hfo_") or key.split("_")[0] in edge_of or not m:
             continue
         el = m.group(1)
         acc = held.setdefault(el, [0.0] * n)
@@ -1008,13 +1021,18 @@ def add_partition(run: dict, sc: Scenario) -> None:
 
     def ratio(a, d, per_kg):
         return None if a is None or not d or d <= 0 else _sig(a / per_kg / d)
-    for el, moles in held.items():
+    for el in sorted(set(held) | {el for _, el in edge}):
         dissolved = elements.get(el)
         if not dissolved:
             continue
-        for clay in clays:
+        for clay, grams in clays.items():
             cec = sorption_mod.clays()[clay].cec_eq_per_kg
-            out[f"{el}|{clay}"] = [ratio(a, d, sorb.exchange_eq / cec) for a, d in zip(moles, dissolved)]
+            ex = held.get(el, [0.0] * n)
+            on_edge = edge.get((clay, el), [0.0] * n)
+            # its share of the exchanger per kg of clay, plus its own edge sites per kg of clay
+            out[f"{el}|{clay}"] = [None if a is None or b is None else
+                                   ratio(a * grams / 1000.0 * cec / sorb.exchange_eq + b, d, grams / 1000.0)
+                                   for a, b, d in zip(ex, on_edge, dissolved)]
     for key, moles in sorbed.items():
         if key.endswith(" (Kd)") and sorb.kd_solid_kg > 0:
             el = key[:-5]
@@ -1036,10 +1054,22 @@ def clay_notes(sc: Scenario) -> list[str]:
         notes.append(f"The clays carry {sc.clay_meq:.3g} meq of exchange sites per kg of water ({'; '.join(parts)}; "
                      "kaolinite and montmorillonite from the Clay Minerals Society Source Clays, van Olphen and Fripiat "
                      "1979; illite du Puy from the PSI clay sorption model, Nagra NTB 23-05). All clays use phreeqc.dat's "
-                     "Gaines-Thomas exchange constants, so they differ only in capacity; the Partition coefficients "
-                     "tab gives each metal's Kd on each clay. Metal binding on the clays' edge sites (surface "
-                     "complexation, which dominates above about pH 6 at trace loadings) is not included yet, so "
-                     "the clays here hold Pb, Cu, Zn and Cd less strongly than real clays do at neutral pH.")
+                     "Gaines-Thomas exchange constants (Ni and Co from Bradbury and Baeyens 2009), so on the "
+                     "exchange sites they differ only in capacity; the Partition coefficients tab gives each metal's "
+                     "Kd on each clay.")
+        edged = [c for c in clays if c in sorption_mod.EDGE_PREFIX]
+        if edged and sc.clay_edges:
+            notes.append(f"{' and '.join(c.capitalize() for c in edged)} also bind metals on their edge sites (2SPNE, "
+                         "Bradbury and Baeyens 2005 and 2009: 2 mmol/kg of strong and 80 mmol/kg of weak amphoteric "
+                         "sites, no electrostatic term). Ni and Co on illite use constants fitted to measured sorption "
+                         "edges; the other metals (Zn, Cd, Pb, Cu, Mn, Fe(II), Hg) and all metals on montmorillonite use "
+                         "Bradbury and Baeyens' linear free energy relation with the hydrolysis constants, good to "
+                         "about 1 log unit. Only the strong sites bind metals, so above about 2 mmol of a metal per kg "
+                         "of clay the edges fill and exchange takes over; constants are for 25 C. Kaolinite has "
+                         "exchange sites only.")
+        elif edged:
+            notes.append("Clay edge sites are off: the clays hold metals by exchange only, which underestimates "
+                         "sorption above about pH 6.")
     if sc.kd_solid_g > 0:
         rows = sorption_for(sc).kd
         if rows:
@@ -1063,15 +1093,18 @@ def exchanged_elements() -> set[str]:
 
 
 def sorption_for(sc: Scenario) -> Sorption:
-    """The card's sorbents: exchange sites (given directly and carried by the clays), ferric oxide, and a solid
-    with partition coefficients.  With exchange sites present the Kd is used only for the metals that have
-    no exchange constant (so a metal is not held twice)."""
+    """The card's sorbents: exchange sites (given directly and carried by the clays), the edge sites of illite and
+    montmorillonite, ferric oxide, and a solid with partition coefficients.  With exchange or edge sites present
+    the Kd is used only for the metals they cannot hold (so a metal is not held twice)."""
     clay_eq = sum(g / 1000.0 * sorption_mod.clays()[c].cec_eq_per_kg for c, g in sc.clay_grams().items())
     exchange_eq = sc.exchange_meq / 1000.0 + clay_eq
+    edges = tuple((c, g / 1000.0) for c, g in sc.clay_grams().items() if c in sorption_mod.EDGE_PREFIX) \
+        if sc.clay_edges else ()
     kd: tuple = ()
     if sc.kd_solid_g > 0:
-        kd = sorption_mod.kd_rows(sc.kd_medium, skip=exchanged_elements() if exchange_eq > 0 else ())
-    return Sorption(exchange_eq=exchange_eq, hfo_g=sc.hfo_g, kd_solid_kg=sc.kd_solid_g / 1000.0, kd=kd)
+        skip = (exchanged_elements() if exchange_eq > 0 else set()) | (sorption_mod.edge_elements() if edges else set())
+        kd = sorption_mod.kd_rows(sc.kd_medium, skip=skip)
+    return Sorption(exchange_eq=exchange_eq, hfo_g=sc.hfo_g, kd_solid_kg=sc.kd_solid_g / 1000.0, kd=kd, edges=edges)
 
 
 def reliability_notes(points: list[tuple[float, float]], rels: list[validity.Reliability],
