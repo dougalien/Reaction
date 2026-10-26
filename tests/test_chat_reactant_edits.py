@@ -79,7 +79,7 @@ def test_session_follows_the_transcript(tmp_path):
         s.handle_chat(text)
         assert wait(lambda: len(engine.calls) == i and s.run_state["state"] == "idle"), s.chat[-1]["text"]
         assert engine.calls[-1]["reactants"][0]["name"] == name
-        assert s.chat[-2]["text"].count("Running now") == 1
+        assert s.chat[-2]["text"].count("Running:") == 1 and "Running now" not in s.chat[-2]["text"]
 
 
 @needs_data
