@@ -10,7 +10,7 @@ import traceback
 from pathlib import Path
 
 from .assistant import Interpretation, Ollama, interpret
-from . import analysis, diagrams
+from . import analysis, carryover, diagrams
 from .engine import Engine, EngineUnavailable
 from .fluids import CUSTOM, CUSTOM_LABEL, PRESETS
 from .narrate import story
@@ -214,9 +214,10 @@ class Session:
 
     def _apply(self, got: Interpretation, result: dict | None) -> None:
         notes: list[str] = []
-        new, problems = self.card.changed(got.scenario_changes)
+        changes, carried, blocked = self._carry(got, result)
+        new, problems = self.card.changed(changes)
         notes += problems
-        if got.scenario_changes:
+        if changes:
             self.card = new
         if got.mode_mentioned or "mode" in got.scenario_changes:
             self.mode_confirmed = True
@@ -251,7 +252,9 @@ class Session:
         # answering the mode question counts as the go-ahead for the run that prompted it
         want_run = got.run or (self.pending_run and (got.mode_mentioned or "mode" in got.scenario_changes))
         self.pending_run = False
-        run_now = want_run and not got.question
+        run_now = want_run and not got.question and not blocked
+        if blocked:
+            notes.append(blocked)
         if run_now and problems_now:
             reply = (reply + " I can't run that yet: " + "; ".join(problems_now) + ".").strip()
             run_now = False
@@ -272,6 +275,8 @@ class Session:
             else:
                 notes.append(f"{name.capitalize()} does not change in this run, so it cannot be the "
                              f"horizontal axis.")
+        if carried:
+            reply = (carried + " " + reply).strip()
         if got.question:
             reply = (reply + " " + got.question).strip()
         if notes:
@@ -287,6 +292,44 @@ class Session:
         self.say("assistant", reply)
         if run_now:
             self.start_run()
+
+    def _carry(self, got: Interpretation, result: dict | None) -> tuple[dict, str, str]:
+        """The card changes to make, with the fluid at the end of the last run as the starting fluid when the
+        user asked for it ("take that fluid and cool it to 25 C"), or when they asked to cool and only the
+        last run's fluid is hotter than where they want to go.  Returns (changes, what was carried, why the
+        run must wait)."""
+        changes = dict(got.scenario_changes)
+        trial, _ = self.card.changed(changes)
+        t0, t1 = trial.t_start_c, trial.t_end_c
+        wrong_way = ((got.direction == "cool" and t1 > t0) or (got.direction == "heat" and t1 < t0)) \
+            and "t_start_c" not in changes
+        end = carryover.end_point(result) if result is not None else None
+        carry = got.from_result or (wrong_way and end is not None and "fluid" not in changes and (
+            end[2] > t1 if got.direction == "cool" else end[2] < t1))
+        if not carry and wrong_way and "fluid" in changes:
+            start = Scenario().t_start_c                # a newly named fluid starts where a fresh card does
+            if (start < t1) == (got.direction == "heat"):
+                return {**changes, "t_start_c": start}, f"Starting the {got.direction}ing at {start:g} °C.", ""
+        if not carry:
+            if wrong_way:
+                verb = "cool" if got.direction == "cool" else "heat"
+                return changes, "", (f"That would {'heat' if verb == 'cool' else 'cool'} the fluid from {t0:g} to "
+                                     f"{t1:g} °C, not {verb} it, so I have not run it. Give the start temperature, "
+                                     f"or say \"take the fluid from the last run\".")
+            return changes, "", ""
+        if result is None:
+            return changes, "", "There is no run yet to take the fluid from, so I have not run anything."
+        try:
+            fluid, note = carryover.fluid_from_result(result)
+        except ValueError as exc:
+            return changes, "", f"I could not take the fluid from the last run: {exc}."
+        for single, pair in (("temperature_c", ("t_start_c", "t_end_c")), ("pressure_bar", ("p_start_bar", "p_end_bar"))):
+            if single in changes:                       # the user's held value replaces both ends
+                for k in pair:
+                    fluid.pop(k)
+        if "p_end_bar" in changes and "p_start_bar" not in changes:
+            fluid.pop("p_end_bar")
+        return {**fluid, **changes}, note, ""
 
     # ---- diagrams ---------------------------------------------------------------------------------
     def set_diagram(self, request: dict, publish: bool = True) -> str:

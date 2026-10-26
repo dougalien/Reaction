@@ -584,7 +584,7 @@ class Engine:
         if kind != "none":
             how = {"air": "equilibrium with air", "log_fo2": "the log fO2 given",
                    "eh": "the Eh given", "pe": "the pe given"}.get(
-                kind, f"dissolved {analysis.SOLUTES_LABEL(arg) if arg else ''}")
+                kind, f"dissolved {analysis.SOLUTES_LABEL(arg) if kind == 'couple' else ''}")
             notes.append(f"Redox state from {how}: log fO2 {sp.log_fo2:.1f}, Eh {sp.eh_volts:+.2f} V "
                          f"at {fluid.measured_t_c:g} C.")
         equivalents = sum(abs(analysis.SOLUTES[n][0]) * m for n, m in molal.items()) or 1.0
