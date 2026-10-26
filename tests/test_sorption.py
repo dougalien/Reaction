@@ -22,7 +22,7 @@ def _seawater(engine, **card):
 
 def test_reactions_parse():
     rx = {r.species: r for r in sorption.reactions()}
-    assert len(rx) == 54
+    assert len(rx) == 56                     # phreeqc.dat, plus NiX2 and CoX2 (Bradbury and Baeyens 2009)
     assert rx["CaX2"].z == 2 and rx["CaX2"].reactants == {"Ca+2": 1.0} and rx["CaX2"].master == "X-"
     assert rx["Hfo_wOCa+"].reactants == {"Ca+2": 1.0, "H+": -1.0} and rx["Hfo_wOCa+"].z == 1
     assert rx["Hfo_wSO4-"].reactants == {"SO4-2": 1.0, "H+": 1.0, "H2O": -1.0} and rx["Hfo_wSO4-"].z == -1

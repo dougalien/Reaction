@@ -1,0 +1,15 @@
+# Edge sites of clay minerals: the 2SPNE SC/CE model of Bradbury and Baeyens (two-site protolysis,
+# non-electrostatic surface complexation).  Amphoteric edge sites of fixed capacity per kg of clay:
+#   SOH + H+ = SOH2+  (log_k_plus)        SOH = SO- + H+  (log_k_minus)
+# The strong sites (s) are few and bind metals strongly; the weak sites (w1, w2) set the proton buffering.
+# illite (illite du Puy): Bradbury and Baeyens (2009a) Geochim. Cosmochim. Acta 73, 990-1003, Table 9.
+# montmorillonite (SWy-1): Bradbury and Baeyens (2005) Geochim. Cosmochim. Acta 69, 4187-4197, Table A1
+#   (after Baeyens and Bradbury 1997, J. Contam. Hydrol. 27, 199-222).
+# Kaolinite has no 2SPNE parameter set in these papers, so it carries exchange sites only.
+clay	site	capacity_mol_per_kg	log_k_plus	log_k_minus
+illite	s	0.002	4.0	-6.2
+illite	w1	0.04	4.0	-6.2
+illite	w2	0.04	8.5	-10.5
+montmorillonite	s	0.002	4.5	-7.9
+montmorillonite	w1	0.04	4.5	-7.9
+montmorillonite	w2	0.04	6.0	-10.5

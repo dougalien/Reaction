@@ -1,0 +1,48 @@
+# Metals on the strong edge sites of clays (2SPNE SC/CE, Bradbury and Baeyens), 25 C, zero ionic strength:
+#   SsOH + Me+2 + y H2O = SsOMe(OH)y^(1-y) + (y+1) H+      log_k
+# Rows with a log_k were fitted to measured sorption edges.  The other metals get theirs from the linear free
+# energy relationship (LFER) between a surface constant and the metal's aqueous hydrolysis constant,
+#   log SK(x-1) = a + b log OHK(x),   Me+2 + x H2O = Me(OH)x^(2-x) + x H+  (log OHK(x))
+# with a = 7.9, b = 0.83 for illite (Bradbury and Baeyens 2009b, GCA 73, 1004-1013, eq. 9) and a = 8.1,
+# b = 0.90 for montmorillonite (Bradbury and Baeyens 2005, GCA 69, 875-892, quoted as eq. 8 in 2009b).
+# The hydrolysis constants (kind "hydrolysis", x in the y column) for Ni and Co are the ones Bradbury and
+# Baeyens used (2009b Table 6: NEA 2005 for Ni, Baes and Mesmer 1976 for Co); for the other metals they are this
+# calculator's own (OBIGT, SLOP98 and later, at 25 C and 1 bar), so the surface and aqueous chemistry agree.
+# Rows of kind "lfer" carry a in the y column and b in the log_k column.
+# Measured: Ni and Co on illite, Bradbury and Baeyens (2009a) GCA 73, 990-1003, Table 11.
+kind	clay	ion	y	log_k	source
+measured	illite	Ni+2	0	0.7	BB2009a Table 11
+measured	illite	Ni+2	1	-8.2	BB2009a Table 11
+measured	illite	Ni+2	2	-17.3	BB2009a Table 11
+measured	illite	Co+2	0	0.0	BB2009a Table 11
+measured	illite	Co+2	1	-7.0	BB2009a Table 11
+measured	illite	Co+2	2	-16.5	BB2009a Table 11
+lfer	illite		7.9	0.83	BB2009b eq. 9
+lfer	montmorillonite		8.1	0.90	BB2005 via BB2009b eq. 8
+hydrolysis		Ni+2	1	-9.54	NEA 2005 (BB2009b Table 6)
+hydrolysis		Ni+2	2	-18.0	NEA 2005 (BB2009b Table 6)
+hydrolysis		Ni+2	3	-29.7	NEA 2005 (BB2009b Table 6)
+hydrolysis		Co+2	1	-9.23	Baes and Mesmer 1976 (BB2009b Table 6)
+hydrolysis		Co+2	2	-18.6	Baes and Mesmer 1976 (BB2009b Table 6)
+hydrolysis		Co+2	3	-31.7	Baes and Mesmer 1976 (BB2009b Table 6)
+hydrolysis		Zn+2	1	-8.68	OBIGT
+hydrolysis		Zn+2	2	-19.18	OBIGT
+hydrolysis		Zn+2	3	-28.16	OBIGT
+hydrolysis		Cd+2	1	-10.08	OBIGT
+hydrolysis		Cd+2	2	-20.34	OBIGT
+hydrolysis		Cd+2	3	-33.3	OBIGT
+hydrolysis		Pb+2	1	-6.19	OBIGT
+hydrolysis		Pb+2	2	-16.89	OBIGT
+hydrolysis		Pb+2	3	-27.92	OBIGT
+hydrolysis		Cu+2	1	-7.93	OBIGT
+hydrolysis		Cu+2	2	-14.82	OBIGT
+hydrolysis		Cu+2	3	-27.56	OBIGT
+hydrolysis		Mn+2	1	-10.62	OBIGT
+hydrolysis		Mn+2	2	-22.2	OBIGT
+hydrolysis		Mn+2	3	-34.8	OBIGT
+hydrolysis		Fe+2	1	-9.32	OBIGT
+hydrolysis		Fe+2	2	-20.41	OBIGT
+hydrolysis		Fe+2	3	-29.21	OBIGT
+hydrolysis		Hg+2	1	-3.39	OBIGT
+hydrolysis		Hg+2	2	-6.18	OBIGT
+hydrolysis		Hg+2	3	-21.12	OBIGT

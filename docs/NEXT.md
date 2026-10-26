@@ -231,6 +231,22 @@ temperatures; a complex of two Kd metals takes the larger Kd; the stream card bl
 does not precipitate in a stream on this time scale). Next: the 2SPNE edge sites once Douglas can share Bradbury and
 Baeyens (2005, 2009) or the ClaySor appendix.
 
+Clay edge sites (2SPNE SC/CE, from the Bradbury and Baeyens papers Douglas added): `sorption.EdgeSites`, a
+non-electrostatic surface with strong (2 mmol/kg) and two weak (40 mmol/kg each) amphoteric sites per kg of illite
+and montmorillonite (`data/clay_edges.tsv`: illite 2009a Table 9, montmorillonite 2005 Table A1), metals on the
+strong sites (`data/clay_edge_metals.tsv`). Ni and Co on illite use the fitted constants (2009a Table 11); every other
+metal and clay uses the LFER (illite a 7.9, b 0.83, 2009b; montmorillonite 8.1, 0.90, 2005) with hydrolysis
+constants from 2009b Table 6 for Ni and Co and from OBIGT for Zn, Cd, Pb, Cu, Mn, Fe(II), Hg. The edges start loaded
+from the starting fluid (fluid unchanged), like the exchanger. New card field `clay_edges` (default true, a select
+under the clays, and chat "turn off the edge sites"). Ni and Co exchange constants added from 2009a (log K 1.1,
+1.3). With edges on, the Kd solid holds only As and Cr. Tests compare with measured edges: Ni and Co on illite
+within 0.4 log units; Ni on montmorillonite (2005 Table 5) within 0.9. Judgment calls: weak sites carry protons only
+(their metal constants come from isotherm papers not in the folder), so strong sites saturate above about 2 mmol of
+metal per kg of clay; OBIGT hydrolysis for the metals other than Ni and Co (PbOH+ is 1.5 log units stronger than
+Baes and Mesmer, so Pb binds strongly); one exchanger for all clays, so montmorillonite's low-pH Ni plateau is about
+0.7 log units high; constants at 25 C at all temperatures; kaolinite has no 2SPNE set, so exchange only. The stream
+card now holds Pb about twice as long (outlet Pb at 25 pore volumes 0.41 of the inflow against 0.80 without edges).
+
 Also fixed: a run is marked idle only after the session is saved (a test that restarted the session right
 after a run sometimes read the old file).
 
