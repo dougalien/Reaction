@@ -14,7 +14,7 @@ from . import analysis, diagrams
 from .engine import Engine, EngineUnavailable
 from .fluids import CUSTOM, CUSTOM_LABEL, PRESETS
 from .narrate import story
-from .scenario import Scenario
+from .scenario import STARTING_CARDS, Scenario, starting_card
 from .view import apply_patch, default_view, resolve_item, sanitize
 
 KEEP_CHAT = 80
@@ -120,10 +120,12 @@ class Session:
                     "fluid_read": {**analysis.preview(spec.analysis, spec.units),
                                    "analysis": spec.analysis, "units": spec.units,
                                    "ph": spec.ph if spec.ph == spec.ph else None,   # NaN is not JSON
-                                   "measured_t_c": spec.measured_t_c,
+                                   "measured_t_c": spec.measured_t_c, "measured_p_bar": spec.measured_p_bar,
                                    "charge_balance": spec.charge_balance,
                                    "redox": spec.redox, "redox_value": spec.redox_value,
                                    "redox_species": _couples(analysis.parse(spec.analysis, spec.units).species)},
+                    "starting_cards": [{"key": c.key, "label": c.label, "description": c.description}
+                                       for c in STARTING_CARDS.values()],
                     "card_problems": self.card_problems(), "advisories": advice,
                     "chat": self.chat[-KEEP_CHAT:],
                     "run": dict(self.run_state), "runs": self.list_runs(), "current": self.current,
@@ -189,6 +191,14 @@ class Session:
         if re.fullmatch(r"\s*(new|reset|start over|new run|clear)\s*[.!]?\s*", text, re.I):
             self.reset_card()
             self.say("assistant", "Card reset to the defaults.")
+            self._publish()
+            return
+        start = _starting_card_named(text)
+        if start is not None:
+            self.reset_card(start)
+            card = STARTING_CARDS[start]
+            self.say("assistant", f"{card.label} card loaded. {card.description} Change anything on the card, "
+                                  "then run it.")
             self._publish()
             return
         request = diagrams.parse_request(text)
@@ -317,9 +327,10 @@ class Session:
         self._publish()
         return problems
 
-    def reset_card(self) -> None:
+    def reset_card(self, start: str = "seawater") -> None:
+        """Back to a fresh card: the default one, or one of the starting cards."""
         with self.lock:
-            self.card = Scenario()
+            self.card = starting_card(start)
             self.mode_confirmed = False
             self._save()
         self._publish()
@@ -463,6 +474,19 @@ class Session:
         with self.lock:
             self.run_state = {"state": "error", "progress": 0.0, "message": "", "error": message}
             self.say("assistant", f"The run failed: {message}")
+
+
+_STARTING_WORDS = {"seawater": r"sea\s*water", "freshwater": r"fresh\s*water|river\s*water",
+                   "brine": r"brine|(?:great\s+)?salt\s+lake", "hydrothermal": r"hydrothermal(?:\s+fluid)?"}
+
+
+def _starting_card_named(text: str) -> str | None:
+    """The starting card a message asks for on its own: "brine card", "load the fresh water scenario"."""
+    for key, words in _STARTING_WORDS.items():
+        if re.fullmatch(rf"\s*(?:(?:load|use|open|start\s+(?:from|with)|give\s+me|new)\s+)?(?:the\s+|a\s+)?"
+                        rf"(?:{words})\s+(?:scenario\s+)?(?:card|scenario)\s*[.!]?\s*", text, re.I):
+            return key
+    return None
 
 
 def _couples(species: list[str]) -> list[str]:

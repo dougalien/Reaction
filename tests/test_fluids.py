@@ -171,3 +171,35 @@ def test_redox_from_the_chat():
         ch = interpret_rules(text, Scenario()).scenario_changes
         assert {k: ch[k] for k in want} == want, text
     assert "redox" not in interpret_rules("heat to 250 C at 500 bar", Scenario()).scenario_changes
+
+
+# ---- the fresh water, brine and hydrothermal presets and the starting cards ----------------------
+def test_starting_cards_are_valid_and_editable():
+    from reaction.app.scenario import STARTING_CARDS, starting_card
+    for key in STARTING_CARDS:
+        card = starting_card(key)
+        assert card.problems() == [], key
+        edited, problems = card.changed({"ph": 7.0})
+        assert problems == [] and edited.fluid == "custom" and edited.problems() == [], key
+    hot, _ = starting_card("hydrothermal").changed({"ph": 5.2})
+    assert (hot.fluid_t_c, hot.fluid_p_bar) == (350.0, 500.0)          # the pressure comes with the fluid
+
+
+def test_fluid_pressure_on_the_card():
+    card, _ = Scenario().changed({"analysis": "Na 100\nCl 154", "ph": 6, "fluid_t_c": 350})
+    assert any("between 0 and 300 C" in p for p in card.problems())
+    card, _ = card.changed({"fluid_p_bar": "100"})
+    assert any("steam" in p for p in card.problems())                   # boiling point 311 C at 100 bar
+    card, _ = card.changed({"fluid_p_bar": 300})
+    assert card.problems() == []
+    card, _ = card.changed({"fluid_p_bar": ""})
+    assert card.fluid_p_bar is None
+
+
+def test_chat_names_the_new_fluids():
+    assert interpret_rules("heat fresh water to 200 C", Scenario()).scenario_changes["fluid"] == "freshwater"
+    got = interpret_rules("evaporate great salt lake brine", Scenario()).scenario_changes
+    assert got["fluid"] == "gsl_brine"
+    assert interpret_rules("heat formation brine to 200 C", Scenario()).scenario_changes["fluid"] == "formation_brine"
+    got = interpret_rules("mix hydrothermal fluid with seawater", Scenario()).scenario_changes
+    assert got["fluid"] == "hydrothermal" and got["mix_with"] == "seawater"

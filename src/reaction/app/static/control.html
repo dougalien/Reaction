@@ -31,6 +31,7 @@
         <h2>Scenario card</h2>
         <button class="ghost" id="reset" title="Back to the default card">Reset</button>
       </div>
+      <div class="starts" id="starts" role="group" aria-label="Start from a ready-made card"><span class="small muted">Start from</span></div>
       <label class="f">Title<input id="f-title" type="text" placeholder="optional"></label>
       <div style="margin-top:8px">
         <div class="seg" id="kindseg" role="group" aria-label="Kind of run">
@@ -60,7 +61,8 @@
             <option value="mmolal">mmol/kg water</option><option value="molal">mol/kg water</option>
             <option value="meq/l">meq/L</option></select></label>
           <label class="f">pH<input id="f-ph" type="number" min="0" max="14" step="any"></label>
-          <label class="f">Measured at (&deg;C)<input id="f-fluid_t_c" type="number" min="0" max="300" step="any"></label>
+          <label class="f">Measured at (&deg;C)<input id="f-fluid_t_c" type="number" min="0" max="600" step="any"></label>
+          <label class="f" title="Pressure the analysis and pH refer to; empty means 1 bar (or the boiling curve above 100 C). Needed above 300 C">Measured at (bar)<input id="f-fluid_p_bar" type="number" min="1" max="5000" step="any" placeholder="1 bar"></label>
           <label class="f">Charge balance<select id="f-charge_balance"></select></label>
           <label class="f">Redox state<select id="f-redox"></select></label>
           <label class="f" id="redox-value-box">Value<input id="f-redox_value" type="number" step="any"></label>

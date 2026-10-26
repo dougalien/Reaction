@@ -25,7 +25,7 @@ KINDS = ("path", "transport")
 MAX_COLUMN_SOLVES = 40000             # cells x shifts x (1 + dispersion mixes) in one column run
 MODE_LABELS = {"static": "Static", "flow_through": "Flow-through", "both": "Both"}
 ACTIVITY_MODELS = ("bdot", "davies", "pitzer")
-FLUID_FIELDS = ("analysis", "units", "ph", "fluid_t_c", "charge_balance", "redox",
+FLUID_FIELDS = ("analysis", "units", "ph", "fluid_t_c", "fluid_p_bar", "charge_balance", "redox",
                 "redox_value")                                       # what a custom fluid is
 REACTANT_UNITS = {"g": ("g", 1.0), "gram": ("g", 1.0), "grams": ("g", 1.0), "mg": ("g", 1e-3),
                   "kg": ("g", 1e3), "mol": ("mol", 1.0), "mole": ("mol", 1.0), "moles": ("mol", 1.0),
@@ -75,6 +75,7 @@ class Scenario:
     units: str = DEFAULT_UNIT
     ph: float | None = None
     fluid_t_c: float = 25.0
+    fluid_p_bar: float | None = None      # pressure of the measurement; None = 1 bar or the boiling curve
     charge_balance: str = "auto"
     # the redox state of a custom fluid: one of fluids.REDOX_CHOICES or a redox species of the analysis
     # (O2, H2, Fe+3, H2S, NO3-) used as the couple; ``redox_value`` for log_fo2, eh and pe
@@ -171,6 +172,7 @@ class Scenario:
             p = PRESETS[start]
             new.analysis, new.units, new.ph = p.analysis, p.units, p.ph
             new.fluid_t_c, new.charge_balance = p.measured_t_c, p.charge_balance
+            new.fluid_p_bar = p.measured_p_bar
             new.redox, new.redox_value = p.redox, p.redox_value
             new.fluid = CUSTOM
         for key, value in changes.items():
@@ -232,7 +234,8 @@ class Scenario:
         return FluidPreset(CUSTOM, CUSTOM_LABEL, "A fluid entered as an analysis.", self.fluid_t_c,
                            self.analysis, self.ph if self.ph is not None else float("nan"),
                            "entered on the card", units=self.units, charge_balance=self.charge_balance,
-                           redox=self.redox, redox_value=self.redox_value)
+                           redox=self.redox, redox_value=self.redox_value,
+                           measured_p_bar=self.fluid_p_bar)
 
     def fluid_analysis(self) -> analysis.Analysis:
         spec = self.fluid_spec()
@@ -381,8 +384,18 @@ class Scenario:
             out.append("give the pH of the fluid")
         elif not (0.0 <= self.ph <= 14.0):
             out.append("pH must be between 0 and 14")
-        if not (0.0 <= self.fluid_t_c <= 300.0):
-            out.append("the analysis temperature must be between 0 and 300 C")
+        if self.fluid_p_bar is None:
+            if not (0.0 <= self.fluid_t_c <= 300.0):
+                out.append("the analysis temperature must be between 0 and 300 C (or give the pressure "
+                           "it was measured at)")
+        elif not (P_MIN <= self.fluid_p_bar <= P_MAX):
+            out.append(f"the analysis pressure must be between {P_MIN:g} and {P_MAX:g} bar")
+        elif not (T_MIN <= self.fluid_t_c <= T_MAX):
+            out.append(f"the analysis temperature must be between {T_MIN:g} and {T_MAX:g} C")
+        elif self.fluid_t_c + 273.15 < water.T_CRIT and self.fluid_p_bar < 0.99 * (
+                water.saturation_pressure_mpa(self.fluid_t_c + 273.15) * water.BAR_PER_MPA):
+            out.append(f"at {self.fluid_t_c:g} C and {self.fluid_p_bar:g} bar water is steam; give a higher "
+                       "pressure for the analysis")
         try:
             self.redox_setting()
         except ValueError as exc:
@@ -559,7 +572,7 @@ def _coerce(key: str, value: Any) -> Any:
         if low not in TIME_UNITS:
             raise ValueError(f"'{value}' is not a time unit (use {', '.join(TIME_UNITS)})")
         return low
-    if key == "mix_t_c":
+    if key in ("mix_t_c", "fluid_p_bar"):
         if value is None or (isinstance(value, str) and not value.strip()):
             return None
         return float(value)
@@ -701,12 +714,54 @@ def _rejoin_comma_names(parts: list[str]) -> list[str]:
     return out
 
 
+# Ready-made cards to start from.  Each is a fluid with a path that suits it; anything on the card can
+# be changed afterwards.  The fluids and their sources are in fluids.py.
+@dataclass(frozen=True)
+class StartingCard:
+    key: str
+    label: str
+    description: str
+    changes: dict
+
+
+STARTING_CARDS: dict[str, StartingCard] = {c.key: c for c in (
+    StartingCard("seawater", "Seawater",
+                 "Seawater heated from 2 to 350 C at 500 bar: anhydrite from about 150 C, brucite near 350 C.",
+                 {}),
+    StartingCard("freshwater", "Fresh water",
+                 "World-average river water in equilibrium with the atmosphere, heated from 25 to 300 C at "
+                 "500 bar: calcite and anhydrite come out as their solubilities fall.",
+                 {"fluid": "freshwater", "t_start_c": 25.0, "t_end_c": 300.0, "steps": 28}),
+    StartingCard("brine", "Brine",
+                 "Great Salt Lake brine evaporated to a fifth of its water at 25 C and 1 bar, with Pitzer "
+                 "activities: halite, then anhydrite, then epsomite.",
+                 {"fluid": "gsl_brine", "activity_model": "pitzer", "t_start_c": 25.0, "t_end_c": 25.0,
+                  "p_start_bar": 1.0, "p_end_bar": 1.0, "evaporate": 5.0, "steps": 30}),
+    StartingCard("hydrothermal", "Hydrothermal fluid",
+                 "The fluid from the seawater heating run (350 C, 500 bar) mixed with nine times its mass of "
+                 "2 C seawater, as where a vent fluid meets the ocean: anhydrite forms in the hot mixture "
+                 "and dissolves again as it cools.",
+                 {"fluid": "hydrothermal", "t_start_c": 350.0, "t_end_c": 350.0, "mix_with": "seawater",
+                  "mix_ratio": 9.0, "mix_t_c": 2.0, "steps": 30}),
+)}
+
+
+def starting_card(key: str) -> Scenario:
+    """A fresh card from one of STARTING_CARDS."""
+    try:
+        return Scenario(**STARTING_CARDS[key].changes)
+    except KeyError:
+        raise KeyError(f"unknown starting card {key!r}; known cards: {', '.join(STARTING_CARDS)}") from None
+
+
 # What the language model is told about the card.
 FIELD_HELP = {
     "title": "short name for the run (text); leave out unless the user gives one",
     "fluid": f"starting fluid, one of: {', '.join(PRESETS)}, or {CUSTOM} for an analysis the user gives",
     "ph": "pH of the fluid (number); changing it makes the fluid custom",
     "fluid_t_c": "temperature the fluid's analysis and pH were measured at, degrees C",
+    "fluid_p_bar": "pressure the fluid's analysis and pH refer to, bar; leave out for 1 bar (or the boiling "
+                   "curve above 100 C); needed above 300 C",
     "charge_balance": "auto (adjust the main ion that is short), none, or an ion name such as Cl-",
     "redox": "redox state of the fluid: auto, none, air, log_fo2, eh, pe, or a redox species of the "
              "analysis used as the couple (O2, H2, Fe+3, H2S)",

@@ -58,6 +58,7 @@ input, select, textarea {
 .seg { display: inline-flex; border: 1px solid var(--line-strong); border-radius: var(--radius); overflow: hidden; }
 .seg button { border: 0; border-radius: 0; border-right: 1px solid var(--line-strong); }
 .seg button:last-child { border-right: 0; }
+.starts { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 8px; }
 .seg button.on { background: var(--accent-bg); color: var(--accent); font-weight: 600; }
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; }
