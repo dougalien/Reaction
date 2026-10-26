@@ -18,6 +18,7 @@ from typing import Any
 from ..thermo import water
 from . import analysis
 from .analysis import DEFAULT_UNIT
+from ..sorption import KD_MEDIA
 from .fluids import CUSTOM, CUSTOM_LABEL, PRESETS, REDOX_CHOICES, FluidPreset, label as fluid_label
 
 MODES = ("static", "flow_through", "both")
@@ -122,6 +123,15 @@ class Scenario:
     # start in equilibrium with the fluid, and hydrous ferric oxide (g) with Dzombak and Morel surface sites
     exchange_meq: float = 0.0
     hfo_g: float = 0.0
+    # clay minerals (g per kg of water), each with the exchange sites of its cation exchange capacity
+    # (sorption.clays: kaolinite 20, illite 225, montmorillonite 764 meq/kg); and a solid with the partition
+    # coefficients (Kd) of Allison and Allison (2005) for ``kd_medium`` (sediment, suspended or soil), g per kg
+    # of water (0 = none).  With exchange sites the Kd holds only the metals that have no exchange constant.
+    kaolinite_g: float = 0.0
+    illite_g: float = 0.0
+    montmorillonite_g: float = 0.0
+    kd_medium: str = "sediment"
+    kd_solid_g: float = 0.0
     # a column (kind = "transport", see transport.py): the card's fluid flows into ``cells`` cells filled with
     # ``pore_fluid`` (empty: the same fluid) and, in each, the reactants per kg of pore water brought to
     # equilibrium first; temperature and pressure run from the start values at the inlet to the end values at
@@ -320,6 +330,13 @@ class Scenario:
             out.append("the exchange capacity must be between 0 and 100000 meq per kg of water")
         if not 0.0 <= self.hfo_g <= 1000.0:
             out.append("the hydrous ferric oxide must be between 0 and 1000 g per kg of water")
+        for name in ("kaolinite", "illite", "montmorillonite"):
+            if not 0.0 <= getattr(self, f"{name}_g") <= 100000.0:
+                out.append(f"the {name} must be between 0 and 100000 g per kg of water")
+        if not 0.0 <= self.kd_solid_g <= 100000.0:
+            out.append("the solid with partition coefficients must be between 0 and 100000 g per kg of water")
+        if self.kd_medium not in KD_MEDIA:
+            out.append(f"kd_medium must be one of {', '.join(KD_MEDIA)}")
         if self.follow_phase not in FOLLOW_PHASES:
             out.append(f"follow_phase must be one of {', '.join(FOLLOW_PHASES)}")
         if self.mode not in MODES:
@@ -327,6 +344,17 @@ class Scenario:
         if self.activity_model not in ACTIVITY_MODELS:
             out.append(f"activity_model must be one of {', '.join(ACTIVITY_MODELS)}")
         return out
+
+    def clay_grams(self) -> dict[str, float]:
+        """Grams of each clay per kg of water (only those on the card)."""
+        out = {"kaolinite": self.kaolinite_g, "illite": self.illite_g, "montmorillonite": self.montmorillonite_g}
+        return {k: v for k, v in out.items() if v > 0}
+
+    @property
+    def clay_meq(self) -> float:
+        """Exchange sites the clays carry, meq per kg of water."""
+        from ..sorption import clays
+        return sum(g * clays()[c].cec_eq_per_kg for c, g in self.clay_grams().items())
 
     @property
     def transport(self) -> bool:
@@ -444,6 +472,8 @@ class Scenario:
         if self.hfo_g > 0:
             text = text.replace(f" ({self._how()}", f", with {self.hfo_g:g} g of ferric oxyhydroxide surface "
                                                    f"({self._how()}")
+        for bit in self._sorbent_bits():
+            text = text.replace(f" ({self._how()}", f", with {bit} ({self._how()}")
         if self.uncertainty_runs:
             text = text.replace(f" ({self._how()}", f", with a log K uncertainty range from {self.uncertainty_runs} "
                                                    f"runs ({self._how()}")
@@ -470,11 +500,22 @@ class Scenario:
             bits.append(f"{self.exchange_meq:g} meq of exchange sites")
         if self.hfo_g > 0:
             bits.append(f"{self.hfo_g:g} g of ferric oxyhydroxide surface")
+        bits.extend(self._sorbent_bits())
         if self.solid_solutions:
             bits.append("solid solutions")
         if bits:
             text += ", with " + "; ".join(bits)
         return text + f" (dispersivity {self.dispersivity_m:g} m)"
+
+    def _sorbent_bits(self) -> list[str]:
+        out = []
+        clays = self.clay_grams()
+        if clays:
+            out.append(" and ".join(", ".join(f"{g:g} g {c}" for c, g in clays.items()).rsplit(", ", 1)))
+        if self.kd_solid_g > 0:
+            what = {"sediment": "bed sediment", "suspended": "suspended matter"}.get(self.kd_medium, self.kd_medium)
+            out.append(f"{self.kd_solid_g:g} g of {what} holding metals by partition coefficients (Kd)")
+        return out
 
     def _how(self) -> str:
         return {"static": "static", "flow_through": "flow-through",
@@ -563,7 +604,8 @@ def _coerce(key: str, value: Any) -> Any:
             return None
         return float(value)
     if key in ("t_start_c", "t_end_c", "p_start_bar", "p_end_bar", "fluid_t_c", "mix_ratio", "duration",
-               "surface_area_cm2_per_g", "evaporate", "exchange_meq", "hfo_g", "column_m", "dispersivity_m",
+               "surface_area_cm2_per_g", "evaporate", "exchange_meq", "hfo_g", "kaolinite_g", "illite_g",
+               "montmorillonite_g", "kd_solid_g", "column_m", "dispersivity_m",
                "pore_volumes"):
         return float(value)
     if key == "duration_unit":
@@ -649,6 +691,14 @@ def _coerce(key: str, value: Any) -> Any:
                 return False
             raise ValueError(f"'{value}' is not yes or no")
         return bool(value)
+    if key == "kd_medium":
+        low = str(value).strip().lower()
+        low = {"bed sediment": "sediment", "sediments": "sediment", "streambed": "sediment",
+               "suspended matter": "suspended", "suspended sediment": "suspended", "spm": "suspended",
+               "soils": "soil"}.get(low, low)
+        if low not in KD_MEDIA:
+            raise ValueError(f"'{value}' is not one of {', '.join(KD_MEDIA)}")
+        return low
     if key == "follow_phase":
         low = str(value).strip().lower()
         low = {"vapor": "vapour", "liquid": "brine", "all": "whole", "fluid": "whole", "both": "whole",
@@ -743,6 +793,17 @@ STARTING_CARDS: dict[str, StartingCard] = {c.key: c for c in (
                  "and dissolves again as it cools.",
                  {"fluid": "hydrothermal", "t_start_c": 350.0, "t_end_c": 350.0, "mix_with": "seawater",
                   "mix_ratio": 9.0, "mix_t_c": 2.0, "steps": 30}),
+    StartingCard("stream", "Contaminated stream",
+                 "Stream water carrying metals from a contaminated site flows through 10 m of clay-bearing streambed "
+                 "(kaolinite, illite and montmorillonite on exchange sites, the rest of the sediment holding Ni, As, "
+                 "Cr and Hg by the EPA partition coefficients) at 15 C: Cu and Pb break through first, then Zn and "
+                 "Cd; some Pb stays at the inlet as cerussite, and the Kd metals barely move.",
+                 {"kind": "transport", "fluid": "contaminated_stream", "pore_fluid": "freshwater",
+                  "t_start_c": 15.0, "t_end_c": 15.0, "p_start_bar": 1.0, "p_end_bar": 1.0,
+                  "cells": 10, "column_m": 10.0, "dispersivity_m": 0.3, "pore_volumes": 25.0,
+                  "kaolinite_g": 100.0, "illite_g": 40.0, "montmorillonite_g": 20.0,
+                  "kd_medium": "sediment", "kd_solid_g": 4000.0,
+                  "blocked_minerals": DEFAULT_BLOCKED + ["quartz", "quartz,beta", "chalcedony"]}),
 )}
 
 
@@ -796,6 +857,14 @@ FIELD_HELP = {
                     "equilibrium with the fluid (Gaines-Thomas, PHREEQC constants)",
     "hfo_g": "grams of hydrous ferric oxide per kg of water (0 = none): surface complexation on its strong and "
              "weak sites (Dzombak and Morel 1990)",
+    "kaolinite_g": "grams of kaolinite per kg of water (0 = none): exchange sites at 20 meq/kg of clay",
+    "illite_g": "grams of illite per kg of water (0 = none): exchange sites at 225 meq/kg of clay",
+    "montmorillonite_g": "grams of montmorillonite (smectite) per kg of water (0 = none): exchange sites at "
+                         "764 meq/kg of clay",
+    "kd_medium": "which partition coefficients (Allison and Allison 2005) the Kd solid uses: sediment (bed sediment, "
+                 "default), suspended (suspended matter in a stream) or soil",
+    "kd_solid_g": "grams of solid per kg of water holding metals by their partition coefficient Kd (0 = none); "
+                  "with clays or exchange sites it holds only the metals they cannot exchange (Ni, Hg, As, Cr)",
     "isotopes": "false (default); true: d18O, d13C, d34S and 87Sr/86Sr of the fluid and minerals, and dD of the water, "
                 "along the run",
     "isotope_inputs": "starting isotope values, e.g. {\"fluid\": {\"d18O\": -5}, \"basalt glass\": {\"Sr\": 120, "

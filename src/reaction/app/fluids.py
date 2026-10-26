@@ -105,6 +105,22 @@ PRESETS: dict[str, FluidPreset] = {
                  "widely, so adjust the analysis to the water you have in mind.",
                  "The silica is above quartz saturation at 25 C, as in most rivers; block quartz on the "
                  "card if it should stay dissolved.")),
+    "contaminated_stream": FluidPreset(
+        "contaminated_stream", "Contaminated stream water",
+        "Stream water just below a metal-contaminated site (old mine waste or industrial fill): a calcium "
+        "bicarbonate-sulfate water, slightly acidic, carrying Zn, Cu, Pb, Cd, Ni, As, Cr and Hg.",
+        15.0,
+        "Ca+2 30\nMg+2 8\nNa+ 8\nK+ 2.5\nHCO3- 61\nSO4-2 78\nCl- 10\nSiO2 13\n"
+        "Zn 2\nCu 0.3\nPb 0.2\nNi 0.1\nCd 0.02\nAs 0.05\nCr 0.05\nHg 0.002",
+        6.8,
+        "illustrative: the major ions are world-average river water (Livingstone 1963) with sulfate raised as "
+        "below sulfide-bearing waste; the metals (mg/L) are of the size reported for mine-affected streams, "
+        "not one sample. Oxygen from equilibrium with air, so chromium is chromate and arsenic arsenate",
+        units="mg/l", charge_balance="auto", redox="air",
+        caveats=("The metal concentrations are illustrative; replace them with the analysis of the stream in "
+                 "question.",
+                 "With air oxygen chromium is all Cr(VI) and arsenic all As(V) at equilibrium; Cr(III) and "
+                 "As(III) persist in real streams for kinetic reasons.")),
     "gsl_brine": FluidPreset(
         "gsl_brine", "Great Salt Lake brine",
         "A sodium chloride-sulfate lake brine near halite saturation, about 250 g/kg of dissolved "

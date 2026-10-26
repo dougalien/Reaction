@@ -520,7 +520,8 @@ class Session:
 
 
 _STARTING_WORDS = {"seawater": r"sea\s*water", "freshwater": r"fresh\s*water|river\s*water",
-                   "brine": r"brine|(?:great\s+)?salt\s+lake", "hydrothermal": r"hydrothermal(?:\s+fluid)?"}
+                   "brine": r"brine|(?:great\s+)?salt\s+lake", "hydrothermal": r"hydrothermal(?:\s+fluid)?",
+                   "stream": r"(?:contaminated\s+)?stream|contaminated\s+site"}
 
 
 def _starting_card_named(text: str) -> str | None:

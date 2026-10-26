@@ -62,6 +62,7 @@ input, select, textarea {
 .seg button.on { background: var(--accent-bg); color: var(--accent); font-weight: 600; }
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; }
+.grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px 10px; }
 label.f { display: block; font-size: 12px; color: var(--muted); }
 label.f > :not(span):not(.hint) { margin-top: 2px; }
 .hint { font-size: 11px; color: var(--faint); }

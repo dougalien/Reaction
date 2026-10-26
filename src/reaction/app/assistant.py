@@ -14,6 +14,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 
+from ..sorption import clay_name
 from . import analysis, config, rocks
 from .fluids import CUSTOM, PRESETS
 from .scenario import DEFAULT_UNCERTAINTY_RUNS, FIELD_HELP, Scenario
@@ -402,6 +403,7 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
     ch.update(_brine_options(low))
     ch.update(_uncertainty_options(low))
     ch.update(_sorption_options(low))
+    ch.update(_clay_options(low))
     if re.search(r"\bsolid[- ]solutions?\b", low):
         ch["solid_solutions"] = not re.search(r"\b(no|without|turn off|switch off|disable)\b[^.]*\bsolid[- ]solution", low)
     elif re.search(r"\bpure (?:minerals|endmembers|phases) only\b|\bonly pure minerals\b", low):
@@ -428,6 +430,10 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
             rest = rest[more.end():]
     found = [f for f in found if not re.fullmatch(_FLUID_WORDS, f[2].lower())]   # "with 10 kg of seawater" is mixing
     found = [f for f in found if not re.fullmatch(_HFO_WORDS, f[2].lower())]     # "with 1 g ferrihydrite" sorbs
+    clay_talk = _clay_talk(low)
+    found = [f for f in found if not (clay_talk and _clay_word(f[2]))]           # "with 40 g illite" sorbs
+    found = [f for f in found if not re.match(r"(?:bed|stream\s*bed|suspended|sediment|soil|solids?)\b",
+                                              f[2].lower())]                    # "4 kg of bed sediment" (Kd)
     if found:
         ch["reactants"] = "; ".join(f"{amount} {unit} {name}" for amount, unit, name in found)
         held = re.search(rf"\bat\s*{_NUM}{_DEG}", low)
@@ -500,6 +506,13 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
             bits.append(f"{ch['exchange_meq']:g} meq of exchange sites" if ch["exchange_meq"] else "no exchanger")
         if "hfo_g" in ch:
             bits.append(f"{ch['hfo_g']:g} g of ferric oxide surface" if ch["hfo_g"] else "no ferric oxide surface")
+        clays = [(c, ch[f"{c}_g"]) for c in ("kaolinite", "illite", "montmorillonite") if f"{c}_g" in ch]
+        if clays:
+            bits.append(", ".join(f"{g:g} g {c}" if g else f"no {c}" for c, g in clays))
+        if "kd_solid_g" in ch:
+            bits.append(f"{ch['kd_solid_g']:g} g of solid holding metals by Kd" if ch["kd_solid_g"] else "no Kd solid")
+        if "kd_medium" in ch:
+            bits.append(f"{ch['kd_medium']} partition coefficients")
         if "isotopes" in ch:
             bits.append("isotopes on" if ch["isotopes"] else "isotopes off")
         if "isotope_inputs" in ch:
@@ -668,6 +681,48 @@ def _sorption_options(low: str) -> dict:
         m = re.search(rf"(\d*\.?\d+)\s*(?:g|grams?)\s+(?:of\s+)?{_HFO_WORDS}", low)
         if m:
             out["hfo_g"] = float(m.group(1))
+    return out
+
+
+_CLAY_RE = r"(kaolinite|kaolin|illite|montmorillonite|smectite|bentonite)"
+
+
+def _clay_word(name: str) -> str | None:
+    return clay_name(re.sub(r"\s+clays?$", "", name.strip().lower()))
+
+
+def _clay_talk(low: str) -> bool:
+    """Clay words name sorbents when the message is about clays: illite, montmorillonite or smectite (never
+    reactants here), the word "clay", or sorption words; otherwise kaolinite stays an ordinary mineral."""
+    return bool(re.search(r"\b(?:illite|montmorillonite|smectite|bentonite|clays?|sorb\w*|partition|kd|exchange)\b",
+                          low))
+
+
+def _clay_options(low: str) -> dict:
+    """Clays and partition coefficients: "with 100 g kaolinite and 20 g montmorillonite", "no clays",
+    "with 4 kg of sediment Kd", "suspended matter Kd", "no Kd"."""
+    out: dict = {}
+    if re.search(r"\b(?:no|without|remove(?: the)?)\s+(?:the\s+)?clays?\b", low):
+        out.update(kaolinite_g=0.0, illite_g=0.0, montmorillonite_g=0.0)
+    elif _clay_talk(low):
+        for m in re.finditer(rf"(\d*\.?\d+)\s*(g|grams?|kg)\s+(?:of\s+)?{_CLAY_RE}\b", low):
+            grams = float(m.group(1)) * (1000.0 if m.group(2) == "kg" else 1.0)
+            out[f"{clay_name(m.group(3))}_g"] = grams
+        for m in re.finditer(rf"\b(?:no|without)\s+{_CLAY_RE}\b", low):
+            out[f"{clay_name(m.group(1))}_g"] = 0.0
+    if re.search(r"\b(?:no|without|remove(?: the)?)\s+(?:the\s+)?(?:kd|partition coefficients?)\b", low):
+        out["kd_solid_g"] = 0.0
+    else:
+        m = re.search(r"(\d*\.?\d+)\s*(g|grams?|kg)\s+(?:of\s+)?(?:bed\s+|stream\s*bed\s+|suspended\s+)?"
+                      r"(sediment|soil|solids?|suspended matter|matter)\b", low)
+        if m and re.search(r"\b(?:kd|partition|sorb\w*)\b", low):
+            out["kd_solid_g"] = float(m.group(1)) * (1000.0 if m.group(2) == "kg" else 1.0)
+        if re.search(r"\bsuspended\b", low) and re.search(r"\b(?:kd|partition)", low):
+            out["kd_medium"] = "suspended"
+        elif re.search(r"\bsoil\b", low) and re.search(r"\b(?:kd|partition)", low):
+            out["kd_medium"] = "soil"
+        elif re.search(r"\bsediment\b", low) and re.search(r"\b(?:kd|partition)", low):
+            out["kd_medium"] = "sediment"
     return out
 
 
