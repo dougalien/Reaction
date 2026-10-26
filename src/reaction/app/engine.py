@@ -400,7 +400,7 @@ class Engine:
         basis = [b for b in sp0.basis_names if b not in (WATER, PROTON)]
         added = self._reactant_names(sc)
         for name in added.values():                      # components the fluid does not carry yet
-            elements = (rocks.elements_per_gram(rocks.ROCKS[name[5:]])[0] if name.startswith("rock:")
+            elements = (rocks.elements_per_gram(rocks.get(name[5:]))[0] if name.startswith("rock:")
                         else db.species[name].elements)
             for el in elements:
                 if name.startswith("rock:") and (el == "Fe3" or DEFAULT_MASTERS.get(el) is None):
@@ -498,7 +498,7 @@ class Engine:
         for r in sc.reactants:
             name = names[r["name"]]
             if name.startswith("rock:"):                 # dissolves congruently, never precipitates
-                rock = rocks.ROCKS[name[5:]]
+                rock = rocks.get(name[5:])
                 comp, rock_notes = rocks.components_per_gram(rock, self.db, system.basis)
                 if notes is not None:
                     notes.extend(n for n in rock_notes if n not in notes)
