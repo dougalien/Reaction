@@ -2,11 +2,12 @@
 
 Above the critical point of water, and below the boiling curve, a saline fluid can split into a brine and a
 vapour of different salinity.  Where that happens, and the compositions of the two phases, come from the
-equation of state of Driesner and Heinrich (2007) through the lookup table in ``data/nacl_h2o_phases.tsv``
-(see its header for the source).  The fluid's salinity is taken as NaCl-equivalent from its chloride, as is
-usual for vent fluids and fluid inclusions.  The table spans 1 to 996 C and 10 to 490 bar on a 5 C by 20 bar
-grid, interpolated bilinearly; along the critical curve the phase compositions change fast, so there a point
-is only as good as that grid.
+correlation formulae of Driesner and Heinrich (2007) in ``nacl_h2o.py`` (0 to 1000 C, to 5000 bar).  They put
+the two-phase boundary of seawater within 3 bar of Bischoff and Rosenbauer's (1988) measurements from 196 to
+450 C, and its critical point at 408 C and 301 bar (measured: 407 C, 298.5 bar).  The phases' densities come
+from the lookup table in ``data/nacl_h2o_phases.tsv`` (see its header for the source; 1 to 996 C and 10 to
+490 bar on a 5 C by 20 bar grid, interpolated bilinearly).  The fluid's salinity is taken as NaCl-equivalent
+from its chloride, as is usual for vent fluids and fluid inclusions.
 """
 from __future__ import annotations
 
@@ -17,10 +18,12 @@ from pathlib import Path
 
 import numpy as np
 
+from . import nacl_h2o as dh
+
 DATA = Path(__file__).with_name("data") / "nacl_h2o_phases.tsv"
 NACL_G_PER_MOL = 58.443
-T_RANGE = (1.0, 996.0)
-P_RANGE = (10.0, 490.0)
+T_RANGE = (0.0, 1000.0)        # the correlations' range
+P_RANGE = (1.0, 5000.0)
 COLUMNS = ("x_liq", "x_vap", "rho_liq", "rho_vap", "h_liq", "h_vap", "x_vap_halite", "x_liq_halite")
 
 
@@ -79,18 +82,40 @@ class PhaseState:
         return self.kind == "liquid + vapour"
 
 
+def _grid_value(name: str, t_c: float, p_bar: float) -> float:
+    t, p, _ = grid()
+    if t[0] <= t_c <= t[-1] and p[0] <= p_bar <= p[-1]:
+        return _at(name, t_c, p_bar)
+    return math.nan
+
+
+def _coexisting(t_c: float, p_bar: float) -> tuple[float, float]:
+    """NaCl mass fractions of the coexisting liquid and vapour at T and P, or NaN outside the field."""
+    if not dh.in_two_phase_field(t_c, p_bar):
+        return math.nan, math.nan
+    try:
+        xl, xv = dh.x_liquid(t_c, p_bar), dh.x_vapour(t_c, p_bar)
+    except (ValueError, ZeroDivisionError, OverflowError):
+        return math.nan, math.nan
+    if not (0.0 <= xv < xl <= 1.0):
+        return math.nan, math.nan
+    return dh.mass_fraction(xl), dh.mass_fraction(xv)
+
+
 def phase_state(t_c: float, p_bar: float, x_bulk: float) -> PhaseState:
     """Whether a fluid of NaCl mass fraction ``x_bulk`` is one phase or splits at T and P."""
     if not (T_RANGE[0] <= t_c <= T_RANGE[1] and P_RANGE[0] <= p_bar <= P_RANGE[1]):
         return PhaseState("outside", x_bulk)
-    xl, xv = _at("x_liq", t_c, p_bar), _at("x_vap", t_c, p_bar)
-    if math.isfinite(xl) and math.isfinite(xv) and xv < x_bulk < xl:
+    xl, xv = _coexisting(t_c, p_bar)
+    if math.isfinite(xl) and xv < x_bulk < xl:
         return PhaseState("liquid + vapour", x_bulk, xl, xv, (xl - x_bulk) / (xl - xv),
-                          _at("rho_liq", t_c, p_bar), _at("rho_vap", t_c, p_bar))
-    xvh = _at("x_vap_halite", t_c, p_bar)
-    if math.isfinite(xvh) and not math.isfinite(xl) and x_bulk > xvh:
-        return PhaseState("vapour + halite", x_bulk, math.nan, xvh, 1.0)
-    xlh = _at("x_liq_halite", t_c, p_bar)
-    if math.isfinite(xlh) and x_bulk > xlh:
+                          _grid_value("rho_liq", t_c, p_bar), _grid_value("rho_vap", t_c, p_bar))
+    if t_c < dh.T_TRIPLE_NACL and p_bar <= dh.p_vlh(t_c):
+        xvh = dh.mass_fraction(dh.x_vapour_halite(t_c, p_bar))
+        if x_bulk > xvh:
+            return PhaseState("vapour + halite", x_bulk, math.nan, xvh, 1.0)
+        return PhaseState("one phase", x_bulk)
+    xlh = dh.mass_fraction(dh.x_halite_liquid(t_c, p_bar)) if t_c < dh.t_halite_melting(p_bar) else 1.0
+    if x_bulk > xlh:
         return PhaseState("liquid + halite", x_bulk, xlh)
     return PhaseState("one phase", x_bulk)

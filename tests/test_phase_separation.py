@@ -1,4 +1,4 @@
-"""Brine and vapour of a saline fluid from the NaCl-H2O table (Driesner and Heinrich 2007)."""
+"""Brine and vapour of a saline fluid from the NaCl-H2O correlations (Driesner and Heinrich 2007)."""
 import math
 
 import pytest
@@ -25,7 +25,25 @@ def test_seawater_boils_near_400_c_at_250_bar():
     assert st.vapour_mass == pytest.approx((st.x_liq - SEAWATER) / (st.x_liq - st.x_vap))
     assert phase_state(480.0, 250.0, SEAWATER).kind == "vapour + halite"
     assert phase_state(450.0, 450.0, SEAWATER).kind == "one phase"         # above the critical curve
-    assert phase_state(400.0, 600.0, SEAWATER).kind == "outside"
+    assert phase_state(400.0, 600.0, SEAWATER).kind == "one phase"
+    assert phase_state(400.0, 6000.0, SEAWATER).kind == "outside"
+
+
+# Bischoff and Rosenbauer (1988), table 1: the two-phase boundary of seawater (3.2 wt% NaCl), C and bar
+BISCHOFF_ROSENBAUER = [(195.6, 14.1), (251.9, 40.7), (299.6, 83.4), (309.5, 95.8), (319.6, 109.4), (350.1, 160.8),
+                       (370.2, 203.4), (390.2, 253.1), (400.2, 279.7), (405.2, 292.8), (409.8, 304.8),
+                       (415.2, 319.3), (429.4, 357.2), (449.8, 409.7)]
+
+
+def test_seawater_boundary_against_bischoff_and_rosenbauer():
+    for t, p in BISCHOFF_ROSENBAUER:
+        assert phase_state(t, p - 3.5, 0.032).separated, (t, p)
+        assert not phase_state(t, p + 3.5, 0.032).separated, (t, p)
+    # their critical point of seawater, 407 C and 298.5 bar: the correlations put it at 408 C, 301 bar
+    from reaction import nacl_h2o as dh
+    from scipy.optimize import brentq
+    tc = brentq(lambda t: dh.x_crit(t) - dh.mole_fraction(0.032), 380.0, 450.0)
+    assert tc == pytest.approx(407.0, abs=1.5) and dh.p_crit(tc) == pytest.approx(298.5, abs=3.0)
 
 
 def test_split_along_a_path_fills_unsolved_points():
@@ -48,7 +66,9 @@ def test_salinity_from_chloride():
 def _follow(phase):
     from reaction.app.engine import Engine
     from reaction.app.scenario import Scenario
-    sc, problems = Scenario().changed({"t_start_c": 395, "t_end_c": 405, "p_start_bar": 300, "p_end_bar": 300,
+    # seawater is one phase at 400 C and 305 bar and splits at 410 C and 300 bar (Bischoff and Rosenbauer: from
+    # 408 C at 300 bar)
+    sc, problems = Scenario().changed({"t_start_c": 400, "t_end_c": 410, "p_start_bar": 305, "p_end_bar": 300,
                                        "steps": 2, "follow_phase": phase})
     assert not problems
     return Engine().run(sc)
@@ -87,3 +107,13 @@ def test_follow_phase_on_the_card_and_in_chat():
     assert interpret_rules("leave the brine behind", Scenario()).scenario_changes == {"follow_phase": "vapour"}
     assert interpret_rules("follow the whole fluid", Scenario()).scenario_changes == {"follow_phase": "whole"}
     assert "follow_phase" not in interpret_rules("plot brine salinity", Scenario()).scenario_changes
+
+
+def test_correlations_reproduce_the_table():
+    # the lookup table was computed from the same correlations (xThermal): the brine agrees to 0.5%, the vapour to 2%
+    from reaction import nacl_h2o as dh
+    t, p, cols = grid()
+    for tc, pb in ((401.0, 250.0), (451.0, 390.0), (601.0, 470.0), (351.0, 150.0)):
+        i, j = list(p).index(pb), list(t).index(tc)
+        assert dh.mass_fraction(dh.x_liquid(tc, pb)) == pytest.approx(cols["x_liq"][i, j], rel=0.005)
+        assert dh.mass_fraction(dh.x_vapour(tc, pb)) == pytest.approx(cols["x_vap"][i, j], rel=0.02)

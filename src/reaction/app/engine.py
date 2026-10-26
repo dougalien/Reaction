@@ -707,8 +707,8 @@ class Engine:
                 for carrier, d in by.items():
                     if carrier in ("CO2", "H2S", "other S", "organic C") or carrier.endswith("(g)"):
                         continue
-                    if e == "H" and carrier != "water":   # minerals only echo the water's δD
-                        continue
+                    if e == "H" and carrier != "water" and carrier in tracker.frac.hydrous:
+                        continue                          # it only echoes the water's δD
                     row[f"{key}:{carrier}"] = d
             ratio = tracker.sr_fluid_ratio
             if ratio is not None:
@@ -721,10 +721,24 @@ class Engine:
         said.append("Isotopes are in equilibrium among the fluid and the minerals at each step (oxygen: Vho and others "
                      "2020; carbon: Ohmoto and Rye 1979; sulfur: Ohmoto and Rye 1979, Ohmoto and Lasaga 1982); "
                      "δ18O and δ13C of carbonates against VSMOW and VPDB, δ34S against VCDT. Strontium is carried "
-                     "with the fluid only (minerals are taken to keep none). δD (VSMOW) is given for the water only: "
-                     "it follows evaporation (liquid-vapour fractionation of Horita and Wesolowski 1994), mixing and "
-                     "phase separation; hydrous minerals take the water's δD, as mineral-water D/H factors are not in "
-                     "yet.")
+                     "with the fluid only (minerals are taken to keep none). δD (VSMOW) of the water follows evaporation "
+                     "(liquid-vapour fractionation of Horita and Wesolowski 1994), mixing and phase separation.")
+        frac = tracker.frac
+        if frac.h_sources:
+            said.append("Isotopes (dD): mineral-water D/H from " + "; ".join(
+                f"{src} for {', '.join(sorted(names))}" for src, names in sorted(frac.h_sources.items()))
+                + ". Measured D/H factors disagree by 20 permil or more between studies (Chacko and others 2001), "
+                  "so mineral δD is good to about that.")
+        if frac.h_bonded:
+            said.append("Isotopes (dD): " + ", ".join(sorted(frac.h_bonded)) + " hold strongly hydrogen-bonded OH, "
+                        "which takes up less deuterium than the general equation says (Chacko and others 2001): "
+                        "their δD is probably too high.")
+        if frac.below:
+            said.append("Isotopes (dD): below their calibrated range, held at their value at its lower end: "
+                        f"{', '.join(sorted(frac.below))}.")
+        if frac.hydrous:
+            said.append("Isotopes (dD): no D/H factor of their own (hydrogen as molecular water or in an oxyanion), "
+                        "so they take the water's δD: " + ", ".join(sorted(frac.hydrous)) + ".")
         for e, names in sorted(tracker.frac.analogues.items()):
             said.append(f"Isotopes ({isotopes.SYSTEMS[e]}): no fractionation of their own for "
                          f"{', '.join(sorted(names))}, so those analogues are used.")

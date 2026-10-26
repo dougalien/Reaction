@@ -871,7 +871,7 @@ FIELD_HELP = {
                  "default), suspended (suspended matter in a stream) or soil",
     "kd_solid_g": "grams of solid per kg of water holding metals by their partition coefficient Kd (0 = none); "
                   "with clays or exchange sites it holds only the metals they cannot hold (As and Cr with clay edge sites)",
-    "isotopes": "false (default); true: d18O, d13C, d34S and 87Sr/86Sr of the fluid and minerals, and dD of the water, "
+    "isotopes": "false (default); true: d18O, dD, d13C, d34S and 87Sr/86Sr of the fluid and minerals, "
                 "along the run",
     "isotope_inputs": "starting isotope values, e.g. {\"fluid\": {\"d18O\": -5}, \"basalt glass\": {\"Sr\": 120, "
                       "\"87Sr/86Sr\": 0.703}}; d values in permil (VSMOW, VPDB, VCDT), Sr in mg/kg of fluid or ppm "
