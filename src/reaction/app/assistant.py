@@ -103,6 +103,7 @@ class Interpretation:
     mode_mentioned: bool = False
     column_view: str = ""                  # a column run's view: "outlet", "start", "profile" or ""
     from_result: bool = False              # start from the fluid at the end of the last run
+    reactant_edit: bool = False            # the message changed the reactants
     direction: str = ""                    # "heat" or "cool" when the user said which way
     again: bool = False                    # "run it again": repeat a run whose card has not changed
 
@@ -182,18 +183,32 @@ def interpret(text: str, card: Scenario, plotted: list[str], history: list[dict]
     for key in ("kind", "cells", "pore_volumes", "column_m", "dispersivity_m", "pore_fluid"):
         if key in rules.scenario_changes:
             got.scenario_changes[key] = rules.scenario_changes[key]
-    plot_request = bool(rules.show or rules.hide)
-    got.run = rules.run if plot_request else (got.run or rules.run)
-    got.show = got.show or rules.show
-    got.hide = got.hide or rules.hide
+    # whether to run is read from the user's own words: the model's run flag has started runs nobody asked for
+    got.run = rules.run
+    got.reactant_edit = rules.reactant_edit
+    if rules.reactant_edit or "reactants" in rules.scenario_changes:
+        got.show, got.hide = rules.show, rules.hide      # "remove the calcite" on the card is not a plot request
+    else:
+        got.show = got.show or rules.show
+        got.hide = got.hide or rules.hide
     if got.axis == "unchanged":
         got.axis = rules.axis
     got.question = rules.question or got.question
+    # the reply says what the card now holds, never what the model said it did ("Reacting ... Running now")
     if got.scenario_changes and "analysis" not in got.scenario_changes:
-        # the reply says what the card now holds, never what the model hoped it would
         bits = change_bits(got.scenario_changes, card)
-        got.reply = "Set " + ", ".join(bits) + "." if bits else got.reply
+        got.reply = "Set " + ", ".join(bits) + "." if bits else ""
+    elif "analysis" not in got.scenario_changes:
+        plot_only = got.show or got.hide or got.axis != "unchanged" or got.x_axis != "unchanged"
+        got.reply = _no_claims(got.reply) if plot_only else ""
     return got
+
+
+def _no_claims(reply: str) -> str:
+    """The model's reply without sentences about running or reacting, which only the calculator may say."""
+    keep = [x for x in re.split(r"(?<=[.!?])\s+", reply) if x.strip()
+            and not re.search(r"\b(?:run|running|ran|react\w*|calculat\w*|simulat\w*|done)\b", x, re.I)]
+    return " ".join(keep)
 
 
 T_KEYS = ("t_start_c", "t_end_c", "temperature_c")
@@ -232,7 +247,7 @@ def _guard(changes: dict, text: str) -> dict:
 # ---- plain rules ------------------------------------------------------------------------------------
 _NUM = r"(-?\d+(?:\.\d+)?)"
 _DEG = r"\s*(?:°|deg(?:rees?)?)?\s*c(?![a-z])"
-RUN_WORDS = re.compile(r"\b(run|go|start|simulate|calculate|compute|react|titrate|mix|add|heat|warm|cool|decompress|evaporate|"
+RUN_WORDS = re.compile(r"\b(run|go|start|simulate|calculate|compute|react|dissolve|alter|serpentini[sz]e|titrate|mix|add|heat|warm|cool|decompress|evaporate|"
                        r"compress|depressuri[sz]e|pressuri[sz]e|do it|what happens)\b", re.I)
 
 
@@ -264,10 +279,6 @@ def _direction(low: str) -> str:
     return ""
 
 
-_BARE_REACTANT = re.compile(
-    r"\b(?:react(?:s|ed|ing)?|dissolv(?:e|es|ed|ing)|alter(?:s|ed|ing)?)\b[^.;]*?\bwith\s+(?:some\s+|an?\s+|the\s+)?"
-    r"(?P<name>[a-z][a-z0-9 \-]*?(?:\s*\(+\s*fo\s*\d+(?:\.\d+)?\s*\)+)?)"
-    r"(?=\s*(?:,|;|\.(?!\d)|$)|\s+(?:at|and|for|to|in|until|from|under|using|w\s*/\s*r|water)\b)")
 _WR = re.compile(r"\b(?:w\s*/\s*r|water\s*[-/:]?\s*(?:to\s+)?\s*rock)(?:\s+(?:mass\s+)?ratio)?\s*(?:of|=|:|is|at)?\s*"
                  r"(\d*\.?\d+)(?:\s*:\s*(\d*\.?\d+))?")
 
@@ -281,14 +292,128 @@ def _water_rock(low: str) -> float | None:
     return ratio if ratio > 0 else None
 
 
-def _reactant_name(words: str) -> str:
-    """A reactant named without an amount, tidied: "olivine ((fo88)" -> "olivine fo88"."""
-    w = re.sub(r"[()]", " ", words)
-    w = re.sub(r"\s+", " ", w).strip(" -")
-    if re.fullmatch(r"(?:it|them|this|that|rock|minerals?|isotopes?|uncertainty|solid solutions?|kinetics|"
-                    r"measured rates?|pitzer|.*\bexchange\b.*|.*\bsurface\b.*)", w):
-        return ""
-    return w
+_NAME = r"[a-z][a-z0-9\-]*(?:,(?:ordered|disordered|low|high|alpha|beta|maximum))?(?:\s+(?:glass|gas))?" \
+        r"(?:\s*\(*\s*fo\s*\d+(?:\.\d+)?\s*\)*)?"
+_NOT_REACTANTS = re.compile(
+    r"(?:it|them|this|that|these|those|the|a|an|some|any|anything|nothing|one|instead|then|now|too|also|again|"
+    r"run|runs|rock|rocks|minerals?|reactants?|reaction|isotopes?|uncertainty|solid|kinetics|rates?|pitzer|"
+    r"b-?dot|davies|both|static|flow|mixing|evaporation|redox|air|oxygen|cells?|columns?|transport|axis|log|"
+    r"linear|plot|temperature|pressure|steps?|water|fluid|solution|brine|seawater|sea|rain|rainwater|vent|"
+    r"hydrothermal|freshwater|fresh|river|formation|contaminated|stream|salt|gsl|lake|custom|exchange\w*|"
+    r"surface|sorption|ferrihydrite|hfo|clays?|sediment|soil|bed|gas phase|what|how|why|to|at|in|on|by|for|"
+    r"from|with|and|or|but|not|no|more|less|same|different|other|another|default)")
+_NEGATIVE = re.compile(
+    r"\b(?:do\s+not|don'?t|dont|no\s+longer|not|stop|without|remove|drop|take\s+out|exclude|leave\s+out|instead\s+of|"
+    r"rather\s+than|in\s+place\s+of)\s+(?:react(?:ing)?\s+(?:it\s+|the\s+fluid\s+)?(?:with\s+)?|"
+    r"add(?:ing)?\s+|us(?:e|ing)\s+|dissolv(?:e|ing)\s+)?(?:the\s+|any\s+)?(?P<name>" + _NAME + ")")
+_POSITIVE = (
+    # "react the hydrothermal fluid with forsterite", "react olivine", "dissolve calcite"
+    re.compile(r"\b(?:react|dissolv|alter|titrat)\w*\s+(?:(?:it|the\s+fluid|(?:the\s+)?[a-z ]*?(?:water|fluid|brine|"
+               r"solution|seawater|stream))\s+)?(?:with\s+)?(?:some\s+|an?\s+|the\s+)?(?P<name>" + _NAME + ")"),
+    # "use basalt glass instead", "switch to olivine", "try quartz", "replace olivine with basalt", "with calcite instead"
+    re.compile(r"\b(?:use|try|switch\s+to|change\s+(?:it\s+|the\s+reactant\s+)?to|swap\s+in|go\s+with|"
+               r"replace\s+\S+(?:\s+fo\s*\d+)?\s+with|with)\s+(?:some\s+|an?\s+|the\s+)?(?P<name>" + _NAME +
+               r")(?=\s+(?:instead|rather|then)\b)"),
+    re.compile(r"\b(?:switch\s+to|change\s+(?:it\s+|the\s+reactant\s+)?to|swap\s+in|replace\s+\S+(?:\s+fo\s*\d+)?\s+with)"
+               r"\s+(?:some\s+|an?\s+|the\s+)?(?P<name>" + _NAME + ")"),
+    # "add olivine too", "also add calcite"
+    re.compile(r"\badd(?:ing)?\s+(?:some\s+|an?\s+|the\s+)?(?P<name>" + _NAME + ")"),
+)
+_REPLACED = re.compile(r"\b(?:replace|swap(?:\s+out)?)\s+(?:the\s+)?(?P<name>" + _NAME + r")\s+(?:with|for|by)\b")
+_APPEND = re.compile(r"\b(?:add(?:ing)?|also|too|as\s+well|plus|in\s+addition|along\s+with)\b")
+_REPLACE = re.compile(r"\b(?:instead|rather|replace|switch|swap|change|only|just)\b")
+
+
+def _tidy(name: str) -> str:
+    """A reactant name as written, tidied: "forsterite(fo88)" -> "forsterite fo88", "Olivine (Fo88)" -> "olivine fo88"."""
+    w = re.sub(r"[()]", " ", name)
+    return re.sub(r"\s+", " ", w).strip(" -,").lower()
+
+
+def _usable(name: str, clay_talk: bool) -> bool:
+    return bool(name) and not _NOT_REACTANTS.fullmatch(name) and not re.fullmatch(_FLUID_WORDS, name) \
+        and not re.fullmatch(_HFO_WORDS, name) and not (clay_talk and _clay_word(name)) \
+        and not any(name in (k.replace("_", " "), p.label.lower()) for k, p in PRESETS.items()) \
+        and not re.match(r"(?:bed|stream\s*bed|suspended|sediment|soil|solids?)\b", name)
+
+
+def _same(a: str, b: str) -> bool:
+    """Whether two reactant names mean the same thing ("olivine fo88" and "forsterite fo88" do)."""
+    a, b = _tidy(a), _tidy(b)
+    if a == b or a.rstrip("s") == b.rstrip("s"):
+        return True
+    ra, rb = rocks.find(a), rocks.find(b)
+    return bool(ra and rb and ra.key == rb.key) or (bool(ra or rb) and (a in b or b in a))
+
+
+def _reactant_edit(text: str, low: str, card: Scenario, clay_talk: bool) -> tuple[str | list | None, str]:
+    """What a message does to the card's reactants, and a question when it names one without an amount.
+
+    Amounts come from the message ("10 g albite"), from a water/rock ratio ("W/R=1": 1000 g per kg of water),
+    or from the reactant being replaced.  A newly named reactant replaces the ones on the card, unless the
+    message says "add", "also" or "too"; "don't react X", "no X", "remove X" take one off.  Returns the new
+    reactants as card text ("1000 g olivine fo88; 10 g calcite"), [] for none, or None for no change."""
+    if re.search(r"\b(?:no|remove(?:\s+the)?|without(?:\s+the)?|clear(?:\s+the)?|drop(?:\s+the)?)\s+(?:all\s+(?:the\s+)?)?"
+                 r"reactants?\b", low):
+        return [], ""
+    current = [dict(r) for r in card.reactants]
+    found = []
+    for m in _REACTANT.finditer(text):                 # "with 10 g albite, 1 g calcite and 5 g quartz"
+        found.append(m.groups())
+        rest = text[m.end():]
+        while (more := _MORE_REACTANT.match(rest)):
+            found.append(more.groups())
+            rest = rest[more.end():]
+    named = [(float(a) * {"mg": 1e-3, "kg": 1e3, "mmol": 1e-3}.get(u.lower(), 1.0),
+              "mol" if u.lower().startswith(("mol", "mmol")) else "g", _tidy(n)) for a, u, n in found]
+    named = [f for f in named if _usable(f[2], clay_talk)]
+    # take off what the message says not to use, and find what it says to use instead
+    removed: list[str] = []
+    bare: list[str] = []
+    for clause in re.split(r"(?<!\d)[.;!?](?!\d)", low):
+        for m in [*_NEGATIVE.finditer(clause), *_REPLACED.finditer(clause)]:
+            name = _tidy(m.group("name"))
+            if _usable(name, clay_talk):
+                removed.append(name)
+        positive = _NEGATIVE.sub(" ", clause)
+        if re.search(r"\b(?:don'?t|do not|dont)\s+(?:run|react|add)\b", positive):
+            continue
+        for pattern in _POSITIVE:
+            for m in pattern.finditer(positive):
+                name = _tidy(m.group("name"))
+                if _usable(name, clay_talk) and not any(_same(name, f[2]) for f in named) \
+                        and not any(_same(name, b) for b in bare) and not any(name == r for r in removed):
+                    bare.append(name)
+    wr = _water_rock(low)
+    if not named and not bare and not removed:
+        if wr and current and all(r["unit"] == "g" for r in current):
+            total = sum(r["amount"] for r in current)      # a new water/rock ratio rescales what is on the card
+            k = 1000.0 / wr / total if total > 0 else 1.0
+            return _card_text([(r["amount"] * k, "g", r["name"]) for r in current]), ""
+        return None, ""
+    append = bool(_APPEND.search(low)) and not _REPLACE.search(low)
+    gone = [r for r in current if any(_same(r["name"], x) for x in removed)]
+    kept = [r for r in current if r not in gone] if append or gone else []
+    replaced = gone or ([] if append else current)
+    question = ""
+    items = [(a, u, n) for a, u, n in named]
+    for i, name in enumerate(bare):
+        if wr:
+            items.append((1000.0 / wr / len(bare), "g", name))
+        elif replaced:
+            old = replaced[min(i, len(replaced) - 1)]
+            items.append((old["amount"], old["unit"], name))
+        else:
+            question = (f"How much {name}? Give grams per kg of water (\"100 g {name}\") or a water/rock ratio "
+                        f"(\"W/R 1\").")
+    if question and not items:
+        return None, question
+    out = [(r["amount"], r["unit"], r["name"]) for r in kept] + items
+    return (_card_text(out) if out else []), question
+
+
+def _card_text(items) -> str:
+    return "; ".join(f"{amount:g} {unit} {name}" for amount, unit, name in items)
 
 
 def _fluid_key(words: str) -> str | None:
@@ -310,13 +435,14 @@ def _fluid_key(words: str) -> str | None:
     return "seawater"
 
 
+_COMP = r"(?:\s*\(*\s*[Ff][Oo]\s*\d+(?:\.\d+)?\s*\)*)?"     # an olivine's composition: "(Fo88)", "fo88"
 _MORE_REACTANT = re.compile(
     r"\s*(?:,\s*(?:and\s+)?|\s+and\s+|\s*\+\s*)(\d*\.?\d+)\s*(g|grams?|mg|kg|mol|moles?|mmol)\s+(?:of\s+)?"
-    r"([A-Za-z][\w()+\-]*(?:,(?:ordered|disordered|low|high|alpha|beta|maximum)|\s+glass|\s+gas)?)", re.I)
+    r"([A-Za-z][\w+\-]*(?:,(?:ordered|disordered|low|high|alpha|beta|maximum)|\s+glass|\s+gas)?" + _COMP + ")", re.I)
 _REACTANT = re.compile(
     r"\b(?:react(?:ing)?|add(?:ing)?|dissolv(?:e|ing)|titrat(?:e|ing)(?:\s+\w+)?\s+with|with|column\s+of)\s+"
     r"(?:up\s+to\s+)?(\d*\.?\d+)\s*(g|grams?|mg|kg|mol|moles?|mmol)\s+(?:of\s+)?"
-    r"([A-Za-z][\w()+\-]*(?:,(?:ordered|disordered|low|high|alpha|beta|maximum)|\s+glass|\s+gas)?)", re.I)
+    r"([A-Za-z][\w+\-]*(?:,(?:ordered|disordered|low|high|alpha|beta|maximum)|\s+glass|\s+gas)?" + _COMP + ")", re.I)
 
 
 def interpret_rules(text: str, card: Scenario) -> Interpretation:
@@ -372,6 +498,10 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
         ch["mode"] = "static"
     out.mode_mentioned = "mode" in ch
     plotting = re.match(r"\s*(?:plot|show|display|hide|remove|drop)\b", low)   # names in a plot request
+    off = re.match(r"\s*(?:remove|drop|take\s+out)\s+(?:the\s+)?(.+?)\s*[.!]?\s*$", low)
+    if plotting and off and any(_same(off.group(1), r["name"]) for r in card.reactants):
+        plotting = None                                # "remove the calcite" that is on the card is a reactant
+    reactant_off = plotting is None and bool(off)
     # "follow the brine" names a phase of the fluid, not the formation-brine preset
     named = re.sub(r"\b(?:follow(?:ing)?|leav(?:e|ing)) the brine\b|\bbrine (?:stays|is left) behind\b|"
                    r"\bbrine salinity\b", " ", low)
@@ -455,38 +585,17 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
     if ch.get("evaporate", 1.0) > 1.0 and held and "t_end_c" in ch and "t_start_c" not in ch \
             and float(held.group(1)) == ch["t_end_c"]:
         ch["temperature_c"] = ch.pop("t_end_c")              # "evaporate ... at 25 C" holds 25 C
-    found = []
-    for m in _REACTANT.finditer(text):                 # "with 10 g albite, 1 g calcite and 5 g quartz"
-        found.append(m.groups())
-        rest = text[m.end():]
-        while (more := _MORE_REACTANT.match(rest)):
-            found.append(more.groups())
-            rest = rest[more.end():]
-    found = [f for f in found if not re.fullmatch(_FLUID_WORDS, f[2].lower())]   # "with 10 kg of seawater" is mixing
-    found = [f for f in found if not re.fullmatch(_HFO_WORDS, f[2].lower())]     # "with 1 g ferrihydrite" sorbs
     clay_talk = _clay_talk(low)
-    found = [f for f in found if not (clay_talk and _clay_word(f[2]))]           # "with 40 g illite" sorbs
-    found = [f for f in found if not re.match(r"(?:bed|stream\s*bed|suspended|sediment|soil|solids?)\b",
-                                              f[2].lower())]                    # "4 kg of bed sediment" (Kd)
-    if not found and not plotting:
-        bare = _BARE_REACTANT.search(low)
-        name = _reactant_name(bare.group("name")) if bare else ""
-        if name and not re.fullmatch(_FLUID_WORDS, name) and not re.fullmatch(_HFO_WORDS, name) \
-                and not (clay_talk and _clay_word(name)):
-            wr = _water_rock(low)
-            if wr:
-                found.append((f"{1000.0 / wr:g}", "g", name))       # per kg of water
-            else:
-                out.question = (f"How much {name}? Give grams per kg of water (\"100 g {name}\") or a "
-                                f"water/rock ratio (\"W/R 1\").")
-    if found:
-        ch["reactants"] = "; ".join(f"{amount} {unit} {name}" for amount, unit, name in found)
+    edit, question = (None, "") if plotting else _reactant_edit(text, low, card, clay_talk)
+    if question:
+        out.question = question
+    if edit is not None:
+        ch["reactants"] = edit
+        out.reactant_edit = bool(edit)                 # a new or changed reactant is a request to run it
         held = re.search(rf"\bat\s*{_NUM}{_DEG}", low)
-        if held and "t_end_c" in ch and "t_start_c" not in ch and float(held.group(1)) == ch["t_end_c"]:
+        if edit and held and "t_end_c" in ch and "t_start_c" not in ch and float(held.group(1)) == ch["t_end_c"]:
             ch["temperature_c"] = ch.pop("t_end_c")         # "react ... at 25 C" holds 25 C
-    elif re.search(r"\b(no|remove the|without|clear the)\s+reactants?\b", low):
-        ch["reactants"] = []
-    out.run = bool(RUN_WORDS.search(low)) and not re.search(r"\b(don't|do not|dont)\s+run\b", low)
+    out.run = bool(RUN_WORDS.search(low) or out.reactant_edit) and not re.search(r"\b(don't|do not|dont)\s+run\b", low)
 
     # plot requests: "plot A instead of B", "show A", "hide B", "remove B"; a column run's view words are not names
     text = re.sub(r"\s+(?:along the column|at the outlet|in the profile|(?:against|versus|vs\.?) distance|"
@@ -503,6 +612,8 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
         m = re.search(r"\b(?:hide|remove|drop)\s+(.+)", text, re.I)
         if m:
             out.hide = [_clean(s) for s in re.split(r",|\band\b", m.group(1)) if _clean(s)]
+    if reactant_off:
+        out.show, out.hide = [], []
     if re.search(r"\blog(arithmic)?\b", low):
         out.axis = "log"
     elif re.search(r"\blinear\b", low):

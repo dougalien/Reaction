@@ -41,7 +41,7 @@ _OXIDE = re.compile(r"([A-Z][a-z]?)(\d*)O(\d*)$")
 
 
 DEFAULT_FO = 90.0
-_OLIVINE = re.compile(r"(?:(?:olivine|ol)\s*\(?\s*fo\s*(?P<a>\d+(?:\.\d+)?)\s*\)?|fo\s*(?P<b>\d+(?:\.\d+)?)"
+_OLIVINE = re.compile(r"(?:(?:olivine|ol|forsterite)\s*\(?\s*fo\s*(?P<a>\d+(?:\.\d+)?)\s*\)?|fo\s*(?P<b>\d+(?:\.\d+)?)"
                       r"(?:\s+olivine)?|(?P<plain>olivine))")
 
 

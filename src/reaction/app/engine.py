@@ -87,6 +87,22 @@ def _sig(x: float | None, digits: int = 6):
     return float(f"{x:.{digits}g}")
 
 
+# common names of minerals that the database lists under another name
+MINERAL_ALIASES = {"serpentine": "chrysotile", "lizardite": "chrysotile", "orthoclase": "K-feldspar",
+                   "microcline": "K-feldspar", "sanidine": "K-feldspar", "k-spar": "K-feldspar",
+                   "kspar": "K-feldspar", "potassium feldspar": "K-feldspar", "alkali feldspar": "K-feldspar",
+                   "chlorite": "clinochlore", "apatite": "hydroxyapatite", "sio2(am)": "amorphous silica",
+                   "silica gel": "amorphous silica", "opal": "amorphous silica", "plagioclase an100": "anorthite",
+                   "plagioclase an0": "albite", "enstatite fs0": "enstatite"}
+# group names that have no single formula: the endmembers to choose from
+GROUP_NAMES = {"plagioclase": "albite, anorthite", "pyroxene": "enstatite, ferrosilite, diopside, hedenbergite",
+               "clinopyroxene": "diopside, hedenbergite", "orthopyroxene": "enstatite, ferrosilite",
+               "augite": "diopside, hedenbergite", "garnet": "grossular, andradite, pyrope, almandine",
+               "biotite": "phlogopite, annite", "mica": "muscovite, phlogopite, annite",
+               "amphibole": "tremolite", "hornblende": "tremolite",
+               "actinolite": "tremolite", "feldspar": "albite, anorthite, K-feldspar"}
+
+
 class Engine:
     def __init__(self, data_dir: str | Path | None = None):
         self.data_dir = Path(data_dir) if data_dir else config.external_dir()
@@ -474,6 +490,13 @@ class Engine:
                         "hydrogen sulfide": "H2S", "oxygen": "O2"}.get(stem.lower(), stem)
                 if f"{stem}(g)" in db.species:
                     name = f"{stem}(g)"
+            alias = MINERAL_ALIASES.get(name.strip().lower())
+            if alias and alias in db.species:
+                name = alias
+            if name.strip().lower() in GROUP_NAMES and not rocks.find(name):
+                members = GROUP_NAMES[name.strip().lower()]
+                raise ValueError(f"{name} is a mineral group; react one of its endmembers ({members}), or olivine with "
+                                 f"its forsterite content, such as olivine Fo88")
             if name not in db.species:
                 hits = lower.get(name.lower(), [])
                 minerals = [h for h in hits if db.species[h].kind == Kind.MINERAL]
