@@ -94,7 +94,7 @@ disappear within the uncertainty. Judgment calls: independent draws for every sp
 covariance from shared data is known to us); 0.1 log units as the base sigma.
 
 P7b solid solutions (done): card switch `solid_solutions` (off by default; "with solid solutions" in the
-chat). Eleven ideal site-mixing models in `data/solid_solutions.tsv` (data0's carbonate, plagioclase, alkali
+chat). Eleven (now twelve, with serpentine) ideal site-mixing models in `data/solid_solutions.tsv` (data0's carbonate, plagioclase, alkali
 feldspar, chlorite, epidote, garnet, orthopyroxene, biotite, plus olivine, clinopyroxene and actinolite).
 In the solver a solid solution is a mixture like the gas phase: its total moles are an unknown and its
 condition is sum x_i = 1 with x_i = (Q_i/K_i)^(1/sites); when it is supersaturated it takes over its pure
@@ -279,7 +279,24 @@ to solve (B-dot at low density), as before. The phase-separation tests moved to 
 Next: kinetics in the column (a velocity gives each shift a time); salt effect on liquid-vapour and mineral
 D/H; Lewis and Lowell (2009) two-phase flow benchmarks once the column can follow phases.
 
-359 tests pass with the data folder present. The data folder needs `OBIGT/Berman/` (run
+Examples (Douglas's request, 2026-10-27): a second row of buttons on the card, "Examples, load and run"
+(`scenario.EXAMPLES`, `/api/example`, `Session.load_example`). One press fills the card and runs it; a note under
+the buttons says what the example shows and lists the card fields that set it up (each line scrolls to its field),
+and those fields are outlined on the card until another card is loaded or the note is closed. The first run opens
+the results on the example's own plot (`Example.plot`, in words, read by `view.resolve_item`). The seven:
+basalt alteration with solid solutions (seawater + 1 kg basalt glass, 350 C, 500 bar); the contaminated stream
+(the starting card, metals on clays); boiling seawater (390 to 410 C at 300 bar, following the brine: 7 wt% NaCl
+at the end, the point at the critical point is blank); calcite dissolving in rainwater at its measured rate over
+12 hours; isotopes of rainwater evaporated 20x (d18O -8 to +20); CO2 into an aquifer (3 mol CO2 and 20 g calcite
+into formation brine at 60 C, 200 bar: a gas phase forms); serpentinization (seawater + 1 kg olivine Fo90, 300 C,
+300 bar, solid solutions on, antigorite blocked). For the last, a serpentine solid solution was added
+(chrysotile-greenalite, three sites, ideal, as McCollom and Bach 2009): it takes about 4% greenalite and lowers the
+H2 from 0.29 to 0.17 mol/kg. Judgment calls: subcritical boiling cannot be an example because paths below the
+water's boiling curve are refused, and the whole-fluid chemistry fails between 410 and 440 C at 300 bar, so the
+phase separation example stays within 2 C of the critical point; no Fe(OH)2 in OBIGT, so brucite stays pure.
+`tests/test_examples.py` checks that each example shows what its note says.
+
+462 tests pass with the data folder present. The data folder needs `OBIGT/Berman/` (run
 `scripts/fetch_references.ps1` again); without it the old minerals are used and every run says so.
 
 ## First things to do, in this order

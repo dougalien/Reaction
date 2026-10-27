@@ -19,7 +19,7 @@ from urllib.parse import parse_qs, urlparse
 from . import config
 from .assistant import Ollama
 from .engine import Engine, EngineUnavailable
-from .scenario import STARTING_CARDS
+from .scenario import EXAMPLES, STARTING_CARDS
 from .session import Session
 
 STATIC = Path(__file__).resolve().parent / "static"
@@ -154,6 +154,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self._error(400, f"unknown starting card {start!r}")
             s.reset_card(start)
             return self._json({"ok": True})
+        if path == "/api/example":
+            key = str(body.get("key", ""))
+            if key not in EXAMPLES:
+                return self._error(400, f"unknown example {key!r}")
+            return self._json({"started": s.load_example(key)})
         if path == "/api/run":
             return self._json({"started": s.start_run()})
         if path == "/api/current":

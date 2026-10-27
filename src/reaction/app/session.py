@@ -14,7 +14,7 @@ from . import analysis, carryover, diagrams
 from .engine import Engine, EngineUnavailable
 from .fluids import CUSTOM, CUSTOM_LABEL, PRESETS
 from .narrate import story
-from .scenario import STARTING_CARDS, Scenario, starting_card
+from .scenario import EXAMPLES, STARTING_CARDS, Scenario, example_card, starting_card
 from .view import apply_patch, default_view, resolve_item, sanitize
 
 KEEP_CHAT = 80
@@ -44,6 +44,8 @@ class Session:
         self.view: dict = {"items": [], "log": True, "modes": [], "unit": "mmol"}
         self.second: dict = {"current": None, "view": {}}      # the second results window
         self.diagram: dict | None = None                       # the diagram both windows show
+        self.example: str | None = None                        # the example the card was loaded from
+        self.example_pending = False                           # its first run opens on the example's plot
         self.current: str | None = None
         self.run_state = {"state": "idle", "progress": 0.0, "message": "", "error": ""}
         self.mode_confirmed = False
@@ -71,6 +73,7 @@ class Session:
             self.view = data.get("view", self.view)
             self.mode_confirmed = bool(data.get("mode_confirmed", False))
             self.diagram = data.get("diagram") if isinstance(data.get("diagram"), dict) else None
+            self.example = data.get("example") if data.get("example") in EXAMPLES else None
             second = data.get("second") or {}
             if isinstance(second, dict) and self.result(second.get("current")) is not None:
                 self.second = {"current": second["current"],
@@ -85,7 +88,7 @@ class Session:
     def _save(self) -> None:
         data = {"card": self.card.to_dict(), "chat": self.chat[-KEEP_CHAT:], "current": self.current,
                 "view": self.view, "mode_confirmed": self.mode_confirmed, "second": self.second,
-                "diagram": self.diagram}
+                "diagram": self.diagram, "example": self.example}
         tmp = self._file.with_suffix(".tmp")
         tmp.write_text(json.dumps(data, indent=1), encoding="utf-8")
         tmp.replace(self._file)
@@ -137,6 +140,10 @@ class Session:
                                    "redox_species": _couples(analysis.parse(spec.analysis, spec.units).species)},
                     "starting_cards": [{"key": c.key, "label": c.label, "description": c.description}
                                        for c in STARTING_CARDS.values()],
+                    "examples": [{"key": e.key, "label": e.label, "feature": e.feature,
+                                  "description": e.description, "setup": [list(x) for x in e.setup]}
+                                 for e in EXAMPLES.values()],
+                    "example": self.example,
                     "card_problems": self.card_problems(), "advisories": advice,
                     "chat": self.chat[-KEEP_CHAT:],
                     "run": dict(self.run_state), "runs": self.list_runs(), "current": self.current,
@@ -442,8 +449,25 @@ class Session:
         with self.lock:
             self.card = starting_card(start)
             self.mode_confirmed = False
+            self.example = None
             self._save()
         self._publish()
+
+    def load_example(self, key: str) -> bool:
+        """Load one of the examples onto the card and run it.  False if a run is going (nothing changes)."""
+        with self.lock:
+            if self.run_state["state"] == "running":
+                return False
+            self.card = example_card(key)
+            self.mode_confirmed = True
+            self.example = key
+            self.example_pending = True
+            self._save()
+        started = self.start_run()
+        if not started:
+            with self.lock:
+                self.example_pending = False
+        return started
 
     def window(self, w: str = "1") -> dict:
         """What results window ``w`` shows: {"current": run id, "view": ...}.  Window 1 is the one the
@@ -558,6 +582,12 @@ class Session:
                 self._result_cache[result["id"]] = result
                 self.current = result["id"]
                 self.view = default_view(result)
+                ex = EXAMPLES.get(self.example) if self.example_pending else None
+                self.example_pending = False
+                if ex is not None and ex.plot:          # an example opens on what it is there to show
+                    items = [i for i in (resolve_item(t, result) for t in ex.plot) if i]
+                    if items:
+                        self.view = sanitize({**self.view, "items": items, "log": ex.log}, result)
                 if self.pending_x in _varies(result, self.view):
                     self.view["x"] = self.pending_x
                 elif self.pending_x:
