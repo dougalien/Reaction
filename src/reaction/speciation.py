@@ -24,7 +24,7 @@ from . import activity
 from .constants import FARADAY, KELVIN, LN10, R, WATER_MOLES_PER_KG
 from .database.model import Kind, ThermoDatabase
 from .aqueous import AqueousModel
-from .network import OXYGEN, PROTON, WATER, Network, NetworkError
+from .network import ORGANIC_LIGANDS, OXYGEN, PROTON, WATER, Network, NetworkError, tie_family
 
 
 # --------------------------------------------------------------------------
@@ -335,6 +335,9 @@ def speciate(
                       suppress=suppress, suppress_phases=suppress_phases)
     except NetworkError as exc:
         raise SpeciationError(str(exc)) from exc
+    for d in decoupled:                  # an organic ligand given its own total carries its acids and complexes
+        if d in ORGANIC_LIGANDS:
+            tie_family(net, db, d)
     if pressure_bar is None:
         pressure_bar = db.reference_pressure(temperature_c)
     model = AqueousModel(db, net, temperature_c, pressure_bar, activity_model, ph_scale)

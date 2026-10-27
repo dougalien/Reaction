@@ -26,7 +26,7 @@ import numpy as np
 from .aqueous import AqueousModel
 from .constants import LN10, WATER_MOLES_PER_KG
 from .database.model import Kind, ThermoDatabase
-from .network import OXYGEN, PROTON, WATER, Network, NetworkError
+from .network import OXYGEN, PROTON, WATER, ORGANIC_LIGANDS, Network, NetworkError, ligand_member, tie_family
 from . import sorption
 from .speciation import Speciation, SpeciationError, _globalized_step, make_speciation
 from .thermo import gas as gas_eos
@@ -56,7 +56,7 @@ class System:
         except NetworkError as exc:
             raise EquilibriumError(str(exc)) from exc
         for d in hold_apart:                         # its gas and its redox family follow it
-            _tie_family(self.net, db, d)
+            tie_family(self.net, db, d)
         self.db = db
         self.gas_phase = gas_phase
         self.solid_solutions = tuple(solid_solutions)        # solidsolution.SolidSolution entries
@@ -109,13 +109,15 @@ def redox_intermediates(db: ThermoDatabase, held: Iterable[str]) -> list[str]:
     def row(name):
         return {k: c for k, c in db[name].reaction.items() if k != name}
 
-    fams = [(row(h), REDOX_APART.get(h)) for h in held if h in db] + [({OXYGEN: 1.0}, None)]
+    fams = [(row(h), REDOX_APART.get(h)) for h in held if h in db and h not in ORGANIC_LIGANDS] + [({OXYGEN: 1.0}, None)]
     out = []
     for sp in db.of_kind(Kind.AQUEOUS, Kind.GAS, Kind.MINERAL):
         if sp.name in held or not sp.reaction:
             continue
         r = row(sp.name)
         if abs(r.get(OXYGEN, 0.0)) < 1e-12:
+            continue
+        if any(h in ORGANIC_LIGANDS and ligand_member(h, sp.name) for h in held):
             continue
         member = False
         for own, key in fams:
@@ -133,47 +135,6 @@ def redox_intermediates(db: ThermoDatabase, held: Iterable[str]) -> list[str]:
         if not member:
             out.append(sp.name)
     return out
-
-
-def _tie_family(net: Network, db, species: str) -> None:
-    """Rewrite every species and phase in the same oxidation state as a held-apart species over that
-    species' own column, so that they exchange with it and not with the rest of the basis: CH4(g) with
-    CH4; HS-, metal bisulfide complexes and pyrrhotite with H2S; Fe(III) complexes and hematite with
-    Fe+3.  A row qualifies when it is a multiple of the held species' row plus a row with neither its
-    element column nor O2(g), i.e. no electrons to trade.  A held species without such an element
-    column (H2) takes only rows that are an exact multiple of its own (its gas)."""
-    own, terms = net.couple[species]
-    col = net.basis.index(species)
-    skip = {net.basis.index(n) for n in (WATER, PROTON, OXYGEN) if n in net.basis}
-    keys = [j for j in range(len(net.basis)) if abs(own[j]) > 1e-12 and j not in skip]
-    o2 = net.basis.index(OXYGEN) if OXYGEN in net.basis else None
-    key = keys[0] if len(keys) == 1 else None
-
-    def tie(row, row_terms):
-        if key is not None:
-            if abs(row[key]) < 1e-12:
-                return None
-            a = row[key] / own[key]
-            rest = row - a * own
-            if o2 is not None and abs(rest[o2]) > 1e-9:
-                return None
-        else:
-            j = max(range(len(own)), key=lambda i: abs(own[i]))
-            a = row[j] / own[j]
-            rest = row - a * own
-            if abs(a) < 1e-12 or np.max(np.abs(rest)) > 1e-9:
-                return None
-        new = rest.copy()
-        new[col] += a
-        return new, list(row_terms) + [(-a * cf, lk) for cf, lk in terms]
-
-    for rows, term_lists in ((net.nu_dep, net.dep_terms), (net.nu_phase, net.phase_terms)):
-        for k in range(len(rows)):
-            if abs(rows[k][col]) > 1e-12:            # already written through a held column
-                continue
-            got = tie(rows[k], term_lists[k])
-            if got is not None:
-                rows[k], term_lists[k] = got
 
 
 @dataclass
@@ -715,6 +676,12 @@ def equilibrate(system: System, temperature_c: float, bulk: dict[str, float], *,
                 assemblage = [a for a in assemblage if a not in mx.idx]
     elif isinstance(guess, Speciation):
         u0 = np.array(guess.ln_activities, dtype=float)
+        if list(guess.basis_names) != list(model.names):
+            # a fluid speciated over another basis (fewer components, or none held apart): take
+            # the activities it has and the usual cold-start values for the rest
+            have = dict(zip(guess.basis_names, guess.ln_activities))
+            cold = _initial_u(model, B, fixed_idx)
+            u0 = np.array([have.get(b, c) for b, c in zip(model.names, cold)], dtype=float)
         ln_w0 = math.log(B[0] / WATER_MOLES_PER_KG)
         n_prev, ionic0 = {}, guess.ionic_strength
     else:

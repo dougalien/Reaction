@@ -27,6 +27,47 @@ import numpy as np
 from .database.model import Kind, ThermoDatabase, ThermoRangeError
 
 WATER, PROTON, OXYGEN = "H2O", "H+", "O2(g)"
+CARBONATE = "HCO3-"
+
+# Carboxylic acid anions with metal complexes in SLOP98 (Shock and Koretsky 1993, 1995; Sverjensky, Shock and
+# Helgeson 1997): ligand -> (the abbreviation in its complexes' names, its protonated forms).  Organic acids do
+# not form from carbonate or break down to it on laboratory or vent time scales, so each is a component of its
+# own, present only when an analysis gives it, with its acids and complexes written through it.
+ORGANIC_LIGANDS: dict[str, tuple[str, tuple[str, ...]]] = {
+    "formate": ("For", ("formic acid",)),
+    "acetate": ("Ac", ("acetic acid",)),
+    "propanoate": ("Prop", ("propanoic acid",)),
+    "n-butanoate": ("But", ("n-butanoic acid",)),
+    "n-pentanoate": ("Pent", ("n-pentanoic acid",)),
+    "glycolate": ("Glyc", ("glycolic acid",)),
+    "lactate": ("Lac", ("lactic acid",)),
+    "oxalate-2": ("Oxal", ("H-oxalate", "oxalic acid")),
+    "malonate-2": ("Mal", ("H-malonate", "malonic acid")),
+    "succinate-2": ("Succ", ("H-succinate", "succinic acid")),
+}
+
+
+def ligand_member(ligand: str, name: str) -> bool:
+    """Whether species ``name`` is ``ligand`` itself, one of its acids or one of its metal complexes."""
+    abbr, acids = ORGANIC_LIGANDS[ligand]
+    return name == ligand or name in acids or f"({abbr})" in name
+
+
+def organic_held_apart(db, held=()) -> list[str]:
+    """Species with reduced (organic) carbon other than methane that no held ligand in ``held`` accounts for:
+    the organic acids, their complexes, cyanide ...  Without a ligand of their own they could only form by
+    reducing carbonate (or methane by oxidizing it), which does not happen at these time scales; so they are
+    left out, as methane is held apart."""
+    ligands = [h for h in held if h in ORGANIC_LIGANDS]
+    out = []
+    for sp in db.species.values():
+        r = sp.reaction or {}
+        if sp.name in ("CH4", "CH4(g)") or CARBONATE not in r or abs(r.get(OXYGEN, 0.0)) < 1e-12:
+            continue
+        if any(ligand_member(lig, sp.name) for lig in ligands):
+            continue
+        out.append(sp.name)
+    return out
 
 
 class NetworkError(RuntimeError):
@@ -150,8 +191,32 @@ class Network:
         self.phase_terms: list[list] = []
         phase_rows: list[np.ndarray] = []
 
+        # an organic ligand in a basis without O2(g): its acids and complexes are written over carbonate
+        # and O2 in the data, so go through O2 and take back the ligand's own reaction, which cancels it
+        ligands = [d for d in decoupled if d in ORGANIC_LIGANDS]
+        aux = (_Reducer(db, list(basis) + [OXYGEN], suppress, derived=switches)
+               if ligands and OXYGEN not in index and CARBONATE in index else None)
+
+        def via_ligand(name):
+            for d in ligands:
+                if not ligand_member(d, name):
+                    continue
+                own, member = aux.reduce(d), aux.reduce(name)
+                if own is None or member is None or abs(own[0].get(CARBONATE, 0.0)) < 1e-12:
+                    return None
+                a = member[0].get(CARBONATE, 0.0) / own[0][CARBONATE]
+                nu = {k: member[0].get(k, 0.0) - a * own[0].get(k, 0.0) for k in {*member[0], *own[0]}}
+                if abs(nu.pop(OXYGEN, 0.0)) > 1e-9 or abs(nu.pop(CARBONATE, 0.0)) > 1e-9:
+                    return None
+                nu[d] = nu.get(d, 0.0) + a
+                return ({k: v for k, v in nu.items() if abs(v) > 1e-12},
+                        list(member[1]) + [(-a * cf, lk) for cf, lk in own[1]])
+            return None
+
         def add_aqueous(name):
             r = red.reduce(name)
+            if r is None and aux is not None:
+                r = via_ligand(name)
             if r is None:
                 return
             nu, terms = r
@@ -185,6 +250,8 @@ class Network:
             core = _Reducer(db, list(basis), suppress, derived=switches)
             for d in decoupled:
                 r = core.reduce(d)
+                if r is None and d in ORGANIC_LIGANDS:
+                    continue         # no O2 to write it over carbonate: its family is its own already
                 if r is None:
                     raise NetworkError(f"cannot decouple {d!r}: it has no reaction over "
                                        f"the basis of this problem")
@@ -230,3 +297,51 @@ class Network:
         pi, pv = run(self.phase_names, self.phase_terms)
         couples = {name: value(terms, name) for name, (_, terms) in self.couple.items()}
         return Evaluated(di, dv, pi, pv, couples, dropped, extrapolated)
+
+
+def tie_family(net: Network, db, species: str) -> None:
+    """Rewrite every species and phase in the same oxidation state as a held-apart species over that
+    species' own column, so that they exchange with it and not with the rest of the basis: CH4(g) with
+    CH4; HS-, metal bisulfide complexes and pyrrhotite with H2S; Fe(III) complexes and hematite with
+    Fe+3.  A row qualifies when it is a multiple of the held species' row plus a row with neither its
+    element column nor O2(g), i.e. no electrons to trade.  A held species without such an element
+    column (H2) takes only rows that are an exact multiple of its own (its gas).  An organic ligand
+    (ORGANIC_LIGANDS) takes only its own acids and complexes, by name: lactate and acetate have carbon in
+    the same oxidation state, but one is not made from the other."""
+    if species not in net.couple:
+        return
+    own, terms = net.couple[species]
+    col = net.basis.index(species)
+    skip = {net.basis.index(n) for n in (WATER, PROTON, OXYGEN) if n in net.basis}
+    keys = [j for j in range(len(net.basis)) if abs(own[j]) > 1e-12 and j not in skip]
+    o2 = net.basis.index(OXYGEN) if OXYGEN in net.basis else None
+    key = keys[0] if len(keys) == 1 else None
+
+    def tie(name, row, row_terms):
+        if species in ORGANIC_LIGANDS and not ligand_member(species, name):
+            return None
+        if key is not None:
+            if abs(row[key]) < 1e-12:
+                return None
+            a = row[key] / own[key]
+            rest = row - a * own
+            if o2 is not None and abs(rest[o2]) > 1e-9:
+                return None
+        else:
+            j = max(range(len(own)), key=lambda i: abs(own[i]))
+            a = row[j] / own[j]
+            rest = row - a * own
+            if abs(a) < 1e-12 or np.max(np.abs(rest)) > 1e-9:
+                return None
+        new = rest.copy()
+        new[col] += a
+        return new, list(row_terms) + [(-a * cf, lk) for cf, lk in terms]
+
+    for names, rows, term_lists in ((net.dep_names, net.nu_dep, net.dep_terms),
+                                    (net.phase_names, net.nu_phase, net.phase_terms)):
+        for k in range(len(rows)):
+            if abs(rows[k][col]) > 1e-12:            # already written through a held column
+                continue
+            got = tie(names[k], rows[k], term_lists[k])
+            if got is not None:
+                rows[k], term_lists[k] = got

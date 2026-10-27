@@ -66,6 +66,17 @@ SOLUTES: dict[str, tuple[int, str, tuple[str, ...]]] = {
     "H2": (0, "H2", ("hydrogen", "dissolved hydrogen")),
     "O2": (0, "O2", ("oxygen", "dissolved oxygen")),
     "CH4": (0, "CH4", ("methane",)),
+    # organic acids, each a component of its own (network.ORGANIC_LIGANDS), weighed as the anion
+    "formate": (-1, "HCO2", ("formic acid", "HCOO-", "HCOO")),
+    "acetate": (-1, "C2H3O2", ("acetic acid", "CH3COO-", "CH3COO", "Ac-")),
+    "propanoate": (-1, "C3H5O2", ("propionate", "propanoic acid", "propionic acid")),
+    "n-butanoate": (-1, "C4H7O2", ("butanoate", "butyrate", "butanoic acid", "butyric acid")),
+    "n-pentanoate": (-1, "C5H9O2", ("pentanoate", "valerate", "pentanoic acid", "valeric acid")),
+    "glycolate": (-1, "C2H3O3", ("glycolic acid",)),
+    "lactate": (-1, "C3H5O3", ("lactic acid",)),
+    "oxalate-2": (-2, "C2O4", ("oxalate", "oxalic acid")),
+    "malonate-2": (-2, "C3H2O4", ("malonate", "malonic acid")),
+    "succinate-2": (-2, "C4H4O4", ("succinate", "succinic acid")),
 }
 
 # species that carry an oxidation state of their own -> the basis species holding that element
