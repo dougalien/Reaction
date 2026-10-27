@@ -101,6 +101,17 @@ class Scenario:
     mix_with: str = ""
     mix_ratio: float = 1.0
     mix_t_c: float | None = None
+    # where the steps fall: "ratio" evenly in the kg of second fluid added; "temperature" evenly in the
+    # mixture's temperature (only with ``mix_t_c``), so that the hot end, reached by the first few
+    # percent of the second fluid, is not skipped
+    mix_spacing: str = "ratio"
+    # ``redox_apart`` holds every redox couple apart (H2 from O2, sulfide from sulfate, methane from carbonate,
+    # Fe(III) from Fe(II), nitrate from ammonia), so a mixture keeps the disequilibrium its fluids bring;
+    # ``minerals_form`` false keeps every mineral from forming; ``energy`` gives the catabolic energy of the
+    # chemosynthetic reactions at each step (see catabolic.py)
+    redox_apart: bool = False
+    minerals_form: bool = True
+    energy: bool = False
     # a free gas phase (CO2, CH4, H2O, H2, H2S, N2 ...) forms when the dissolved gases' fugacities add
     # up to the pressure; methane and sulfate are held apart (no reaction between them) unless asked
     gas_phase: bool = True
@@ -230,6 +241,26 @@ class Scenario:
     def mix_follows_temperature(self) -> bool:
         return self.mixing and self.mix_t_c is not None
 
+    @property
+    def mix_even_in_t(self) -> bool:
+        return self.mix_follows_temperature and self.mix_spacing == "temperature"
+
+    def fractions(self) -> list[float]:
+        """The fraction (0 to 1) of the way along the path at each step: even, or, for mixing evenly
+        spaced in temperature, at the mixing ratios that give those temperatures."""
+        n = max(int(self.steps), 2)
+        even = [i / (n - 1) for i in range(n)]
+        if not self.mix_even_in_t:
+            return even
+        t0, t_mix = self.t_start_c, self.mix_t_c
+        t1 = self.tp(1.0)[0]
+        out = []
+        for f in even:
+            t = t0 + (t1 - t0) * f
+            out.append(min(max((t0 - t) / (t - t_mix) / self.mix_ratio, 0.0), 1.0) if f > 0 else 0.0)
+        out[-1] = 1.0
+        return out
+
     def tp(self, f: float) -> tuple[float, float]:
         """(temperature in C, pressure in bar) at the fraction ``f`` (0 to 1) of the way along the path."""
         p = self.p_start_bar + (self.p_end_bar - self.p_start_bar) * f
@@ -240,8 +271,7 @@ class Scenario:
 
     def points(self) -> list[tuple[float, float]]:
         """(temperature in C, pressure in bar) at each step, evenly spaced along the path."""
-        n = max(int(self.steps), 2)
-        return [self.tp(i / (n - 1)) for i in range(n)]
+        return [self.tp(f) for f in self.fractions()]
 
     @property
     def display_title(self) -> str:
@@ -309,6 +339,10 @@ class Scenario:
                 out.append("the mixing ratio must be above 0 and at most 1000 kg per kg")
             if self.mix_t_c is not None and not (T_MIN <= self.mix_t_c <= T_MAX):
                 out.append(f"the second fluid's temperature must be between {T_MIN:g} and {T_MAX:g} C")
+            if self.mix_spacing not in MIX_SPACINGS:
+                out.append(f"mix_spacing must be one of {', '.join(MIX_SPACINGS)}")
+            elif self.mix_spacing == "temperature" and (self.mix_t_c is None or self.mix_t_c == self.t_start_c):
+                out.append("steps even in temperature need a second fluid at another temperature")
         if ranges_ok:
             if not self.varies and not self.reactants and not self.mixing and not self.kinetics \
                     and not self.evaporating and not self.transport:
@@ -408,7 +442,9 @@ class Scenario:
                            f"{MAX_COLUMN_SOLVES:,} allowed: use fewer cells or pore volumes, or a smaller dispersivity")
         for flag, what in ((self.evaporating, "evaporation"),
                            (self.mixing, "mixing in a second fluid"), (self.follow_phase != "whole", "following the brine or vapour"),
-                           (self.isotopes, "isotopes"), (self.uncertainty_runs > 0, "uncertainty bands")):
+                           (self.isotopes, "isotopes"), (self.uncertainty_runs > 0, "uncertainty bands"),
+                           (self.redox_apart, "holding redox apart"), (not self.minerals_form, "keeping minerals from forming"),
+                           (self.energy, "catabolic energy")):
             if flag:
                 out.append(f"{what} is not available in a column yet; turn it off for a transport run")
         return out
@@ -480,6 +516,12 @@ class Scenario:
             text = text.replace(f" ({self._how()}", f", following {what} ({self._how()}")
         if self.isotopes:
             text = text.replace(f" ({self._how()}", f", with isotopes ({self._how()}")
+        if self.redox_apart:
+            text = text.replace(f" ({self._how()}", f", redox couples held apart ({self._how()}")
+        if not self.minerals_form:
+            text = text.replace(f" ({self._how()}", f", no minerals forming ({self._how()}")
+        if self.energy:
+            text = text.replace(f" ({self._how()}", f", with catabolic energies ({self._how()}")
         if self.exchange_meq > 0:
             text = text.replace(f" ({self._how()}", f", with {self.exchange_meq:g} meq of exchange sites ({self._how()}")
         if self.hfo_g > 0:
@@ -600,6 +642,7 @@ def resolve_redox(spec: FluidPreset, got: analysis.Analysis) -> tuple[str, Any]:
 
 
 REDOX_LABELS = {"log_fo2": "log fO2", "eh": "Eh (volts)", "pe": "pe"}
+MIX_SPACINGS = ("ratio", "temperature")
 
 
 def _coerce(key: str, value: Any) -> Any:
@@ -699,7 +742,15 @@ def _coerce(key: str, value: Any) -> Any:
                     raise ValueError("Sr cannot be negative")
             out[str(source).strip().lower()] = here
         return out
-    if key in ("gas_phase", "kinetics", "solid_solutions", "isotopes", "clay_edges"):
+    if key == "mix_spacing":
+        low = str(value).strip().lower()
+        low = {"even": "ratio", "mixing ratio": "ratio", "mass": "ratio", "t": "temperature",
+               "temperatures": "temperature", "": "ratio"}.get(low, low)
+        if low not in MIX_SPACINGS:
+            raise ValueError(f"'{value}' is not ratio or temperature")
+        return low
+    if key in ("gas_phase", "kinetics", "solid_solutions", "isotopes", "clay_edges", "redox_apart", "minerals_form",
+               "energy"):
         if isinstance(value, str):
             low = value.strip().lower()
             if low in ("true", "yes", "on", "1", "allowed", "allow"):
@@ -1008,6 +1059,39 @@ EXAMPLES: dict[str, Example] = {e.key: e for e in (
                           "hundred µm."),
              ("surface_area_cm2_per_g", "Surface area 100 cm2 per g, about that of grains of 0.1 mm.")),
             ("calcite",), False, "ug"),
+    Example("vent_energy", "Vent fluid meets seawater", "Chemosynthesis energy",
+            "A 350 C black-smoker fluid mixes into 2 C deep seawater at a mid-ocean ridge (250 bar), from pure vent "
+            "fluid down to 5 C (115 kg of seawater per kg). Mixing is faster than the redox reactions, so the fluid's "
+            "H2, sulfide, methane and Fe(II) meet the seawater's O2 and sulfate without reacting, and no minerals "
+            "form. The Energy tab gives what that disequilibrium is worth to microbes that let it react: the Gibbs "
+            "energy of each chemosynthetic reaction and the energy it makes available per kg of mixed fluid (the "
+            "calculation of McCollom and Shock 1997). Sulfate reduction offers the most where the mixture is above "
+            "about 285 C, where little O2 has arrived; then iron oxidation (to about 190 C), hydrogen oxidation (to "
+            "about 95 C) and, in the cool mixture, sulfide oxidation, up to about 43 J per kg near 5 C, limited by "
+            "the seawater's O2. A few seconds.",
+            {"title": "Vent fluid mixing into seawater: chemosynthesis energy", "fluid": "custom",
+             "analysis": "Na+ 432\nK+ 23.2\nLi+ 0.89\nCa+2 15.6\nSr+2 0.08\nMn+2 0.96\nFe+2 1.66\nAl+3 0.005\n"
+                         "SiO2 17.3\nCl- 489\nHCO3- 5.7\nH2S 6.5\nH2 0.5\nCH4 0.08",
+             "units": "mmol/kg", "ph": 3.4, "fluid_t_c": 25.0, "charge_balance": "auto", "redox": "H2",
+             "t_start_c": 350.0, "t_end_c": 350.0, "p_start_bar": 250.0, "p_end_bar": 250.0, "steps": 70,
+             "mix_with": "deep_seawater", "mix_ratio": 115.0, "mix_t_c": 2.0, "mix_spacing": "temperature",
+             "redox_apart": True, "minerals_form": False, "gas_phase": False, "energy": True},
+            (("redox_apart", "Redox couples: Held apart. H2, sulfide, methane and Fe(III) keep their own totals, apart "
+                             "from O2, sulfate, carbonate and Fe(II), so the mixture keeps the disequilibrium."),
+             ("minerals_form", "Minerals: Suppressed, so the mixing is conservative (anhydrite and the metal "
+                               "sulfides that a real chimney makes are left dissolved)."),
+             ("energy", "Catabolic energy: On. The Energy tab: ΔG of each reaction (kJ/mol) and the energy available "
+                        "per kg of mixed fluid and per kg of vent fluid."),
+             ("mix_with", "Mixed with deep seawater at 2 C, up to 115 kg per kg of vent fluid; the temperature "
+                          "follows the mixing."),
+             ("mix_spacing", "Steps even in temperature, 5 C apart from 350 to 5 C (even amounts of seawater "
+                             "would put nearly every step below 50 C)."),
+             ("analysis", "Vent fluid: the Vent fluid preset (rounded East Pacific Rise 21 N, quenched pH 3.4 at "
+                          "25 C, an illustrative 0.5 mmol/kg H2) with 0.08 mmol/kg of methane."),
+             ("p_start_bar", "250 bar, about 2.5 km of water.")),
+            ("sulfide oxidation energy", "hydrogen oxidation energy", "iron oxidation energy",
+             "methane oxidation energy", "sulfate reduction energy", "anaerobic methane oxidation energy",
+             "methanogenesis energy")),
 )}
 
 
@@ -1046,6 +1130,15 @@ FIELD_HELP = {
     "mix_with": f"a second fluid mixed in steadily ({', '.join(PRESETS)}), or empty for none",
     "mix_ratio": "kg of the second fluid per kg of the first at the end of the run",
     "mix_t_c": "temperature of the second fluid, degrees C; the mixture's temperature then follows the mixing",
+    "mix_spacing": "ratio (default): steps even in the amount of second fluid; temperature: steps even in the "
+                   "mixture's temperature (needs mix_t_c), which resolves the hot end of a vent-seawater mixture",
+    "redox_apart": "false (default): redox couples react to equilibrium; true: H2, sulfide, methane, Fe(III) and nitrate "
+                   "are each held apart from O2, sulfate, carbonate, Fe(II) and ammonia, so a mixture keeps its redox "
+                   "disequilibrium (no electron transfer)",
+    "minerals_form": "true (default): supersaturated minerals precipitate; false: no mineral forms (conservative mixing)",
+    "energy": "false (default); true: the Gibbs energy of chemosynthetic reactions (H2, sulfide, methane and Fe(II) "
+              "oxidation, methanogenesis, sulfate reduction, anaerobic methane oxidation) and the energy they make "
+              "available per kg of fluid at each step; meaningful with redox_apart",
     "gas_phase": "true (default): a gas phase forms when dissolved gases exceed the pressure; false: none",
     "methane_sulfate": "apart (default): methane and sulfate do not react with each other; react: "
                        "they reach equilibrium (thermochemical sulfate reduction)",

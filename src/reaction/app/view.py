@@ -3,7 +3,7 @@
 The view is shared state: the chat and the clicks in the results window both go through
 ``apply_patch``, so they behave the same.  A plotted item is ``{"group": ..., "key": ...}`` where
 the group is one of species, elements, minerals, gas, saturation, kinetic (rates and what is left of
-kinetic reactants) or property.  Items can share a y axis
+kinetic reactants), energy (catabolic energies) or property.  Items can share a y axis
 only if they have the same unit, so adding an item of another unit replaces the current ones.
 """
 from __future__ import annotations
@@ -39,6 +39,8 @@ def unit_group(item: dict) -> str:
         return f"kinetic:{item['key'].split(':')[0]}"
     if g == "composition":
         return "composition"
+    if g == "energy":
+        return "energy:" + item["key"].split(":")[0]
     if g == "phases":
         return "phases:share" if item["key"] == "vapour_share" else "phases:salinity"
     if g == "isotopes":
@@ -178,6 +180,10 @@ def resolve_item(text: str, result: dict, prefer: str | None = None) -> dict | N
         key = _isotope_item(low_clean, run0["isotopes"], cat.get("isotopes", {}))
         if key:
             return {"group": "isotopes", "key": key}
+    if run0.get("energy"):                            # "sulfide oxidation energy", "dG methanogenesis"
+        key = _energy_item(low_clean, run0["energy"], cat.get("energy", {}))
+        if key:
+            return {"group": "energy", "key": key}
     if run0.get("composition"):                       # "anorthite in plagioclase"
         for k, v in cat.get("composition", {}).items():
             if low_clean in (v["label"].lower(), "{1} in {0}".format(*k.lower().split(":", 1))):
@@ -198,6 +204,31 @@ def resolve_item(text: str, result: dict, prefer: str | None = None) -> dict | N
         for cand in (word, t, t.capitalize()):
             if cand and cand in cat["elements"]:
                 return {"group": "elements", "key": cand}
+    return None
+
+
+def _energy_item(text: str, keys, cat: dict) -> str | None:
+    """The energy line a phrase names: "sulfide oxidation energy" (per kg of fluid), "... energy per kg of
+    vent fluid" (per kg of the starting fluid), "dG methanogenesis" or "gibbs energy of sulfate reduction"."""
+    low = text.replace("δ", "d").replace("Δ", "d").strip()
+    low = re.sub(r"\s+per kg of (?:the )?(?:mix|mixed fluid|mixture|fluid|water)$", "", low)
+    m = re.fullmatch(r"(?:dg|delta g|gibbs energy|free energy)\s+(?:of\s+)?(.+)", low)
+    if m:
+        kind, stem = "dG", m.group(1)
+    else:
+        m = re.fullmatch(r"(?:energy (?:of|from)\s+)?(.+?)(?:\s+energy)?(\s+per kg of .+)?", low)
+        if not m or "energy" not in low:
+            return None
+        kind, stem = ("Es" if m.group(2) else "E"), m.group(1)
+    stem = stem.strip()
+    for k in keys:
+        what, rx = k.split(":", 1)
+        if what != kind:
+            continue
+        label = cat.get(k, {}).get("label", "").lower()
+        if stem in (rx.replace("_", " "), label.split(" (")[0].removeprefix("δg ").removeprefix("Δg ")) \
+                or label.startswith(stem) or label.removeprefix("Δg ").startswith(stem):
+            return k
     return None
 
 

@@ -54,6 +54,20 @@ PRESETS: dict[str, FluidPreset] = {
             "The fluid contains no silica, iron or aluminium, so only carbonate, sulfate and "
             "hydroxide minerals can form from it alone.",
         )),
+    "deep_seawater": FluidPreset(
+        "deep_seawater", "Deep seawater",
+        "Bottom seawater near a mid-ocean ridge at 2 C: the major ions of seawater with the dissolved O2 "
+        "(0.11 mmol/kg) and the carbonate of deep water that has been away from the surface for centuries.",
+        2.0,
+        "Na+ 10768\nK+ 399.1\nCa+2 412.3\nMg+2 1291.8\nCl- 19353\nSO4-2 2712\nHCO3- 2.3 mmolal\nO2 0.11 mmolal",
+        7.8,
+        "major ions as the Seawater preset (EQ3/6 test case swmaj); dissolved O2, carbonate and pH (at 2 C) are "
+        "rounded values typical of deep Pacific water near 2.5 km, illustrative rather than one sample; the "
+        "dissolved O2 sets the redox state",
+        charge_balance="none",
+        caveats=("Deep water's O2 varies from about 0.05 to 0.25 mmol/kg between ocean basins; it limits the "
+                 "aerobic reactions in a vent mixture, so change it on the card for another site.",
+                 "Nitrate (about 0.04 mmol/kg in deep water) and silica are left out.")),
     "rainwater": FluidPreset(
         "rainwater", "Rainwater",
         "Dilute rain in equilibrium with atmospheric CO2, with a little sea salt and sulfate.",

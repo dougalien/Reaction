@@ -33,6 +33,7 @@ from scipy.optimize import brentq, minimize_scalar
 
 from .equilibrium import EquilibriumError, EquilibriumState, System, equilibrate
 from .kinetics import RateLaw
+from .constants import WATER_MOLES_PER_KG
 from .network import WATER
 from .speciation import Speciation, SpeciationError
 
@@ -94,6 +95,23 @@ class PathPoint:
 def bulk_from_speciation(spec: Speciation, kilograms: float = 1.0) -> dict[str, float]:
     """Moles of every basis component in ``kilograms`` of solvent plus the species in it."""
     return {name: kilograms * value for name, value in spec.component_totals.items()}
+
+
+def bulk_over(system: System, spec: Speciation, kilograms: float = 1.0) -> dict[str, float]:
+    """Like :func:`bulk_from_speciation`, but over the components of ``system``, which may hold redox
+    species apart that ``spec`` was solved with in equilibrium: each species is counted by its own row,
+    so the fluid's sulfide goes to the H2S column and its sulfate to SO4-2.  Species ``system`` does not
+    have (dropped or suppressed there) are left out."""
+    net = system.net
+    rows = {name: net.nu_dep[k] for k, name in enumerate(net.dep_names)}
+    total = np.zeros(len(net.basis))
+    total[0] = WATER_MOLES_PER_KG
+    for name, st in spec.species.items():
+        if name in net.basis:
+            total[net.basis.index(name)] += st.molality
+        elif name in rows:
+            total += st.molality * rows[name]
+    return {name: kilograms * float(v) for name, v in zip(net.basis, total)}
 
 
 def _composition_row(system: System, name: str) -> dict[str, float]:

@@ -179,6 +179,43 @@ def _kinetic_clause(result: dict, run: dict) -> str:
     return ("At the measured rates, " + "; ".join(parts) + ".") if parts else ""
 
 
+def _energy_clause(result: dict, run: dict) -> str:
+    """Which catabolic reaction offers the most energy where, and its largest value."""
+    energy = run.get("energy") or {}
+    names = result.get("catalog", {}).get("energy", {})
+    series = {k[2:]: v for k, v in energy.items() if k.startswith("E:")}
+    if not series:
+        return ""
+    label = {k: (names.get(f"E:{k}") or {}).get("label", k).removesuffix(" energy").lower() for k in series}
+    n = len(next(iter(series.values())))
+    lead = []
+    for i in range(n):
+        vals = {k: v[i] for k, v in series.items() if v[i] is not None and v[i] > 0}
+        lead.append(max(vals, key=vals.get) if vals else None)
+    runs = []                                        # stretches with one reaction ahead
+    for i, k in enumerate(lead):
+        if k is None:
+            continue
+        if runs and runs[-1][0] == k and runs[-1][2] == i - 1:
+            runs[-1][2] = i
+        else:
+            runs.append([k, i, i])
+    if not runs:
+        return "None of the catabolic reactions has energy to offer anywhere along this path."
+    temps, _, varies = _axes(result)
+
+    def at(i):
+        return f"{temps[i]:.0f} °C" if "temperature_c" in varies else point_text(result, i)
+
+    parts = []
+    for k, a, b in runs:
+        parts.append(f"{label[k]} at {at(a)}" if a == b else f"{label[k]} from {at(a)} to {at(b)}")
+    top = max(series, key=lambda k: max((v or 0.0) for v in series[k]))
+    i = max(range(n), key=lambda j: series[top][j] or 0.0)
+    return ("Catabolic energy: the reaction offering the most is " + "; then ".join(parts) + ". The largest is "
+            f"{label[top]}, {series[top][i]:.3g} J per kg of fluid at {at(i)}.")
+
+
 def _gas_clause(result: dict, run: dict, mode: str) -> str:
     """When a gas phase forms, and what it is made of at the end."""
     gas = run.get("gas") or {}
@@ -476,6 +513,9 @@ def story(result: dict) -> list[str]:
         if iso:
             sentence = sentence.rstrip() + " " + iso
         paras.append(sentence.strip())
+        energy = _energy_clause(result, run)
+        if energy:
+            paras.append(energy)
 
     if len(modes) == 2:
         a, b = modes["static"], modes["flow_through"]

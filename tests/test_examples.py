@@ -85,3 +85,21 @@ def test_each_example_opens_on_its_own_plot():
             continue
         result = engine.run(example_card(key))
         assert all(resolve_item(t, result) for t in e.plot), key
+
+
+def test_vent_mixing_keeps_disequilibrium_and_gives_energy(runs):
+    run = runs["vent_energy"]
+    e = run["energy"]
+    assert not _formed(run)                                                  # conservative mixing
+    # the vent fluid's sulfide is diluted, not oxidized: about 1 mmol/kg at 75 C (a fifth vent fluid)
+    sulfide = run["species"]["H2S"][55] + run["species"]["HS-"][55]
+    assert 0.8e-3 < sulfide < 1.6e-3
+    peak = {k[2:]: max(v or 0 for v in vals) for k, vals in e.items() if k.startswith("E:")}
+    assert max(peak, key=peak.get) == "h2s_ox" and 30 < peak["h2s_ox"] < 60
+    hot = {k[2:]: vals[2] for k, vals in e.items() if k.startswith("E:")}     # 340 C: anaerobic ahead
+    assert max(hot, key=hot.get) in ("sulfate_red", "aom")
+    cold = {k[2:]: vals[-1] for k, vals in e.items() if k.startswith("E:")}   # 5 C: sulfide oxidation
+    assert max(cold, key=cold.get) == "h2s_ox"
+    assert all(v is None or v < -300 for v in e["dG:h2s_ox"][1:])            # far from equilibrium
+    es = e["Es:h2s_ox"][-1] / e["E:h2s_ox"][-1]
+    assert es == pytest.approx(116, rel=1e-3)                                # per kg of vent fluid
