@@ -86,8 +86,12 @@ def test_card_and_chat():
     assert not problems and sc.transport and sc.shifts == 90 and sc.mixing_fraction == pytest.approx(1.5)
     assert sc.cell_points()[0] == (sc.t_start_c, 500.0) and sc.cell_points()[-1] == (sc.t_end_c, 500.0)
     assert "flowing through a 2 m column of 30 cells" in sc.describe()
-    sc2, _ = sc.changed({"kinetics": True, "reactants": "1 g calcite"})
+    sc2, _ = sc.changed({"isotopes": True})
     assert any("not available in a column" in p for p in sc2.problems())
+    sc2, _ = sc.changed({"kinetics": True, "reactants": "1 g calcite", "cells": 10, "pore_volumes": 2})
+    assert not sc2.problems() and "reacting at measured rates over 1 years" in sc2.describe()
+    sc2, _ = sc2.changed({"cells": 50, "pore_volumes": 20})      # a kinetic step costs several solves
+    assert any("equilibrium calculations" in p for p in sc2.problems())
     sc3, _ = sc.changed({"cells": 100, "pore_volumes": 100})
     assert any("equilibrium calculations" in p for p in sc3.problems())
     got = interpret_rules("run rainwater through a 50 cm column filled with seawater, 10 cells, 2.5 pore volumes, "
@@ -113,3 +117,70 @@ def test_views_keep_one_set_of_axes():
     assert view["modes"] == ["profile", "start"] and view["x"] == "distance"
     view = sanitize({"modes": ["profile"], "x": "temperature_c", "items": []}, result)
     assert view["x"] == "temperature_c"
+
+
+def _calcite_column(engine, cells, dt, dispersion=0.0):
+    from reaction.kinetics import rate_law
+    from reaction.path import mineral_reactant
+    sc = Scenario(fluid="rainwater", reactants=[{"name": "calcite", "amount": 1.0, "unit": "g"}])
+    sp0, _, _, _, system, bulk0 = engine._prepare(sc, lambda f, m: None)
+    moles = 1.0 / engine.db.molecular_weight("calcite")
+    calcite = mineral_reactant(system, "calcite", moles, rate_law=rate_law("calcite"), area=0.01)   # 100 cm2/g
+    column = Column(system, [(25.0, 1.0)] * cells, bulk0, dict(bulk0), dispersion=dispersion, guess=sp0,
+                    kinetic=[calcite], dt=dt)
+    return sc, column, calcite, bulk0, sp0
+
+
+def test_kinetic_column_first_cell_is_a_batch_reaction(engine):
+    """With no dispersion the first cell's first shift is fresh rain on the calcite for one shift's time: a
+    kinetic reaction path of that length must give the same calcite dissolved."""
+    from reaction.path import ReactionPath
+    dt = 1800.0
+    sc, column, calcite, bulk0, sp0 = _calcite_column(engine, 3, dt)
+    res = column.run(1)
+    assert not res.failures
+    path = ReactionPath(column.system, bulk0, reactants=[calcite], temperature=25.0, pressure=1.0,
+                        suppress_minerals=["calcite"])
+    batch = path.run([0.0, dt])[-1]
+    left, rates = res.profile_kinetic[0]
+    assert calcite.amount - left["calcite"] == pytest.approx(batch.reacted["calcite"], rel=0.02)
+    assert rates["calcite"] > 0
+    # calcite never joins the equilibrium assemblage, though it is the mineral the fluid is near
+    assert all("calcite" not in st.minerals and "aragonite" not in st.minerals for st in res.profile)
+
+
+def test_kinetic_column_conserves_calcium(engine):
+    dt = 3600.0
+    sc, column, calcite, bulk0, sp0 = _calcite_column(engine, 4, dt, dispersion=0.25)
+    res = column.run(8)
+    assert not res.failures and len(res.outlet_kinetic) == 9
+    left = [k[0]["calcite"] for k in res.profile_kinetic]
+    assert left[0] < left[1] < left[2] < left[3] < calcite.amount        # fresh water dissolves most at the inlet
+    dissolved = sum(calcite.amount - x for x in left)
+    in_column = sum(st.moles_in_solution("Ca+2") for st in res.profile) - 4 * bulk0["Ca+2"]
+    through = res.out["Ca+2"] + res.back["Ca+2"] - 8 * bulk0["Ca+2"]
+    assert in_column + through == pytest.approx(dissolved, rel=1e-6)
+    # the outlet's record follows its states: calcite left in the last cell, falling shift by shift
+    out_left = [k[0]["calcite"] for k in res.outlet_kinetic]
+    assert out_left[0] == calcite.amount and all(a >= b for a, b in zip(out_left, out_left[1:]))
+
+
+def test_foram_example_shortened(engine):
+    from reaction.app.scenario import example_card
+    sc, problems = example_card("forams").changed({"cells": 4, "pore_volumes": 2, "duration": 2})
+    assert not problems and not sc.problems()
+    r = json.loads(json.dumps(engine.run(sc)))
+    out, end = r["modes"]["outlet"], r["modes"]["profile"]
+    assert out["varies"] == ["pore_volumes", "time"] and out["axes"]["time"]["values"][-1] == 2
+    assert out["axes"]["time"]["unit"] == "hours"
+    left = end["kinetic"]["left:calcite"]
+    assert left[0] < left[-1] < 100                                    # most dissolved at the inlet
+    assert end["elements"]["Ca"][0] < end["elements"]["Ca"][-1]          # the water gains calcium as it goes
+    sat = end["saturation"]["calcite"]
+    assert sat[0] < sat[-1] < 0                                          # nearer saturation downstream, still under
+    assert end["minerals"]["calcite"][0] > 0.09                          # what is left shows as a mineral
+    assert r["catalog"]["kinetic"]["left:calcite"]["label"] == "Calcite left"
+    kin = next(n for n in r["notes"] if n.startswith("Kinetics:"))
+    assert "Palandri and Kharaka (2004)" in kin and "spends 1 hour in the column" in kin
+    assert not any("Kinetics is not used" in n for n in r["notes"])
+    assert "by the end the calcite has lost" in " ".join(story(r))

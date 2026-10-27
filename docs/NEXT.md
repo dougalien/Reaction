@@ -171,8 +171,8 @@ re-equilibrated after every mix (doing all the mixing in one go before reacting 
 tracks what leaves at each end (`out`, `back`), and a tracer balances exactly. Checked against PHREEQC 3.7.3
 TRANSPORT (example 11 chemistry, 20 and 40 cells): Na, K, Ca, Br, Cl at the outlet within 0.006 mmol/kg at every
 shift. Reactants go into every cell (per kg of pore water) and are brought to equilibrium with the pore fluid
-before the flow (basalt glass is replaced by what it alters to); no kinetics, evaporation, mixing, phase
-following, isotopes or uncertainty bands in a column yet (the card says so). Results: three "modes" with axes of
+before the flow (basalt glass is replaced by what it alters to); no evaporation, mixing, phase following,
+isotopes or uncertainty bands in a column yet (the card says so); kinetics came later (P7f, below). Results: three "modes" with axes of
 their own, `outlet` (against pore volumes), `start` and `profile` (the column at the start and at the end,
 against distance and temperature); the results window overlays only modes on the same axes. Chat: "seawater
 through a 2 m column of 100 g basalt glass", "30 cells", "3 pore volumes", "dispersivity 5 cm", "a column
@@ -276,8 +276,8 @@ and the critical point of seawater comes out at 408.2 C and 301 bar (measured 40
 seawater at 300 bar splits from 408 C, not 405 C; following the vapour near the critical point still often fails
 to solve (B-dot at low density), as before. The phase-separation tests moved to 400 C/305 bar to 410 C/300 bar.
 
-Next: kinetics in the column (a velocity gives each shift a time); salt effect on liquid-vapour and mineral
-D/H; Lewis and Lowell (2009) two-phase flow benchmarks once the column can follow phases.
+Next: salt effect on liquid-vapour and mineral D/H; Lewis and Lowell (2009) two-phase flow benchmarks once the
+column can follow phases. (Kinetics in the column: done, P7f below.)
 
 Examples (Douglas's request, 2026-10-27): a second row of buttons on the card, "Examples, load and run"
 (`scenario.EXAMPLES`, `/api/example`, `Session.load_example`). One press fills the card and runs it; a note under
@@ -404,3 +404,24 @@ set of fields stored with every result; no fixed-pressure databases; ask before 
 `equilibrium.py` (closed-system solver), `path.py`, `validation/` (EQ3NR and EQ6 harnesses), `app/` (scenario,
 engine, assistant, view, narrate, session, server, `static/` pages). Tests are in `tests/`; the pressure checks are
 `tests/test_pressure.py`.
+
+P7f kinetics in the column (Douglas's request, 2026-10-27: forams dissolving in a column of seawater). The card's
+kinetics fields now work in a column: `duration` is how long the flow lasts (the pore volumes pass in that time),
+so each shift is `duration / shifts`. Reactants with a rate law are not put into the fill: each cell keeps its own
+amount of each (`Column.left`) and after every shift reacts for the shift's time through a one-cell
+`ReactionPath` (the static run's implicit steps with error control; `run` takes `guess` and `step_hint` for
+this), the rest of the cell at equilibrium; reactants without a rate are brought to equilibrium in the fill as
+before. A kinetic mineral and its other structural states never precipitate at equilibrium; it grows on what is
+left of it when supersaturated (operator splitting as PHREEQC's TRANSPORT with KINETICS). Results: the Rates tab
+works on all three column views (rate and % left per cell, and the kinetic mineral counts in the Minerals tab);
+the outlet also gets a Time axis; a note gives the residence time, velocity and time per shift. Checked: with no
+dispersion the first cell's first shift equals a batch kinetic run of that length (within 2%); calcium balances
+exactly (dissolved = in the column + through the ends). Judgment calls: `kinetic_tol` 0.05 in the column (0.03
+in a static run): about 1-2% low on what dissolves at the inlet of the foram example against 0.03, at about half
+the time; the column budget counts a kinetic cell-shift as 15 solves. Chat: "forams", "foraminifera", "foram
+calcite", "coccoliths", "chalk" are calcite. New example "Forams dissolving in deep water": bottom water (seawater
+with 2.3 mmol/kg carbonate, pH 7.75 at 25 C) at 2 C and 400 bar through 1 m of foram ooze (10 g calcite per kg
+of pore water), 10 pore volumes in 10 hours. The model's bottom water is further from calcite saturation (SI
+about -0.4) than measured (Omega about 0.7-0.9) and the Palandri-Kharaka law is linear in (1 - Omega), so it is
+an upper bound on dissolution; a seawater-specific calcite law (Subhas et al. 2015, (1 - Omega)^n) is the next
+refinement.

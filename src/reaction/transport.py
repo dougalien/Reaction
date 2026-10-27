@@ -11,6 +11,13 @@ its own temperature and pressure, so a column can sit on a thermal gradient.
 
 The upstream boundary holds the inflow's composition (a constant-concentration inlet) and the
 downstream boundary has no gradient (what reaches the last cell leaves).
+
+Minerals with a rate law (``kinetic`` reactants, see kinetics.py) are not at equilibrium: each cell keeps
+its own amount of each, and after every shift the cell reacts for the shift's time ``dt`` as a kinetic
+reaction path does (path.py: implicit steps with an error test), the rest of the cell staying at
+equilibrium.  A kinetic mineral dissolves while the fluid is undersaturated in it and grows on what is left
+of it while the fluid is supersaturated; it never precipitates at equilibrium, nor do its other structural
+states.  This is the operator splitting of PHREEQC's TRANSPORT with KINETICS.
 """
 from __future__ import annotations
 
@@ -19,6 +26,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Sequence
 
 from .equilibrium import EquilibriumError, EquilibriumState, System, equilibrate
+from .path import Reactant, ReactionPath
 from .speciation import SpeciationError
 
 
@@ -31,6 +39,10 @@ class TransportResult:
     failures: list[tuple[int, int, str]] = field(default_factory=list)                    # (shift, cell, why)
     out: dict[str, float] = field(default_factory=dict)       # moles of each component that left at the outlet
     back: dict[str, float] = field(default_factory=dict)      # and that left upstream by dispersion (< 0: came in)
+    # kinetic reactants: (moles left, rate in units per second) by name, alongside outlet, profile, snapshots
+    outlet_kinetic: list[tuple[dict, dict]] = field(default_factory=list)
+    profile_kinetic: list[tuple[dict, dict]] = field(default_factory=list)
+    snapshot_kinetic: dict[int, list[tuple[dict, dict]]] = field(default_factory=dict)
 
 
 def mixing_steps(fraction: float) -> tuple[int, float]:
@@ -46,13 +58,15 @@ class Column:
     cell's starting bulk composition (one dict for all, or one per cell), with any minerals and sorbed
     load already in it; ``inflow`` the moles of each component in the solution that enters per shift
     (its water included).  ``minerals`` starts every cell's assemblage; ``eligible`` limits the minerals
-    that may form (default: all that ``suppress`` does not name)."""
+    that may form (default: all that ``suppress`` does not name).  ``kinetic`` reactants (with a rate law)
+    sit in every cell in their ``amount`` (not part of ``fill``) and react for ``dt`` seconds per shift, with
+    ``kinetic_tol`` the error allowed in each step (see ReactionPath; about 1% of what dissolves at 0.05)."""
 
     def __init__(self, system: System, cells: Sequence[tuple[float, float]],
                  fill: dict[str, float] | Sequence[dict[str, float]], inflow: dict[str, float], *,
                  dispersion: float = 0.0, minerals: Sequence[str] = (),
                  amounts: dict[str, float] | None = None, suppress: Sequence[str] = (),
-                 guess=None):
+                 guess=None, kinetic: Sequence[Reactant] = (), dt: float = 0.0, kinetic_tol: float = 0.05):
         self.system = system
         self.cells = [(float(t), float(p)) for t, p in cells]
         n = len(self.cells)
@@ -68,6 +82,16 @@ class Column:
         self.amounts = dict(amounts or {})
         self.suppress = {s.lower() for s in suppress}
         self.guess = guess
+        self.kinetic = [r for r in kinetic if r.kinetic]
+        if self.kinetic and not dt > 0:
+            raise ValueError("kinetic reactants need the time of a shift")
+        self.dt = float(dt)
+        self.kinetic_tol = kinetic_tol
+        self.left = [{r.name: r.amount for r in self.kinetic} for _ in range(n)]
+        self.rates = [{r.name: 0.0 for r in self.kinetic} for _ in range(n)]
+        self._hints: list[float | None] = [self.dt] * n      # try the whole shift in one step first
+        # a kinetic mineral and its other structural states (quartz,beta; albite,low) never form at equilibrium
+        self._stems = {r.mineral.split(",")[0].lower() for r in self.kinetic if r.mineral}
         self.states: list[EquilibriumState | None] = [None] * n
         self.out: dict[str, float] = {}
         self.back: dict[str, float] = {}
@@ -76,7 +100,8 @@ class Column:
     def _eligible(self, t_c: float, p_bar: float) -> list[str]:
         model = self.system.model(t_c, p_bar)
         return [nm for nm, k in zip(model.ph_names, model.ph_kind)
-                if k.value == "mineral" and nm.lower() not in self.suppress]
+                if k.value == "mineral" and nm.lower() not in self.suppress
+                and nm.split(",")[0].lower() not in self._stems]
 
     def _solve(self, i: int, guess) -> EquilibriumState:
         t_c, p_bar = self.cells[i]
@@ -128,15 +153,58 @@ class Column:
         self._set(mixed, stay)
 
     def _react(self, s: int, failures: list) -> None:
+        # a cell that will not solve keeps its last state; its matter is still counted in its bulk
         for i in range(len(self.cells)):
+            self._react_one(s, i, failures)
+
+    def _react_kinetic(self, s: int, failures: list) -> None:
+        """Every cell reacts for one shift's time: its kinetic minerals at their rates, the rest at
+        equilibrium.  A cell whose kinetic step will not solve is brought to equilibrium without it."""
+        for i, (t_c, p_bar) in enumerate(self.cells):
+            reactants = []
+            for r in self.kinetic:
+                left = self.left[i][r.name]
+                if left > 1e-12 * r.amount:
+                    reactants.append(Reactant(r.name, r.composition, left, mineral=r.mineral,
+                                              rate_law=r.rate_law, area=r.surface(r.amount - left)))
+            if not reactants:
+                self.rates[i] = {r.name: 0.0 for r in self.kinetic}
+                self._react_one(s, i, failures)
+                continue
+            model = self.system.model(t_c, p_bar)
+            path = ReactionPath(self.system, self.bulk[i], reactants=reactants, temperature=t_c, pressure=p_bar,
+                                suppress_minerals=[nm for nm in model.ph_names if nm.lower() in self.suppress
+                                                   or nm.split(",")[0].lower() in self._stems],
+                                kinetic_tol=self.kinetic_tol)
             prev = self.states[i]
             try:
-                self.states[i] = self._solve(i, prev if prev is not None else self.guess)
+                point = path.run([0.0, self.dt], guess=prev if prev is not None else self.guess,
+                                 step_hint=self._hints[i])[-1]
             except (EquilibriumError, SpeciationError) as exc:
-                # keep the cell's last state; its matter is still counted in its bulk
-                failures.append((s, i, str(exc)))
-                if prev is None:
-                    raise
+                failures.append((s, i, f"kinetic step: {exc}"))
+                self._hints[i] = self.dt
+                self._react_one(s, i, failures)
+                continue
+            for r in reactants:
+                done = point.reacted.get(r.name, 0.0)
+                self.left[i][r.name] = max(self.left[i][r.name] - done, 0.0)
+                for comp, c in r.composition.items():
+                    self.bulk[i][comp] = self.bulk[i].get(comp, 0.0) + c * done
+            self.rates[i] = {r.name: point.rates.get(r.name, 0.0) for r in self.kinetic}
+            self.states[i] = point.state
+            self._hints[i] = path.step_hint
+
+    def _react_one(self, s: int, i: int, failures: list) -> None:
+        prev = self.states[i]
+        try:
+            self.states[i] = self._solve(i, prev if prev is not None else self.guess)
+        except (EquilibriumError, SpeciationError) as exc:
+            failures.append((s, i, str(exc)))
+            if prev is None:
+                raise
+
+    def _kinetic_now(self) -> list[tuple[dict, dict]]:
+        return [(dict(left), dict(rates)) for left, rates in zip(self.left, self.rates)]
 
     # ------------------------------------------------------------------------------------------
     def run(self, shifts: int, *, snapshots: Sequence[int] = (),
@@ -146,22 +214,30 @@ class Column:
         for i in range(n):
             self.states[i] = self._solve(i, self.states[i - 1] if i else self.guess)
         outlet = [self.states[-1]]
+        out_kin = [self._kinetic_now()[-1]]
         pv = [0.0]
         snaps = {0: list(self.states)} if 0 in snapshots else {}
+        snap_kin = {0: self._kinetic_now()} if 0 in snapshots else {}
         k_mix, f_mix = mixing_steps(self.dispersion)
         for s in range(1, shifts + 1):
             for _ in range(k_mix // 2):                         # half the dispersion before the shift
                 self._mix(f_mix)
                 self._react(s, failures)
             self._shift()
-            self._react(s, failures)
+            if self.kinetic:
+                self._react_kinetic(s, failures)
+            else:
+                self._react(s, failures)
             for _ in range(k_mix - k_mix // 2):                 # and half after it
                 self._mix(f_mix)
                 self._react(s, failures)
             if progress:
                 progress(s, shifts)
             outlet.append(self.states[-1])
+            out_kin.append(self._kinetic_now()[-1])
             pv.append(s / n)
             if s in snapshots:
                 snaps[s] = list(self.states)
-        return TransportResult(pv, outlet, list(self.states), snaps, failures, dict(self.out), dict(self.back))
+                snap_kin[s] = self._kinetic_now()
+        return TransportResult(pv, outlet, list(self.states), snaps, failures, dict(self.out), dict(self.back),
+                               out_kin, self._kinetic_now(), snap_kin)

@@ -157,6 +157,7 @@ class ReactionPath:
         # kinetic amounts reacted at the two ends of the current step; in between, a straight line
         self._span: tuple[float, dict, float, dict] = (0.0, {}, 0.0, {})
         self._dt_hint: float | None = None
+        self.step_hint: float | None = None       # the last kinetic step taken, after a run
 
     # ------------------------------------------------------------------------------------------
     def _solve(self, xi: float, guess: EquilibriumState | None) -> tuple[EquilibriumState, dict]:
@@ -431,7 +432,7 @@ class ReactionPath:
             mid = 0.5 * (xi0 + xi1)
             st_mid, _ = self._advance(xi0, st0, mid, depth + 1)
             return self._advance(mid, st_mid, xi1, depth + 1)
-        if self.flow_through and st0 is not None and depth <= 200:
+        if self.flow_through and xi0 is not None and st0 is not None and depth <= 200:
             # amounts below the solver's resolution (a mineral just removed and still listed) are noise
             floor = 1e-12 * max([abs(v) for k, v in st0.bulk.items() if k != WATER] + [1e-30])
             before, after = st0.solids, st1.solids
@@ -485,16 +486,20 @@ class ReactionPath:
 
     def run(self, xis: Sequence[float], *,
             on_failure: Callable[[float, Exception], None] | None = None,
-            progress: Callable[[int, int], None] | None = None) -> list[PathPoint | None]:
+            progress: Callable[[int, int], None] | None = None,
+            guess: EquilibriumState | None = None,
+            step_hint: float | None = None) -> list[PathPoint | None]:
         """Solve the system at each reaction-progress value (ascending).
 
         Without ``on_failure`` a point where no equilibrium is found raises.  With it, the failure
-        is reported there, that point is None and the path goes on from the last solved point."""
+        is reported there, that point is None and the path goes on from the last solved point.
+        ``guess`` warm-starts the first point; ``step_hint`` is the kinetic step to try first (a run
+        that goes on from where another stopped passes the last one's ``step_hint``)."""
         self._transferred, self._removed, self._stopped = set(), {}, {}
         self._removed_members, self._split_off = {}, {}
         n_kin = {r.name: 0.0 for r in self.kinetic}
         self._span = (0.0, n_kin, 0.0, n_kin)
-        self._dt_hint = None
+        self._dt_hint = step_hint
         self._halvings = 0
         points: list[PathPoint | None] = []
         xi_prev, state = None, None
@@ -506,7 +511,7 @@ class ReactionPath:
                 if self.kinetic and state is not None:
                     new, reacted, n_kin = self._kinetic_step(xi_prev, state, n_kin, xi)
                 else:
-                    new, reacted = self._advance(xi_prev, state, xi)
+                    new, reacted = self._advance(xi_prev, state if state is not None else guess, xi)
             except SpeciationError as exc:
                 if on_failure is None:
                     raise
@@ -539,4 +544,5 @@ class ReactionPath:
                                     dict(self._removed), self._kinetic_rates(state, n_kin)))
         if progress:
             progress(len(xis), len(xis))
+        self.step_hint = self._dt_hint
         return points

@@ -87,13 +87,25 @@ def _sig(x: float | None, digits: int = 6):
     return float(f"{x:.{digits}g}")
 
 
+def _duration_words(seconds: float) -> str:
+    """A time in the largest unit that keeps it above one: '3.2 hours', '45 days'."""
+    for unit, size in (("years", 3.15576e7), ("days", 86400.0), ("hours", 3600.0), ("minutes", 60.0)):
+        if seconds >= size:
+            n = float(f"{seconds / size:.3g}")
+            return f"{n:,g} {unit[:-1] if n == 1 else unit}"
+    return f"{float(f'{seconds:.3g}'):g} seconds"
+
+
 # common names of minerals that the database lists under another name
 MINERAL_ALIASES = {"serpentine": "chrysotile", "lizardite": "chrysotile", "orthoclase": "K-feldspar",
                    "microcline": "K-feldspar", "sanidine": "K-feldspar", "k-spar": "K-feldspar",
                    "kspar": "K-feldspar", "potassium feldspar": "K-feldspar", "alkali feldspar": "K-feldspar",
                    "chlorite": "clinochlore", "apatite": "hydroxyapatite", "sio2(am)": "amorphous silica",
                    "silica gel": "amorphous silica", "opal": "amorphous silica", "plagioclase an100": "anorthite",
-                   "plagioclase an0": "albite", "enstatite fs0": "enstatite"}
+                   "plagioclase an0": "albite", "enstatite fs0": "enstatite",
+                   # shells and tests of low-magnesium calcite
+                   "foram": "calcite", "forams": "calcite", "foraminifera": "calcite", "foram calcite": "calcite",
+                   "foraminiferal ooze": "calcite", "coccoliths": "calcite", "chalk": "calcite"}
 # group names that have no single formula: the endmembers to choose from
 GROUP_NAMES = {"plagioclase": "albite, anorthite", "pyroxene": "enstatite, ferrosilite, diopside, hedenbergite",
                "clinopyroxene": "diopside, hedenbergite", "orthopyroxene": "enstatite, ferrosilite",
@@ -291,9 +303,13 @@ class Engine:
         notes: list[str] = list(fluid_notes)
         cells = sc.cell_points()
         n = len(cells)
-        # the rock in each cell, per kg of pore water, brought to equilibrium with the pore fluid first
-        fill, amounts = dict(bulk0), {}
-        for r in self._reactants(system, sc, added, 2, notes):
+        # the rock in each cell, per kg of pore water, brought to equilibrium with the pore fluid first;
+        # minerals with a measured rate stay apart and react at it as the fluid flows
+        fill, amounts, kinetic = dict(bulk0), {}, []
+        for r in self._reactants(system, sc, added, 2, notes, column=True):
+            if r.kinetic:
+                kinetic.append(r)
+                continue
             for comp, c in r.composition.items():
                 fill[comp] = fill.get(comp, 0.0) + c * r.amount
             if r.mineral and db.species[r.mineral].kind == Kind.MINERAL:
@@ -302,19 +318,24 @@ class Engine:
         for b in system.basis:
             entering.setdefault(b, TRACE)
         blocked = {b.lower() for b in sc.blocked_minerals} | {b.lower() for b in ALWAYS_EXCLUDED}
-        column = Column(system, cells, fill, entering, dispersion=sc.mixing_fraction, minerals=list(amounts),
-                        amounts=amounts, suppress=blocked, guess=sp0)
-        progress(0.0, f"Filling {n} cells")
         shifts = sc.shifts
+        dt = sc.duration_s / shifts if kinetic else 0.0          # seconds per shift
+        column = Column(system, cells, fill, entering, dispersion=sc.mixing_fraction, minerals=list(amounts),
+                        amounts=amounts, suppress=blocked, guess=sp0, kinetic=kinetic, dt=dt)
+        progress(0.0, f"Filling {n} cells")
         res = column.run(shifts, snapshots=(0,), progress=lambda s, total: progress(s / total, f"Shift {s} of {total}"))
 
-        def rows(states, where):
-            return [None if st is None else self._record(db, PathPoint(0.0, t, p, st, {}))
-                    for st, (t, p) in zip(states, where)]
+        def rows(states, where, kin):
+            out = []
+            for st, (t, p), (left, rates) in zip(states, where, kin or [({}, {})] * len(states)):
+                reacted = {r.name: r.amount - left.get(r.name, r.amount) for r in kinetic}
+                out.append(None if st is None else self._record(db, PathPoint(0.0, t, p, st, reacted, rates=rates),
+                                                                  kinetic))
+            return out
         outlet_at = [cells[-1]] * len(res.outlet)
-        outlet = _pack(rows(res.outlet, outlet_at))
-        profile = _pack(rows(res.profile, cells))
-        start = _pack(rows(res.snapshots[0], cells))
+        outlet = _pack(rows(res.outlet, outlet_at, res.outlet_kinetic))
+        profile = _pack(rows(res.profile, cells, res.profile_kinetic))
+        start = _pack(rows(res.snapshots[0], cells, res.snapshot_kinetic.get(0)))
         for run in (outlet, profile, start):
             add_partition(run, sc)
         rel_cells = self.reliability(cells)
@@ -328,7 +349,12 @@ class Engine:
             vals = [pt[0] if key == "temperature_c" else pt[1] for pt in cells]
             if max(vals) - min(vals) > 1e-9:
                 prof_axes[key] = {"key": key, "label": label, "unit": unit, "values": [_sig(v) for v in vals]}
-        outlet.update(axes={"pore_volumes": pv_axis}, varies=["pore_volumes"],
+        out_axes = {"pore_volumes": pv_axis}
+        if kinetic:
+            per_pv = sc.duration / sc.pore_volumes                 # in the card's time unit
+            out_axes["time"] = {"key": "time", "label": "Time", "unit": sc.duration_unit,
+                                "values": [_sig(v * per_pv) for v in res.pore_volumes]}
+        outlet.update(axes=out_axes, varies=list(out_axes),
                       reliability={"levels": [rel_cells[-1].level] * len(res.outlet)})
         for run in (start, profile):
             run.update(axes=prof_axes, varies=list(prof_axes), reliability={"levels": [r.level for r in rel_cells]})
@@ -345,11 +371,32 @@ class Engine:
                      f"neighbouring cells by {sc.mixing_fraction:.3g} of the difference per shift"
                      + (f" (in {k_mix} mixes, half before and half after the shift)" if k_mix > 1 else "")
                      + ". Minerals, gas and sorbed matter stay in their cell; every cell returns to equilibrium "
-                     "at its own temperature and pressure after each move. Kinetics is not used: the column is "
-                     "at local equilibrium.")
-        if sc.reactants:
+                     "at its own temperature and pressure after each move"
+                     + (", except for the minerals that react at measured rates." if kinetic else
+                        ". Kinetics is not used: the column is at local equilibrium."))
+        if kinetic:
+            names = " and ".join(", ".join(pretty_mineral(r.mineral) if r.mineral else r.name
+                                           for r in kinetic).rsplit(", ", 1))
+            sources = "; ".join(dict.fromkeys(r.rate_law.source.split(",")[0] for r in kinetic))
+            residence = sc.duration_s / sc.pore_volumes
+            velocity = float(f"{sc.column_m / residence * 3.15576e7:.3g}")
+            notes.append(f"Kinetics: {names} react{'s' if len(kinetic) == 1 else ''} at measured rates in every cell "
+                         f"({sources}), dissolving while the pore fluid is undersaturated"
+                         + (" and growing on what is left while it is supersaturated" if any(r.mineral for r in kinetic)
+                            else "") +
+                         f". The flow lasts {sc.duration:g} {sc.duration_unit}, so the fluid spends "
+                         f"{_duration_words(residence)} in the column ({velocity:,g} m per year) and each cell reacts "
+                         f"for {_duration_words(dt)} per shift. The surface ({sc.surface_area_cm2_per_g:g} cm2 per g "
+                         f"at the start) shrinks as the grains dissolve.")
+        if sc.reactants and len(kinetic) < len(sc.reactants):
             notes.append("The reactants were put into every cell and brought to equilibrium with the pore fluid "
-                         "before the flow started (a rock such as basalt glass is replaced by what it alters to).")
+                         "before the flow started (a rock such as basalt glass is replaced by what it alters to)."
+                         if not kinetic else
+                         "The reactants without a measured rate were put into every cell and brought to equilibrium "
+                         "with the pore fluid before the flow started.")
+        elif kinetic:
+            notes.append("The reactants sit in every cell from the start, per kg of pore water; the pore fluid "
+                         "reaches them only at their rates.")
         if res.failures:
             first = res.failures[0]
             notes.append(f"No equilibrium was found {len(res.failures)} times (first in cell {first[1] + 1} at "
@@ -515,7 +562,7 @@ class Engine:
         return out
 
     def _reactants(self, system: System, sc: Scenario, names: dict[str, str], steps: int,
-                   notes: list[str] | None = None) -> list:
+                   notes: list[str] | None = None, column: bool = False) -> list:
         """Each reactant added at a steady rate, all of it by the last step (reaction progress counts
         the steps).  With kinetics, reaction progress is time in seconds: a mineral or glass with a
         measured rate reacts at that rate, anything else is added steadily over the run."""
@@ -549,7 +596,9 @@ class Engine:
             out.append(mineral_reactant(system, name, moles, rates=(moles / span, 0.0, 0.0),
                                         rate_law=law, area=area * moles * mw))
         if steady and notes is not None:
-            notes.append(f"No measured rate for {', '.join(steady)}: added steadily over the run instead.")
+            notes.append(f"No measured rate for {', '.join(steady)}: "
+                         + ("brought to equilibrium in every cell instead." if column
+                            else "added steadily over the run instead."))
         return out
 
     def _mixing_axes(self, sc: Scenario, steps: int) -> dict:
