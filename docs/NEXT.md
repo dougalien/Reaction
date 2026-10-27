@@ -421,7 +421,7 @@ in a static run): about 1-2% low on what dissolves at the inlet of a foram-ooze 
 the time; the column budget counts a kinetic cell-shift as 15 solves. Chat: "forams", "foraminifera", "foram
 calcite", "coccoliths", "chalk" are calcite.
 
-The foram example (Douglas, same day) became one foram sinking below the CCD, as a static kinetic path rather
+The foram example (Douglas, same day) became one foram sinking below the CCD, as a flow-through kinetic path rather
 than a column: the run follows the foram (20 µg of calcite in 1 kg of the water around it, so the water hardly
 changes), 4.5 to 5.5 km (455 to 556 bar) at 1.5 C in 5 days (about 200 m a day). It loses about a fifth of its
 mass; the example opens on calcite in µg/kg (new plot unit `ug`; `Example.unit`). Reactant amounts take µg ("20
