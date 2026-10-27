@@ -390,7 +390,8 @@ def _reactant_edit(text: str, low: str, card: Scenario, clay_talk: bool) -> tupl
         while (more := _MORE_REACTANT.match(rest)):
             found.append(more.groups())
             rest = rest[more.end():]
-    named = [(float(a) * {"mg": 1e-3, "kg": 1e3, "mmol": 1e-3}.get(u.lower(), 1.0),
+    named = [(float(a) * {"mg": 1e-3, "ug": 1e-6, "µg": 1e-6, "microgram": 1e-6, "micrograms": 1e-6, "kg": 1e3,
+                         "mmol": 1e-3}.get(u.lower(), 1.0),
               "mol" if u.lower().startswith(("mol", "mmol")) else "g", _tidy(n)) for a, u, n in found]
     named = [f for f in named if _usable(f[2], clay_talk)]
     # take off what the message says not to use, and find what it says to use instead
@@ -469,11 +470,11 @@ def _fluid_key(words: str) -> str | None:
 
 _COMP = r"(?:\s*\(*\s*[Ff][Oo]\s*\d+(?:\.\d+)?\s*\)*)?"     # an olivine's composition: "(Fo88)", "fo88"
 _MORE_REACTANT = re.compile(
-    r"\s*(?:,\s*(?:and\s+)?|\s+and\s+|\s*\+\s*)(\d*\.?\d+)\s*(g|grams?|mg|kg|mol|moles?|mmol)\s+(?:of\s+)?"
+    r"\s*(?:,\s*(?:and\s+)?|\s+and\s+|\s*\+\s*)(\d*\.?\d+)\s*(g|grams?|mg|ug|µg|micrograms?|kg|mol|moles?|mmol)\s+(?:of\s+)?"
     r"([A-Za-z][\w+\-]*(?:,(?:ordered|disordered|low|high|alpha|beta|maximum)|\s+glass|\s+gas)?" + _COMP + ")", re.I)
 _REACTANT = re.compile(
     r"\b(?:react(?:ing)?|add(?:ing)?|dissolv(?:e|ing)|titrat(?:e|ing)(?:\s+\w+)?\s+with|with|column\s+of)\s+"
-    r"(?:up\s+to\s+)?(\d*\.?\d+)\s*(g|grams?|mg|kg|mol|moles?|mmol)\s+(?:of\s+)?"
+    r"(?:up\s+to\s+)?(\d*\.?\d+)\s*(g|grams?|mg|ug|µg|micrograms?|kg|mol|moles?|mmol)\s+(?:of\s+)?"
     r"([A-Za-z][\w+\-]*(?:,(?:ordered|disordered|low|high|alpha|beta|maximum)|\s+glass|\s+gas)?" + _COMP + ")", re.I)
 
 

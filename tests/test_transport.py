@@ -165,10 +165,13 @@ def test_kinetic_column_conserves_calcium(engine):
     assert out_left[0] == calcite.amount and all(a >= b for a, b in zip(out_left, out_left[1:]))
 
 
-def test_foram_example_shortened(engine):
-    from reaction.app.scenario import example_card
-    sc, problems = example_card("forams").changed({"cells": 4, "pore_volumes": 2, "duration": 2})
-    assert not problems and not sc.problems()
+def test_kinetic_calcite_column_in_deep_water(engine):
+    sc = Scenario(kind="transport", fluid="custom", units="mg/kg", ph=7.75, charge_balance="none", redox="air",
+                  analysis="Na+ 10768\nK+ 399.1\nCa+2 412.3\nMg+2 1291.8\nCl- 19353\nSO4-2 2712\nHCO3- 2.3 mmolal",
+                  t_start_c=2.0, t_end_c=2.0, p_start_bar=400.0, p_end_bar=400.0, cells=4, column_m=1.0,
+                  dispersivity_m=0.02, pore_volumes=2.0, kinetics=True, duration=2.0, duration_unit="hours",
+                  reactants=[{"name": "forams", "amount": 10.0, "unit": "g"}])
+    assert not sc.problems()
     r = json.loads(json.dumps(engine.run(sc)))
     out, end = r["modes"]["outlet"], r["modes"]["profile"]
     assert out["varies"] == ["pore_volumes", "time"] and out["axes"]["time"]["values"][-1] == 2

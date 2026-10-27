@@ -33,8 +33,8 @@ function frame(res = result) {
   return { axes: r.axes || res.axes, varies: r.varies || res.varies || ["temperature_c"],
     rel: r.reliability || res.reliability };
 }
-const UNIT_SCALE = { mol: 1, mmol: 1e3, umol: 1e6, mg: 1e3 };
-const UNIT_TEXT = { mol: "mol", mmol: "mmol", umol: "µmol", mg: "mg" };
+const UNIT_SCALE = { mol: 1, mmol: 1e3, umol: 1e6, mg: 1e3, ug: 1e6 };
+const UNIT_TEXT = { mol: "mol", mmol: "mmol", umol: "µmol", mg: "mg", ug: "µg" };
 const TABS = [["species", "Species"], ["elements", "Elements"], ["minerals", "Mineral amounts"],
   ["gas", "Gas phase"], ["kinetic", "Rates"], ["composition", "Solid solutions"], ["phases", "Brine and vapour"], ["isotopes", "Isotopes"], ["sorbed", "Sorbed"], ["partition", "Partition coefficients"], ["saturation", "Saturation index"], ["property", "Properties"]];
 const PROPS = { pH: "pH", ionic_strength: "Ionic strength", water_kg: "Solvent mass", log_aw: "log water activity", log_fO2: "log fO2", Eh: "Eh (V)", surface_potential_mV: "Surface potential (mV)" };
@@ -89,7 +89,7 @@ function valuesOf(item, mode, view, res = result) {
   if (!arr) return null;
   if (item.group === "species" || item.group === "elements" || item.group === "minerals" || item.group === "gas" || item.group === "sorbed") {
     let k = UNIT_SCALE[view.unit];
-    if (view.unit === "mg") {
+    if (view.unit === "mg" || view.unit === "ug") {
       const mw = mwOf(res, item);
       if (!mw) return null;
       k *= mw;

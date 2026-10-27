@@ -628,6 +628,20 @@ def test_an_example_loads_its_card_and_runs(session):
     assert session.snapshot()["example"] is None
 
 
+def test_foram_example_opens_on_its_mass_in_micrograms(session, monkeypatch):
+    import dataclasses
+    from reaction.app import scenario
+    from reaction.app.scenario import reactant_text
+    assert scenario.EXAMPLES["forams"].plot == ("calcite",) and scenario.EXAMPLES["forams"].unit == "ug"
+    # the stub engine's result has anhydrite, not calcite: open on that instead
+    monkeypatch.setitem(scenario.EXAMPLES, "forams", dataclasses.replace(scenario.EXAMPLES["forams"], plot=("anhydrite",)))
+    assert session.load_example("forams")
+    assert reactant_text(session.card.reactants[0]) == "20 µg forams"
+    assert wait(lambda: session.run_state["state"] == "idle" and session.current)
+    assert session.view["unit"] == "ug" and session.view["items"] == [{"group": "minerals", "key": "anhydrite"}]
+    assert not session.view["log"]
+
+
 def test_example_endpoint(server):
     assert request(server, "POST", "/api/example", {"key": "lake"})[0] == 200
     assert server.session.card.isotopes and server.session.card.evaporate == 10.0

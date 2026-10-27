@@ -14,7 +14,7 @@ from . import analysis, carryover, diagrams
 from .engine import Engine, EngineUnavailable
 from .fluids import CUSTOM, CUSTOM_LABEL, PRESETS
 from .narrate import story
-from .scenario import EXAMPLES, STARTING_CARDS, Scenario, example_card, starting_card
+from .scenario import EXAMPLES, STARTING_CARDS, Scenario, example_card, reactant_text, starting_card
 from .view import apply_patch, default_view, resolve_item, sanitize
 
 KEEP_CHAT = 80
@@ -263,7 +263,7 @@ class Session:
             if key == "mix_with":
                 label = f"mixing with {card.mix_ratio:g} kg of {card.mix_with.replace('_', ' ')} per kg"
             elif key == "reactants":
-                label = ", ".join(f"{r['amount']:g} {r['unit']} {r['name']}" for r in card.reactants)
+                label = ", ".join(reactant_text(r) for r in card.reactants)
             out[key] = getattr(default, key)
             said.append(label)
         return out, ("Cleared from the last card: " + "; ".join(said) + ".") if said else ""
@@ -281,7 +281,7 @@ class Session:
             bad = self._reactant_problem(new)
             if bad:                                     # keep the old reactants rather than a name that fails
                 new.reactants = self.card.reactants
-                had = ", ".join(f"{r['amount']:g} {r['unit']} {r['name']}" for r in self.card.reactants) or "none"
+                had = ", ".join(reactant_text(r) for r in self.card.reactants) or "none"
                 blocked = blocked or f"I can't use that: {bad}. The reactants stay as they were ({had})."
                 rest = {k: v for k, v in got.scenario_changes.items() if k != "reactants"}
                 got.reply = ("Set " + ", ".join(change_bits(rest, self.card)) + ".") if change_bits(rest, self.card) else " "
@@ -587,7 +587,8 @@ class Session:
                 if ex is not None and ex.plot:          # an example opens on what it is there to show
                     items = [i for i in (resolve_item(t, result) for t in ex.plot) if i]
                     if items:
-                        self.view = sanitize({**self.view, "items": items, "log": ex.log}, result)
+                        self.view = sanitize({**self.view, "items": items, "log": ex.log,
+                                              "unit": ex.unit or self.view["unit"]}, result)
                 if self.pending_x in _varies(result, self.view):
                     self.view["x"] = self.pending_x
                 elif self.pending_x:
