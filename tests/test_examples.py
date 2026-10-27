@@ -40,6 +40,7 @@ def test_calcite_dissolves_ever_more_slowly(runs):
 
 
 def test_sinking_foram_loses_mass(runs):
+    assert example_card("forams").mode == "flow_through"
     run = runs["forams"]
     ug = [v * 100.0869e6 for v in run["minerals"]["calcite"]]                 # the foram's calcite, µg
     assert ug[0] == pytest.approx(20.0, rel=1e-3) and 14 < ug[-1] < 18

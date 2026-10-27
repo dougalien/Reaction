@@ -997,11 +997,14 @@ EXAMPLES: dict[str, Example] = {e.key: e for e in (
              "units": "mg/kg", "ph": 7.75, "fluid_t_c": 25.0, "charge_balance": "none", "redox": "air",
              "t_start_c": 1.5, "t_end_c": 1.5, "p_start_bar": 455.0, "p_end_bar": 556.0, "steps": 26,
              "kinetics": True, "duration": 5.0, "duration_unit": "days", "surface_area_cm2_per_g": 100.0,
-             "reactants": [{"name": "forams", "amount": 2e-5, "unit": "g"}]},
+             "mode": "flow_through", "reactants": [{"name": "forams", "amount": 2e-5, "unit": "g"}]},
             (("analysis", "The water: deep seawater with the extra CO2 of old bottom water (2.3 mmol/kg carbonate, "
                           "pH 7.75 measured at 25 C)."),
              ("p_start_bar", "Pressure 455 to 556 bar: the foram's depth, 4.5 to 5.5 km (about 10 m per bar), at "
                              "1.5 C."),
+             ("mode", "Flow-through: the foram falls through the water, so it keeps meeting new water and "
+                      "leaves behind whatever it gives off. (One foram barely changes 1 kg of water, so static "
+                      "gives the same numbers.)"),
              ("reactants", "Reactant: one foram, 20 µg of calcite, in 1 kg of the water around it."),
              ("kinetics", "How they react: At measured rates."),
              ("duration", "Run for 5 days: 1 km at about 200 m a day, a typical sinking speed for a test of a few "
