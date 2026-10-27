@@ -211,7 +211,7 @@ class ReactionPath:
         eligible = [n for n, k in zip(model.ph_names, model.ph_kind)
                     if k.value == "mineral" and n not in excluded and not self.no_precipitation
                     and n.split(",")[0] not in stems]
-        present = list(guess.minerals) if guess is not None else []
+        present = list(guess.minerals) if isinstance(guess, EquilibriumState) else []
         present += [n for n in self.initial_minerals if n not in present]
         converted = {r.mineral: r.amount for r in self.reactants
                      if r.mineral and r.name in self._transferred}
@@ -505,13 +505,13 @@ class ReactionPath:
     def run(self, xis: Sequence[float], *,
             on_failure: Callable[[float, Exception], None] | None = None,
             progress: Callable[[int, int], None] | None = None,
-            guess: EquilibriumState | None = None,
+            guess: EquilibriumState | Speciation | None = None,
             step_hint: float | None = None) -> list[PathPoint | None]:
         """Solve the system at each reaction-progress value (ascending).
 
         Without ``on_failure`` a point where no equilibrium is found raises.  With it, the failure
         is reported there, that point is None and the path goes on from the last solved point.
-        ``guess`` warm-starts the first point; ``step_hint`` is the kinetic step to try first (a run
+        ``guess`` warm-starts the first point (a solved state, or the starting fluid's speciation); ``step_hint`` is the kinetic step to try first (a run
         that goes on from where another stopped passes the last one's ``step_hint``)."""
         self._transferred, self._removed, self._stopped = set(), {}, {}
         self._removed_members, self._split_off = {}, {}
@@ -528,8 +528,13 @@ class ReactionPath:
             try:
                 if self.kinetic and state is not None:
                     new, reacted, n_kin = self._kinetic_step(xi_prev, state, n_kin, xi)
+                elif state is None and guess is not None:
+                    try:
+                        new, reacted = self._advance(xi_prev, guess, xi)
+                    except SpeciationError:        # the guess led astray: start cold instead
+                        new, reacted = self._advance(xi_prev, None, xi)
                 else:
-                    new, reacted = self._advance(xi_prev, state if state is not None else guess, xi)
+                    new, reacted = self._advance(xi_prev, state, xi)
             except SpeciationError as exc:
                 if on_failure is None:
                     raise

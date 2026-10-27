@@ -29,7 +29,7 @@ from ..database import load_data0
 from ..database.model import Kind
 from ..equilibrium import REDOX_APART, System, redox_intermediates
 from ..kinetics import basalt_glass, rate_law
-from ..network import PROTON, WATER
+from ..network import ORGANIC_LIGANDS, PROTON, WATER, organic_held_apart
 from ..path import PathPoint, ReactionPath, Reactant, _composition_row, bulk_over, mineral_reactant
 from ..phasesep import phase_state, salinity_from_chloride
 from ..solidsolution import table as solid_solution_table
@@ -192,7 +192,7 @@ class Engine:
         for k, mode in enumerate(modes):
             def tick(i, n, k=k):
                 progress(share * (k + i / n) / len(modes), f"{MODE_LABELS[modes[k]]}: {i} of {n} points")
-            runs[mode] = self._march(system, bulk0, points, sc, mode == "flow_through", tick, notes, mix)
+            runs[mode] = self._march(system, bulk0, points, sc, mode == "flow_through", tick, notes, mix, sp0)
         if sc.uncertainty_runs:
             notes.extend(self._uncertainty(sc, modes, runs, lambda f, m: progress(share + (1.0 - share) * f, m)))
 
@@ -456,7 +456,8 @@ class Engine:
         progress(0.0, f"Speciating {sc.fluid_spec().label.lower()}")
         # with redox held apart the species in between (thiosulfate, organic acids ...) are left out from the
         # start, so that every redox species is counted in its own column
-        inter = redox_intermediates(db, REDOX_APART) if sc.redox_apart else []
+        ligands = [e.species for e in sc.fluid_analysis().entries if e.species in ORGANIC_LIGANDS]
+        inter = redox_intermediates(db, list(REDOX_APART) + ligands) if sc.redox_apart else []
         sp0, fluid_notes = self.starting_fluid(sc, inter)
         inflow = None
         if sc.transport and sc.pore_fluid and sc.pore_fluid != sc.fluid:
@@ -504,7 +505,8 @@ class Engine:
         sorb = sorption_for(sc)
         system = System(db, [b for b in basis if b not in hold], activity_model=sc.activity_model,
                         gas_phase=sc.gas_phase, hold_apart=hold, solid_solutions=mixes,
-                        sorption=sorb if sorb.active else None, suppress=inter)
+                        sorption=sorb if sorb.active else None,
+                        suppress=list(inter) + organic_held_apart(db, hold))
         bulk0 = bulk_over(system, sp0) if sc.redox_apart else dict(sp0.component_totals)
         for b in basis:
             bulk0.setdefault(b, TRACE)                   # a trace, so the solution has a start
@@ -650,6 +652,8 @@ class Engine:
         if read.problems:
             raise ValueError("; ".join(read.problems))
         molal, _ = analysis.molalities(read.entries)
+        # organic carbon only as the organic acids the analysis gives, each held apart from carbonate
+        suppress = list(suppress) + organic_held_apart(db, [n for n in molal if n in ORGANIC_LIGANDS])
         kind, arg = sc.redox_setting()
         # every redox species counts toward the element total of its basis partner; H2 and O2 carry
         # only the redox state.  The couple (if any) first gives the oxygen fugacity on its own.
@@ -712,7 +716,8 @@ class Engine:
 
     # ---- the march along the path ---------------------------------------------------------------
     def _march(self, system: System, bulk0: dict, points: list[tuple[float, float]], sc: Scenario,
-               flow_through: bool, tick, notes: list[str], mix: Speciation | None = None) -> dict:
+               flow_through: bool, tick, notes: list[str], mix: Speciation | None = None,
+               sp0: Speciation | None = None) -> dict:
         """The library's reaction path, with reaction progress counting the steps of the card: the same
         closed-system and flow-through rules as every other path (see ``path.py``)."""
         db = self.db
@@ -746,7 +751,7 @@ class Engine:
             notes.append(f"No equilibrium found at {t:.0f} C and {p:.0f} bar ({exc}); that point is "
                          f"left blank.")
 
-        solved = path.run(xis, on_failure=failed, progress=tick)
+        solved = path.run(xis, on_failure=failed, progress=tick, guess=sp0)
         kinetic = [r for r in reactants if r.kinetic]
         run = _pack([None if pt is None else self._record(db, pt, kinetic, sc.energy) for pt in solved])
         add_partition(run, sc)
@@ -992,7 +997,7 @@ class Engine:
         key = json.dumps(sc.to_dict(), sort_keys=True)
         if self._prepared is None or self._prepared[0] != key:
             self._prepared = (key, self._prepare(sc, lambda f, m: None))
-        _, _, _, mix, system, bulk0 = self._prepared[1]
+        sp0, _, _, mix, system, bulk0 = self._prepared[1]
         db, net, points = self.db, system.net, sc.points()
         cache: dict[tuple, float] = {}
 
@@ -1016,7 +1021,7 @@ class Engine:
             for mode in modes:
                 try:
                     out[mode] = self._march(system, bulk0, points, sc, mode == "flow_through",
-                                            lambda i, total: None, [], mix)
+                                            lambda i, total: None, [], mix, sp0)
                 except Exception:                        # a draw the solver cannot follow: left out
                     out[mode] = None
         finally:

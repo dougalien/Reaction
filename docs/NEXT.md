@@ -317,9 +317,7 @@ Fe(II) oxidation by O2, Fe to hematite; methanogenesis; sulfate reduction by H2;
 Amend and others 2011); an Energy tab in the results and a story sentence. New preset `deep_seawater` (2 C, 0.11
 mmol/kg O2, 2.3 mmol/kg carbonate, pH 7.8; illustrative). Example "Vent fluid meets seawater": the vent preset plus
 0.08 mmol/kg CH4 at 350 C, 250 bar, mixed to 5 C (115 kg per kg), 70 steps, 2 s; sulfate reduction leads above about
-285 C, then Fe, H2 and, below about 90 C, sulfide oxidation (up to 43 J/kg). Found on the way: the vent fluid preset
-speciated at 25 C with its H2 puts most of its carbonate into organic-acid complexes (Na(Pent) ...), since OBIGT's
-metal-organic complexes are not held apart from carbonate in ordinary runs; worth a look. Judgment calls: dG held at
+285 C, then Fe, H2 and, below about 90 C, sulfide oxidation (up to 43 J/kg). Judgment calls: dG held at
 its starting value (upper bound, as in the papers); a reactant or product below 1e-10 mol/kg leaves dG blank;
 mixed-valence minerals such as magnetite are suppressed when redox is held apart.
 
@@ -448,3 +446,13 @@ ug forams"); amounts below a mg are shown in µg (`scenario.reactant_text`). The
 from calcite saturation (SI about -0.4) than measured (Omega about 0.7-0.9) and the Palandri-Kharaka law is linear
 in (1 - Omega), so it is an upper bound on dissolution; a seawater-specific calcite law (Subhas et al. 2015,
 (1 - Omega)^n) is the next refinement.
+
+Organic acids (2026-10-27): OBIGT's SLOP metal-organic complexes (Na(Pent), Ca(Prop)+ ...) were read without
+their free ligands and written over carbonate + O2, so any reduced fluid (the vent preset at 25 C) put most of its
+carbonate into them: metastable equilibrium that does not happen on real time scales. Now organic carbon enters
+only as the organic acids an analysis gives (acetate, formate, propanoate, butanoate, pentanoate, glycolate,
+lactate, oxalate, malonate, succinate; `network.ORGANIC_LIGANDS`, names and synonyms in `analysis.SOLUTES`).
+Each is its own component (decoupled), tied to its acid(s) and metal complexes by name (`tie_family`, or
+`via_ligand` in `Network` when O2 is not in the basis); every other organic species is suppressed
+(`organic_held_apart`). CH4 stays as before. Path runs warm-start their first point from the starting
+fluid's speciation (cold start as fallback), which the vent fluid at 25 C needs now.

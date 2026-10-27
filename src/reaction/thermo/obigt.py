@@ -30,7 +30,13 @@ BERMAN_FILES = ("Berman_cr.csv",)
 BERMAN_DIR = "Berman"          # parameter files, next to the OBIGT csv files
 # Of the organic files only methane is read: the gas phase needs it, the rest would slow every run
 ORGANIC_FILES = ("organic_aq.csv", "organic_gas.csv")
-ORGANIC_KEEP = {("CH4", "aq"), ("methane", "gas")}
+# from the organic files: methane, and the carboxylic acids whose metal complexes SLOP98 lists (Ac, For, Prop ...),
+# so that those complexes have their free ligand and acid beside them (network.ORGANIC_LIGANDS)
+ORGANIC_KEEP = {("CH4", "aq"), ("methane", "gas")} | {(n, "aq") for n in (
+    "formate", "formic acid", "acetate", "acetic acid", "propanoate", "propanoic acid", "n-butanoate",
+    "n-butanoic acid", "n-pentanoate", "n-pentanoic acid", "glycolate", "glycolic acid", "lactate", "lactic acid",
+    "oxalate-2", "H-oxalate", "oxalic acid", "malonate-2", "H-malonate", "malonic acid", "succinate-2",
+    "H-succinate", "succinic acid")}
 
 # Minerals of the older (Helgeson et al., 1978) dataset that the Berman dataset replaces under
 # another name; when Berman minerals are loaded these are dropped so the two cannot compete.
