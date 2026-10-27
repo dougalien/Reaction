@@ -24,6 +24,7 @@ from .fluids import CUSTOM, CUSTOM_LABEL, PRESETS, REDOX_CHOICES, FluidPreset, l
 MODES = ("static", "flow_through", "both")
 KINDS = ("path", "transport")
 MAX_COLUMN_SOLVES = 40000             # cells x shifts x (1 + dispersion mixes) in one column run
+KINETIC_STEP_SOLVES = 15              # equilibrium calculations in a cell's kinetic step, typically
 MODE_LABELS = {"static": "Static", "flow_through": "Flow-through", "both": "Both"}
 ACTIVITY_MODELS = ("bdot", "davies", "pitzer")
 FLUID_FIELDS = ("analysis", "units", "ph", "fluid_t_c", "fluid_p_bar", "charge_balance", "redox",
@@ -391,11 +392,12 @@ class Scenario:
             out.append(f"the column can start filled with a named fluid ({', '.join(PRESETS)}) or the same fluid")
         if 2 <= self.cells <= 100 and 0 < self.column_m and 0 < self.pore_volumes <= 100:
             mixes = math.ceil(3.0 * self.mixing_fraction - 1e-12) if self.mixing_fraction > 0 else 0
-            solves = self.cells * self.shifts * (1 + mixes)
+            # a cell's kinetic step takes about fifteen equilibrium calculations
+            solves = self.cells * self.shifts * ((KINETIC_STEP_SOLVES if self.kinetics else 1) + mixes)
             if solves > MAX_COLUMN_SOLVES:
                 out.append(f"this column needs {solves:,} equilibrium calculations, more than the "
                            f"{MAX_COLUMN_SOLVES:,} allowed: use fewer cells or pore volumes, or a smaller dispersivity")
-        for flag, what in ((self.kinetics, "kinetics"), (self.evaporating, "evaporation"),
+        for flag, what in ((self.evaporating, "evaporation"),
                            (self.mixing, "mixing in a second fluid"), (self.follow_phase != "whole", "following the brine or vapour"),
                            (self.isotopes, "isotopes"), (self.uncertainty_runs > 0, "uncertainty bands")):
             if flag:
@@ -507,6 +509,8 @@ class Scenario:
             bits.append("solid solutions")
         if bits:
             text += ", with " + "; ".join(bits)
+        if self.kinetics:
+            text += f", reacting at measured rates over {self.duration:g} {self.duration_unit}"
         return text + f" (dispersivity {self.dispersivity_m:g} m)"
 
     def _sorbent_bits(self) -> list[str]:
@@ -970,6 +974,33 @@ EXAMPLES: dict[str, Example] = {e.key: e for e in (
                                         "proportional to it."),
              ("reactants", "Reactant: 1 g calcite per kg of water.")),
             ("calcite left",), False),
+    Example("forams", "Forams dissolving in deep water", "Kinetics in a flow-through column",
+            "Deep Pacific bottom water (2 C, 400 bar: about 4 km down, below the calcite saturation depth) flows "
+            "through 1 m of foraminiferal ooze, and the forams' calcite dissolves at its measured rate (Palandri and "
+            "Kharaka 2004). The water enters undersaturated in calcite and gains calcium as it goes, so dissolution "
+            "is fastest at the inlet and slows downstream as the water nears saturation; the profile tab shows the "
+            "gradient. Ten pore volumes pass in 10 hours. The model puts this water further from saturation than "
+            "measurements do, and the linear rate law is fast near saturation, so the dissolution is an upper "
+            "bound. About a minute and a half.",
+            {"title": "Forams dissolving in deep bottom water", "kind": "transport", "fluid": "custom",
+             "analysis": "Na+ 10768\nK+ 399.1\nCa+2 412.3\nMg+2 1291.8\nCl- 19353\nSO4-2 2712\nHCO3- 2.3 mmolal",
+             "units": "mg/kg", "ph": 7.75, "fluid_t_c": 25.0, "charge_balance": "none", "redox": "air",
+             "t_start_c": 2.0, "t_end_c": 2.0, "p_start_bar": 400.0, "p_end_bar": 400.0,
+             "cells": 10, "column_m": 1.0, "dispersivity_m": 0.02, "pore_volumes": 10.0,
+             "kinetics": True, "duration": 10.0, "duration_unit": "hours", "surface_area_cm2_per_g": 100.0,
+             "reactants": [{"name": "calcite", "amount": 10.0, "unit": "g"}]},
+            (("kind", "Flow through a column: 10 cells over 1 m of sediment; 10 pore volumes of bottom water pass "
+                      "through."),
+             ("analysis", "Fluid flowing in: seawater with the extra CO2 of old deep water (2.3 mmol/kg carbonate, "
+                          "pH 7.75 measured at 25 C)."),
+             ("t_start_c", "Held at 2 C and 400 bar, the bottom of a 4 km water column."),
+             ("reactants", "Reactant: 10 g of foram calcite per kg of pore water in every cell."),
+             ("kinetics", "How they react: At measured rates. The calcite dissolves as fast as its rate law allows "
+                          "instead of reaching equilibrium at once."),
+             ("duration", "Run for 10 hours: the water spends an hour in the column."),
+             ("surface_area_cm2_per_g", "Surface area 100 cm2 per g, about that of grains of 0.1 mm, the size of "
+                                        "small forams.")),
+            ("calcite left", "Ca")),
 )}
 
 
@@ -1053,7 +1084,8 @@ FIELD_HELP = {
     "pore_volumes": "transport: how many pore volumes of the fluid flow through (default 2)",
     "pore_fluid": f"transport: the fluid the column starts filled with ({', '.join(PRESETS)}), or empty for the "
                   "same fluid as flows in",
-    "duration": "how long a kinetic run lasts (number, in duration_unit)",
+    "duration": "how long a kinetic run lasts (number, in duration_unit); in a column, how long the flow lasts "
+                "(the pore volumes pass in that time)",
     "duration_unit": "seconds, minutes, hours, days or years",
     "surface_area_cm2_per_g": "reactive surface of the reactants, cm2 per gram (default 100, about "
                               "0.1 mm grains)",

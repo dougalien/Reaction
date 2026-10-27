@@ -327,6 +327,35 @@ def _per_kg(mol: float) -> str:
     return "almost none" if mol < 1e-6 else f"{_amount(mol)}/kg"
 
 
+def _column_kinetic_clauses(result: dict, end: dict) -> list[str]:
+    """How much of each kinetic reactant has reacted at the inlet and the outlet by the end, and how near
+    saturation the pore water is there."""
+    out = []
+    names = result.get("catalog", {}).get("kinetic", {})
+    for key, line in end.get("kinetic", {}).items():
+        if not key.startswith("left:") or _first_valid(line) is None:
+            continue
+        name = key.split(":", 1)[1]
+        label = (names.get(key) or {}).get("label", name).removesuffix(" left")
+        label = label[0].lower() + label[1:] if label[1:2].islower() else label
+        a, b = 100.0 - line[_first_valid(line)], 100.0 - line[_last_valid(line)]
+
+        def how(x):
+            return ("lost", f"{x:.2g}%") if x > 0.005 else (("grown", f"{-x:.2g}%") if x < -0.005 else ("barely changed", ""))
+        (va, xa), (vb, xb) = how(a), how(b)
+        second = xb if vb == va and xb else f"{vb} {xb}".strip()
+        text = (f"At the measured rates, by the end the {label} has barely changed anywhere in the column"
+                if not xa and not xb else
+                f"At the measured rates, by the end the {label} has {va} {xa} at the inlet".replace("  ", " ")
+                + f" and {second} at the outlet")
+        si = end.get("saturation", {}).get(name)
+        if si and si[_first_valid(si)] is not None and si[_last_valid(si)] is not None:
+            text += (f"; its saturation index in the pore water goes from {si[_first_valid(si)]:.2f} at the inlet "
+                     f"to {si[_last_valid(si)]:.2f} at the outlet")
+        out.append(text + ".")
+    return out
+
+
 def _column_story(result: dict) -> list[str]:
     """A column run: what comes out at the outlet, and where the minerals sit along the column."""
     modes = result["modes"]
@@ -390,6 +419,7 @@ def _column_story(result: dict) -> list[str]:
                      + (" Gone since the start: " + "; ".join(gone) + "." if gone else ""))
     elif gone:
         paras.append("Gone from the column since the start: " + "; ".join(gone) + ".")
+    paras.extend(_column_kinetic_clauses(result, end))
     sorb = _sorption_clause(result, out)
     if sorb:
         paras.append("At the outlet, at the end: " + sorb[0].lower() + sorb[1:])

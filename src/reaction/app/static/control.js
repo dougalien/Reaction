@@ -41,7 +41,10 @@ function render(s) {
   $("fluid-label").textContent = col ? "Fluid flowing in" : "Fluid";
   $("mix-hint").style.display = col ? "none" : "";
   for (const k of ["cells", "pore_volumes", "column_m", "dispersivity_m"]) setIfIdle($("f-" + k), c[k]);
-  if (col) $("reactant-hint").textContent = "(in every cell, per kg of pore water, brought to equilibrium with the pore fluid before the flow)";
+  if (col) $("reactant-hint").textContent = c.kinetics
+    ? "(in every cell, per kg of pore water; minerals with a measured rate react at it as the fluid flows, the others are brought to equilibrium before the flow)"
+    : "(in every cell, per kg of pore water, brought to equilibrium with the pore fluid before the flow)";
+  $("duration-label").firstChild.textContent = col ? "Flow lasts" : "Run for";
 
   const reactants = $("reactants");
   reactants.replaceChildren(...c.reactants.map((r, i) => h("span", { class: "chip on static" },
