@@ -615,7 +615,7 @@ def test_reset_endpoint_takes_a_starting_card(server):
 def test_an_example_loads_its_card_and_runs(session):
     from reaction.app.scenario import EXAMPLES, Scenario as Card
     snap = session.snapshot()
-    assert [e["key"] for e in snap["examples"]] == list(EXAMPLES) and len(EXAMPLES) == 7
+    assert [e["key"] for e in snap["examples"]] == list(EXAMPLES) and len(EXAMPLES) == 8
     known = {f for f in Card().to_dict()}
     for e in EXAMPLES.values():                      # every field the note outlines is on the card
         assert {field for field, _ in e.setup} <= known, e.key
@@ -629,6 +629,6 @@ def test_an_example_loads_its_card_and_runs(session):
 
 
 def test_example_endpoint(server):
-    assert request(server, "POST", "/api/example", {"key": "isotopes"})[0] == 200
-    assert server.session.card.isotopes and server.session.card.evaporate == 20.0
+    assert request(server, "POST", "/api/example", {"key": "lake"})[0] == 200
+    assert server.session.card.isotopes and server.session.card.evaporate == 10.0
     assert request(server, "POST", "/api/example", {"key": "nonsense"})[0] == 400

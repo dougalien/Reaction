@@ -834,6 +834,15 @@ class Example:
     log: bool = True
 
 
+# minerals that a low-temperature example blocks: silica other than amorphous silica forms too slowly, and the
+# metamorphic minerals are stable in the database at 25 C but never form in soils
+SILICA_POLYMORPHS = ("quartz", "quartz,beta", "chalcedony", "tridymite,low", "tridymite,high", "cristobalite,alpha",
+                     "cristobalite,beta", "coesite")
+HIGH_T_MINERALS = ("lawsonite", "paragonite", "pumpellyite", "sudoite", "prehnite", "margarite", "zoisite",
+                   "clinozoisite", "epidote", "pyrophyllite", "muscovite", "clinochlore", "talc", "tremolite", "diaspore",
+                   "boehmite")
+
+
 EXAMPLES: dict[str, Example] = {e.key: e for e in (
     Example("solid_solutions", "Basalt alteration", "Solid solutions",
             "Seawater reacts with 1 kg of basalt glass at 350 C and 500 bar, as in the hot part of a mid-ocean "
@@ -848,6 +857,21 @@ EXAMPLES: dict[str, Example] = {e.key: e for e in (
                            "water/rock ratio of 1."),
              ("t_start_c", "Temperature and pressure held at 350 C and 500 bar (equal start and end).")),
             ("chlorite", "epidote-clinozoisite", "actinolite", "albite")),
+    Example("lake", "Evaporating lake", "Evaporation, brines and isotopes",
+            "Great Salt Lake brine evaporates at 25 C until a tenth of its water is left, with Pitzer activities for "
+            "the strong brine. Halite comes out first, then anhydrite, epsomite and sylvite, the order of a closing "
+            "salt lake; the water left grows heavier in 18O and D (d18O from 0 to about +13 permil), because the "
+            "vapour that leaves is light. See Mineral amounts and the Isotopes tab.",
+            {"title": "Evaporating salt lake", "fluid": "gsl_brine", "activity_model": "pitzer", "t_start_c": 25.0,
+             "t_end_c": 25.0, "p_start_bar": 1.0, "p_end_bar": 1.0, "steps": 30, "evaporate": 10.0,
+             "isotopes": True},
+            (("evaporate", "Evaporate to 10 times concentrated: water leaves as vapour, in steps even in the "
+                           "logarithm of the concentration."),
+             ("activity_model", "Activity model: Pitzer, needed for brines (B-dot is good to about 1 mol/kg)."),
+             ("isotopes", "Isotopes: On. The vapour carries the liquid-vapour fractionation of Horita and "
+                          "Wesolowski (1994), so the lake water grows heavier."),
+             ("fluid", "Fluid: Great Salt Lake brine (Drever 1997), already near halite saturation.")),
+            ("halite", "anhydrite", "epsomite", "sylvite")),
     Example("clays", "Contaminated stream", "Metals on clays",
             STARTING_CARDS["stream"].description + " The Sorbed and Partition coefficients tabs show what the clays "
             "hold.",
@@ -862,7 +886,28 @@ EXAMPLES: dict[str, Example] = {e.key: e for e in (
                             "coefficients."),
              ("pore_fluid", "The column is first filled with clean fresh water, so the fronts are visible.")),
             ("Cu", "Pb", "Zn", "Cd")),
-    Example("phase_separation", "Boiling seawater", "Phase separation",
+    Example("boiling", "Boiling", "Boiling and a gas phase",
+            "A CO2-bearing geothermal water at 150 C rises from 25 to 5 bar, as up a well or a hot-spring conduit. "
+            "Near 10 bar its dissolved CO2 and steam can no longer stay dissolved and it boils: a gas of CO2 and steam "
+            "forms and leaves (flow-through), the water loses about two thirds of its carbon, the pH rises from 6.0 "
+            "to 6.8, and calcite precipitates, the scale that clogs geothermal wells. See the Gas phase tab.",
+            {"title": "Boiling of a rising geothermal water", "fluid": "custom",
+             "analysis": "Na+ 1600\nK+ 100\nCa+2 30\nCl- 2000\nSO4-2 30\nSiO2 150\nHCO3- 4000",
+             "units": "mg/kg", "ph": 6.0, "fluid_t_c": 150.0, "fluid_p_bar": 25.0, "charge_balance": "auto",
+             "redox": "none", "t_start_c": 150.0, "t_end_c": 150.0, "p_start_bar": 25.0, "p_end_bar": 5.0,
+             "steps": 41, "mode": "flow_through", "gas_phase": True,
+             "blocked_minerals": DEFAULT_BLOCKED + list(SILICA_POLYMORPHS)},
+            (("p_end_bar", "Pressure falls from 25 to 5 bar at 150 C (water itself boils at 4.8 bar); the dissolved "
+                           "CO2 makes the water boil well before that."),
+             ("gas_phase", "Gas phase: Can form. CO2 and steam make the gas once their fugacities add up to the "
+                           "pressure."),
+             ("mode", "Flow-through: the gas (and the calcite) is left behind at each step, as the steam leaves a "
+                      "rising water."),
+             ("analysis", "Fluid: an illustrative sodium chloride geothermal water with 66 mmol/kg of carbonate, "
+                          "pH 6.0 at 150 C (a custom fluid: edit the analysis to try your own)."),
+             ("blocked_minerals", "Blocked: the silica minerals, which are too slow to form in a rising water.")),
+            ("CO2 gas", "water gas")),
+    Example("phase_separation", "Supercritical seawater", "Phase separation",
             "Seawater heated at 300 bar from 390 to 410 C, just past its critical point (408 C, 301 bar). There it "
             "splits into a brine and a vapour; the run follows the brine and lets the vapour leave, so the brine "
             "grows saltier (about 7 wt% NaCl at 410 C, with about two thirds of the fluid gone as vapour). The "
@@ -874,47 +919,25 @@ EXAMPLES: dict[str, Example] = {e.key: e for e in (
              ("t_end_c", "Temperature from 390 to 410 C at a fixed 300 bar crosses the two-phase boundary at "
                          "408 C.")),
             ("brine salinity", "vapour salinity"), False),
-    Example("kinetics", "Calcite dissolving", "Kinetics",
-            "One gram of calcite grains dissolves in rainwater at 25 C over twelve hours at its measured rate "
-            "(Palandri and Kharaka 2004). The rate is fast at first and falls to zero as the water approaches "
-            "saturation, so only about 1.4% of the calcite dissolves; pH rises from 5.6 to almost 10. The Rates "
-            "tab shows the rate and what is left.",
-            {"title": "Calcite dissolving at its measured rate", "fluid": "rainwater", "t_start_c": 25.0,
-             "t_end_c": 25.0, "p_start_bar": 1.0, "p_end_bar": 1.0, "steps": 24, "kinetics": True,
-             "duration": 12.0, "duration_unit": "hours", "surface_area_cm2_per_g": 100.0,
-             "reactants": [{"name": "calcite", "amount": 1.0, "unit": "g"}]},
-            (("kinetics", "How they react: At measured rates. The reactant is then what is there at the start, "
-                          "not an amount added steadily."),
-             ("duration", "Run for 12 hours: the x axis is time."),
-             ("surface_area_cm2_per_g", "Surface area 100 cm2 per g (grains of about 0.1 mm); the rate is "
-                                        "proportional to it."),
-             ("reactants", "Reactant: 1 g calcite per kg of water.")),
-            ("calcite left",), False),
-    Example("isotopes", "Evaporating rainwater", "Isotopes",
-            "Rainwater (d18O -8, dD -54 permil) evaporates at 25 C until it is twenty times more concentrated. "
-            "The vapour leaving is lighter than the water, so the water left grows heavier, close to Rayleigh "
-            "distillation: d18O ends near +20 and dD near +170 permil. See the Isotopes tab.",
-            {"title": "Isotopes of evaporating rainwater", "fluid": "rainwater", "t_start_c": 25.0, "t_end_c": 25.0,
-             "p_start_bar": 1.0, "p_end_bar": 1.0, "steps": 20, "evaporate": 20.0, "isotopes": True},
-            (("isotopes", "Isotopes: On. d18O, dD, d13C and d34S of the water and minerals, and 87Sr/86Sr, are "
-                          "followed along the run (starting values are the fluid's defaults)."),
-             ("evaporate", "Evaporate to 20 times concentrated: water leaves as vapour, with the liquid-vapour "
-                           "fractionation of Horita and Wesolowski (1994).")),
-            ("d18O water",), False),
-    Example("gas", "CO2 into an aquifer", "Gas phase",
-            "Three moles of CO2 are injected into a kilogram of formation brine with calcite at 60 C and 200 bar, "
-            "as in carbon storage. The brine dissolves part of it; from there on a CO2-rich gas phase forms and "
-            "grows, and the pH falls to about 4.5, buffered by calcite. The Gas phase tab shows the gas.",
-            {"title": "CO2 injected into an aquifer", "fluid": "formation_brine", "t_start_c": 60.0, "t_end_c": 60.0,
-             "p_start_bar": 200.0, "p_end_bar": 200.0, "steps": 20, "gas_phase": True,
-             "reactants": [{"name": "CO2(g)", "amount": 3.0, "unit": "mol"},
-                           {"name": "calcite", "amount": 20.0, "unit": "g"}]},
-            (("gas_phase", "Gas phase: Can form. A gas (Peng-Robinson fugacities) appears once the dissolved "
-                           "gases' fugacities add up to the pressure."),
-             ("reactants", "Reactants: 3 mol CO2 gas and 20 g calcite, added steadily."),
-             ("p_start_bar", "200 bar holds much of the CO2 in the brine; at lower pressure the gas forms "
-                             "sooner.")),
-            ("CO2 gas",), False),
+    Example("weathering", "Flow-through weathering", "Weathering in a flow-through column",
+            "Soil water (pH 5, with soil CO2) flows through 1 m of soil made of albite and a little calcite at 25 C. "
+            "The calcite dissolves first and its front moves down the column (it leaves the outlet after about 9 pore "
+            "volumes); albite near the inlet weathers to kaolinite. The outlet tab gives the breakthrough; the profile "
+            "shows the weathered top and the fresh bottom of the column. About a minute.",
+            {"title": "Flow-through weathering of a soil", "kind": "transport", "fluid": "custom",
+             "analysis": "Na+ 0.017\nK+ 0.0026\nCa+2 0.0115\nMg+2 0.0041\nCl- 0.02\nSO4-2 0.0156\nHCO3- 0.4",
+             "units": "mmolal", "ph": 5.0, "fluid_t_c": 25.0, "charge_balance": "auto", "redox": "air",
+             "pore_fluid": "rainwater", "t_start_c": 25.0, "t_end_c": 25.0, "p_start_bar": 1.0, "p_end_bar": 1.0,
+             "cells": 10, "column_m": 1.0, "dispersivity_m": 0.05, "pore_volumes": 12.0,
+             "reactants": [{"name": "albite", "amount": 5.0, "unit": "g"}, {"name": "calcite", "amount": 0.2, "unit": "g"}],
+             "blocked_minerals": DEFAULT_BLOCKED + list(SILICA_POLYMORPHS) + list(HIGH_T_MINERALS)},
+            (("kind", "Flow through a column: 10 cells over 1 m, 12 pore volumes of soil water pass through."),
+             ("reactants", "Reactants: 5 g albite and 0.2 g calcite per kg of pore water in every cell."),
+             ("analysis", "Fluid flowing in: rain that has picked up soil CO2 (0.4 mmol/kg of carbonate, pH 5)."),
+             ("pore_fluid", "Column first filled with rainwater."),
+             ("blocked_minerals", "Blocked: silica polymorphs and minerals of metamorphic rocks (lawsonite, "
+                                  "paragonite, ...) that cannot form in a soil.")),
+            ("Ca", "Na", "Si")),
     Example("serpentinization", "Serpentinization", "Mantle and solid solutions",
             "Seawater reacts with 1 kg of mantle olivine (Fo90) at 300 C and 300 bar. Olivine turns to serpentine, "
             "brucite and magnetite, and the iron that goes to magnetite makes hydrogen. With solid solutions on, "
@@ -931,6 +954,22 @@ EXAMPLES: dict[str, Example] = {e.key: e for e in (
                                   "form here (seafloor serpentinites are lizardite and chrysotile)."),
              ("t_start_c", "Held at 300 C and 300 bar.")),
             ("serpentine", "brucite", "magnetite")),
+    Example("kinetics", "Calcite dissolving", "Kinetics",
+            "One gram of calcite grains dissolves in rainwater at 25 C over twelve hours at its measured rate "
+            "(Palandri and Kharaka 2004). The rate is fast at first and falls to zero as the water approaches "
+            "saturation, so only about 1.4% of the calcite dissolves; pH rises from 5.6 to almost 10. The Rates "
+            "tab shows the rate and what is left.",
+            {"title": "Calcite dissolving at its measured rate", "fluid": "rainwater", "t_start_c": 25.0,
+             "t_end_c": 25.0, "p_start_bar": 1.0, "p_end_bar": 1.0, "steps": 24, "kinetics": True,
+             "duration": 12.0, "duration_unit": "hours", "surface_area_cm2_per_g": 100.0,
+             "reactants": [{"name": "calcite", "amount": 1.0, "unit": "g"}]},
+            (("kinetics", "How they react: At measured rates. The reactant is then what is there at the start, "
+                          "not an amount added steadily."),
+             ("duration", "Run for 12 hours: the x axis is time."),
+             ("surface_area_cm2_per_g", "Surface area 100 cm2 per g (grains of about 0.1 mm); the rate is "
+                                        "proportional to it."),
+             ("reactants", "Reactant: 1 g calcite per kg of water.")),
+            ("calcite left",), False),
 )}
 
 

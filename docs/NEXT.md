@@ -283,17 +283,25 @@ Examples (Douglas's request, 2026-10-27): a second row of buttons on the card, "
 (`scenario.EXAMPLES`, `/api/example`, `Session.load_example`). One press fills the card and runs it; a note under
 the buttons says what the example shows and lists the card fields that set it up (each line scrolls to its field),
 and those fields are outlined on the card until another card is loaded or the note is closed. The first run opens
-the results on the example's own plot (`Example.plot`, in words, read by `view.resolve_item`). The seven:
-basalt alteration with solid solutions (seawater + 1 kg basalt glass, 350 C, 500 bar); the contaminated stream
-(the starting card, metals on clays); boiling seawater (390 to 410 C at 300 bar, following the brine: 7 wt% NaCl
-at the end, the point at the critical point is blank); calcite dissolving in rainwater at its measured rate over
-12 hours; isotopes of rainwater evaporated 20x (d18O -8 to +20); CO2 into an aquifer (3 mol CO2 and 20 g calcite
-into formation brine at 60 C, 200 bar: a gas phase forms); serpentinization (seawater + 1 kg olivine Fo90, 300 C,
-300 bar, solid solutions on, antigorite blocked). For the last, a serpentine solid solution was added
-(chrysotile-greenalite, three sites, ideal, as McCollom and Bach 2009): it takes about 4% greenalite and lowers the
-H2 from 0.29 to 0.17 mol/kg. Judgment calls: subcritical boiling cannot be an example because paths below the
-water's boiling curve are refused, and the whole-fluid chemistry fails between 410 and 440 C at 300 bar, so the
-phase separation example stays within 2 C of the critical point; no Fe(OH)2 in OBIGT, so brucite stays pure.
+the results on the example's own plot (`Example.plot`, in words, read by `view.resolve_item`). Douglas's list
+(same day), in his order, plus two: basalt alteration with solid solutions (seawater + 1 kg basalt glass, 350 C,
+500 bar); evaporating lake (Great Salt Lake brine, Pitzer, 10x, isotopes on: halite, anhydrite, epsomite, sylvite;
+d18O 0 to +13); the contaminated stream (metals on clays); boiling (an illustrative CO2-bearing NaCl geothermal water
+at 150 C decompressed 25 to 5 bar, flow-through: CO2 and steam vent from about 10 bar, the water loses two thirds of
+its carbon, pH 6.0 to 6.8, calcite scales); supercritical seawater (390 to 410 C at 300 bar, following the brine: 7
+wt% NaCl at the end, the point at the critical point is blank); flow-through weathering (soil water at pH 5 through a
+1 m, 10-cell column of albite and a little calcite, 12 pore volumes, about a minute: the calcite front leaves after
+about 9 pore volumes, the top three cells weather to kaolinite); serpentinization (Douglas's addition: seawater + 1
+kg olivine Fo90, 300 C, 300 bar, solid solutions on, antigorite blocked); calcite dissolving in rainwater at its
+measured rate over 12 hours. For serpentinization a serpentine solid solution was added (chrysotile-greenalite,
+three sites, ideal, as McCollom and Bach 2009): it takes about 4% greenalite and lowers the H2 from 0.29 to 0.17
+mol/kg. Low-temperature examples block `SILICA_POLYMORPHS` and `HIGH_T_MINERALS` (lawsonite, paragonite, ...;
+the database makes them stable at 25 C). Judgment calls and limits found: boiling of a salt water below the
+water's own boiling curve is refused (no steam-saturated liquid), so "boiling" is gas-driven, by dissolved CO2;
+the aqueous solver fails at 250 C with more than about 3 g/kg of carbonate at pH 6 (a bug to look at), so the
+boiling example runs at 150 C; whole-fluid chemistry fails between 410 and 440 C at 300 bar; closed-system
+weathering of albite by plain rainwater goes to pH 9 to 10 at once, so the example uses soil water; no Fe(OH)2 in
+OBIGT, so brucite stays pure.
 `tests/test_examples.py` checks that each example shows what its note says.
 
 462 tests pass with the data folder present. The data folder needs `OBIGT/Berman/` (run
