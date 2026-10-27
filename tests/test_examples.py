@@ -1,5 +1,6 @@
 """The one-button examples on the real engine: each shows the feature it is there to show.  Needs the
-thermodynamic data; the column example (the contaminated stream) is run shortened in test_clays.py."""
+thermodynamic data.  The column examples take a minute each and are left out here (test_clays.py runs the
+stream shortened)."""
 import pytest
 
 from reaction.app import config
@@ -12,7 +13,7 @@ def runs():
     if not (config.external_dir() / "OBIGT" / "inorganic_aq.csv").exists():
         pytest.skip("thermodynamic data not found; set REACTION_DATA_DIR")
     engine = Engine()
-    return {k: engine.run(example_card(k))["modes"]["static"] for k, e in EXAMPLES.items()
+    return {k: next(iter(engine.run(example_card(k))["modes"].values())) for k, e in EXAMPLES.items()
             if e.changes.get("kind") != "transport"}
 
 
@@ -38,15 +39,20 @@ def test_calcite_dissolves_ever_more_slowly(runs):
     assert left[0] - left[5] > 10 * (left[-6] - left[-1])            # fast at first, then near saturation
 
 
-def test_evaporating_rainwater_grows_heavier(runs):
-    iso = runs["isotopes"]["isotopes"]
-    assert iso["d18O:water"][-1] > 15 and iso["dD:water"][-1] > 100
+def test_evaporating_lake_lays_down_salts_in_order(runs):
+    run = runs["lake"]
+    first = {m: next(i for i, x in enumerate(v) if x) for m, v in run["minerals"].items() if v and any(v)}
+    assert first["halite"] < first["anhydrite"] < first["epsomite"]
+    assert run["isotopes"]["d18O:water"][-1] > 10
 
 
-def test_co2_makes_a_gas_phase(runs):
-    run = runs["gas"]
-    assert run["gas"]["CO2(g)"][0] == 0 and run["gas"]["CO2(g)"][-1] > 1.5
-    assert "calcite" in _formed(run) and 4 < run["properties"]["pH"][-1] < 5
+def test_boiling_vents_co2_and_scales_calcite(runs):
+    run = runs["boiling"]
+    assert run["gas"]["CO2(g)"][0] == 0 and run["gas"]["CO2(g)"][-1] > 0.01
+    assert run["elements"]["C"][-1] < 0.5 * run["elements"]["C"][0]
+    assert run["properties"]["pH"][-1] > run["properties"]["pH"][0] + 0.5
+    calcite = run["minerals"]["calcite"]
+    assert calcite[-1] > 3 * calcite[0]
 
 
 def test_serpentinization_makes_iron_serpentine_and_hydrogen(runs):
