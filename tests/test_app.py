@@ -609,3 +609,26 @@ def test_reset_endpoint_takes_a_starting_card(server):
     assert request(server, "POST", "/api/reset", {"start": "nonsense"})[0] == 400
     assert request(server, "POST", "/api/reset", {})[0] == 200
     assert server.session.card.fluid == "seawater"
+
+
+# ---- examples ------------------------------------------------------------------------------------
+def test_an_example_loads_its_card_and_runs(session):
+    from reaction.app.scenario import EXAMPLES, Scenario as Card
+    snap = session.snapshot()
+    assert [e["key"] for e in snap["examples"]] == list(EXAMPLES) and len(EXAMPLES) == 7
+    known = {f for f in Card().to_dict()}
+    for e in EXAMPLES.values():                      # every field the note outlines is on the card
+        assert {field for field, _ in e.setup} <= known, e.key
+        assert not Card(**e.changes).problems(), e.key
+    assert session.load_example("serpentinization")
+    assert session.card.solid_solutions and session.card.reactants[0]["name"] == "olivine fo90"
+    assert session.snapshot()["example"] == "serpentinization"
+    assert wait(lambda: session.run_state["state"] == "idle" and session.current)
+    session.reset_card("brine")
+    assert session.snapshot()["example"] is None
+
+
+def test_example_endpoint(server):
+    assert request(server, "POST", "/api/example", {"key": "isotopes"})[0] == 200
+    assert server.session.card.isotopes and server.session.card.evaporate == 20.0
+    assert request(server, "POST", "/api/example", {"key": "nonsense"})[0] == 400

@@ -819,6 +819,129 @@ def starting_card(key: str) -> Scenario:
         raise KeyError(f"unknown starting card {key!r}; known cards: {', '.join(STARTING_CARDS)}") from None
 
 
+# One-button examples for teaching: each loads a card that shows one feature of the model and runs it.
+# ``setup`` names the card fields that set the feature up, with a sentence on each; the control window
+# outlines those fields and lists the sentences, so the student sees where the feature lives on the card.
+@dataclass(frozen=True)
+class Example:
+    key: str
+    label: str
+    feature: str
+    description: str
+    changes: dict
+    setup: tuple[tuple[str, str], ...]
+    plot: tuple[str, ...] = ()        # what the results window shows first, in words (view.resolve_item)
+    log: bool = True
+
+
+EXAMPLES: dict[str, Example] = {e.key: e for e in (
+    Example("solid_solutions", "Basalt alteration", "Solid solutions",
+            "Seawater reacts with 1 kg of basalt glass at 350 C and 500 bar, as in the hot part of a mid-ocean "
+            "ridge. With solid solutions on, chlorite, epidote and actinolite form as Fe-Mg (or Fe-Al) mixtures "
+            "instead of pure endmembers: the Solid solutions tab gives their mole fractions along the run.",
+            {"title": "Basalt alteration with solid solutions", "t_start_c": 350.0, "t_end_c": 350.0,
+             "p_start_bar": 500.0, "p_end_bar": 500.0, "steps": 11, "solid_solutions": True,
+             "reactants": [{"name": "basalt glass", "amount": 1000.0, "unit": "g"}]},
+            (("solid_solutions", "Solid solutions: Can form. This one switch lets the mixtures (plagioclase, "
+                                 "chlorite, epidote, olivine, serpentine ...) form in place of their endmembers."),
+             ("reactants", "Reactants: 1000 g basalt glass, added steadily, so the run goes from no rock to a "
+                           "water/rock ratio of 1."),
+             ("t_start_c", "Temperature and pressure held at 350 C and 500 bar (equal start and end).")),
+            ("chlorite", "epidote-clinozoisite", "actinolite", "albite")),
+    Example("clays", "Contaminated stream", "Metals on clays",
+            STARTING_CARDS["stream"].description + " The Sorbed and Partition coefficients tabs show what the clays "
+            "hold.",
+            {**STARTING_CARDS["stream"].changes, "title": "Metals on clays in a streambed"},
+            (("kind", "Flow through a column: the stream water enters a 10 m streambed of 10 cells, and 25 pore "
+                      "volumes pass through."),
+             ("kaolinite_g", "Clays: 100 g kaolinite, 40 g illite and 20 g montmorillonite per kg of water, each "
+                             "with exchange sites at its cation exchange capacity."),
+             ("clay_edges", "Clay edge sites: illite and montmorillonite also bind Pb, Cu, Zn, Cd and Ni on "
+                            "their crystal edges (surface complexation)."),
+             ("kd_solid_g", "Kd solid: 4 kg of bed sediment holds As, Cr, Hg and Ni by their measured partition "
+                            "coefficients."),
+             ("pore_fluid", "The column is first filled with clean fresh water, so the fronts are visible.")),
+            ("Cu", "Pb", "Zn", "Cd")),
+    Example("phase_separation", "Boiling seawater", "Phase separation",
+            "Seawater heated at 300 bar from 390 to 410 C, just past its critical point (408 C, 301 bar). There it "
+            "splits into a brine and a vapour; the run follows the brine and lets the vapour leave, so the brine "
+            "grows saltier (about 7 wt% NaCl at 410 C, with about two thirds of the fluid gone as vapour). The "
+            "point right at the critical point does not solve and is left blank. See the Brine and vapour tab.",
+            {"title": "Seawater boiling past its critical point", "t_start_c": 390.0, "t_end_c": 410.0,
+             "p_start_bar": 300.0, "p_end_bar": 300.0, "steps": 21, "follow_phase": "brine"},
+            (("follow_phase", "Follow: Brine. Where the fluid splits, the vapour is taken away after each step "
+                              "(water and salts by the NaCl-H2O phase diagram of Driesner and Heinrich 2007)."),
+             ("t_end_c", "Temperature from 390 to 410 C at a fixed 300 bar crosses the two-phase boundary at "
+                         "408 C.")),
+            ("brine salinity", "vapour salinity"), False),
+    Example("kinetics", "Calcite dissolving", "Kinetics",
+            "One gram of calcite grains dissolves in rainwater at 25 C over twelve hours at its measured rate "
+            "(Palandri and Kharaka 2004). The rate is fast at first and falls to zero as the water approaches "
+            "saturation, so only about 1.4% of the calcite dissolves; pH rises from 5.6 to almost 10. The Rates "
+            "tab shows the rate and what is left.",
+            {"title": "Calcite dissolving at its measured rate", "fluid": "rainwater", "t_start_c": 25.0,
+             "t_end_c": 25.0, "p_start_bar": 1.0, "p_end_bar": 1.0, "steps": 24, "kinetics": True,
+             "duration": 12.0, "duration_unit": "hours", "surface_area_cm2_per_g": 100.0,
+             "reactants": [{"name": "calcite", "amount": 1.0, "unit": "g"}]},
+            (("kinetics", "How they react: At measured rates. The reactant is then what is there at the start, "
+                          "not an amount added steadily."),
+             ("duration", "Run for 12 hours: the x axis is time."),
+             ("surface_area_cm2_per_g", "Surface area 100 cm2 per g (grains of about 0.1 mm); the rate is "
+                                        "proportional to it."),
+             ("reactants", "Reactant: 1 g calcite per kg of water.")),
+            ("calcite left",), False),
+    Example("isotopes", "Evaporating rainwater", "Isotopes",
+            "Rainwater (d18O -8, dD -54 permil) evaporates at 25 C until it is twenty times more concentrated. "
+            "The vapour leaving is lighter than the water, so the water left grows heavier, close to Rayleigh "
+            "distillation: d18O ends near +20 and dD near +170 permil. See the Isotopes tab.",
+            {"title": "Isotopes of evaporating rainwater", "fluid": "rainwater", "t_start_c": 25.0, "t_end_c": 25.0,
+             "p_start_bar": 1.0, "p_end_bar": 1.0, "steps": 20, "evaporate": 20.0, "isotopes": True},
+            (("isotopes", "Isotopes: On. d18O, dD, d13C and d34S of the water and minerals, and 87Sr/86Sr, are "
+                          "followed along the run (starting values are the fluid's defaults)."),
+             ("evaporate", "Evaporate to 20 times concentrated: water leaves as vapour, with the liquid-vapour "
+                           "fractionation of Horita and Wesolowski (1994).")),
+            ("d18O water",), False),
+    Example("gas", "CO2 into an aquifer", "Gas phase",
+            "Three moles of CO2 are injected into a kilogram of formation brine with calcite at 60 C and 200 bar, "
+            "as in carbon storage. The brine dissolves part of it; from there on a CO2-rich gas phase forms and "
+            "grows, and the pH falls to about 4.5, buffered by calcite. The Gas phase tab shows the gas.",
+            {"title": "CO2 injected into an aquifer", "fluid": "formation_brine", "t_start_c": 60.0, "t_end_c": 60.0,
+             "p_start_bar": 200.0, "p_end_bar": 200.0, "steps": 20, "gas_phase": True,
+             "reactants": [{"name": "CO2(g)", "amount": 3.0, "unit": "mol"},
+                           {"name": "calcite", "amount": 20.0, "unit": "g"}]},
+            (("gas_phase", "Gas phase: Can form. A gas (Peng-Robinson fugacities) appears once the dissolved "
+                           "gases' fugacities add up to the pressure."),
+             ("reactants", "Reactants: 3 mol CO2 gas and 20 g calcite, added steadily."),
+             ("p_start_bar", "200 bar holds much of the CO2 in the brine; at lower pressure the gas forms "
+                             "sooner.")),
+            ("CO2 gas",), False),
+    Example("serpentinization", "Serpentinization", "Mantle and solid solutions",
+            "Seawater reacts with 1 kg of mantle olivine (Fo90) at 300 C and 300 bar. Olivine turns to serpentine, "
+            "brucite and magnetite, and the iron that goes to magnetite makes hydrogen. With solid solutions on, "
+            "the serpentine takes about 4% of its iron sites as greenalite, which leaves less iron for magnetite and "
+            "lowers the H2 from about 0.29 to 0.17 mol/kg. Brucite stays pure: the database has no Fe(OH)2.",
+            {"title": "Serpentinization of mantle olivine", "t_start_c": 300.0, "t_end_c": 300.0,
+             "p_start_bar": 300.0, "p_end_bar": 300.0, "steps": 20, "solid_solutions": True,
+             "reactants": [{"name": "olivine fo90", "amount": 1000.0, "unit": "g"}],
+             "blocked_minerals": DEFAULT_BLOCKED + ["antigorite"]},
+            (("solid_solutions", "Solid solutions: Can form. Serpentine forms as a chrysotile-greenalite mixture "
+                                 "(Mg and Fe on its three octahedral sites)."),
+             ("reactants", "Reactant: 1000 g olivine Fo90 (90% forsterite), dissolving congruently."),
+             ("blocked_minerals", "Blocked: antigorite, the high-temperature serpentine, which is too slow to "
+                                  "form here (seafloor serpentinites are lizardite and chrysotile)."),
+             ("t_start_c", "Held at 300 C and 300 bar.")),
+            ("serpentine", "brucite", "magnetite")),
+)}
+
+
+def example_card(key: str) -> Scenario:
+    """The card of one of EXAMPLES."""
+    try:
+        return Scenario(**EXAMPLES[key].changes)
+    except KeyError:
+        raise KeyError(f"unknown example {key!r}; known examples: {', '.join(EXAMPLES)}") from None
+
+
 # What the language model is told about the card.
 FIELD_HELP = {
     "title": "short name for the run (text); leave out unless the user gives one",

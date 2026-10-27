@@ -6,6 +6,7 @@
   --ok: #1d7a4d; --ok-bg: #e5f4ec; --warn: #8a5a00; --warn-bg: #fdf1d6; --bad: #b3261e; --bad-bg: #fbe9e7;
   --grid: #ebe9e1; --axis: #8d8b82;
   --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #c98500; --s5: #d55181; --s6: #6250d6; --s7: #008300; --s8: #e34948;
+  --ex-bg: #f8eee0;
   --radius: 8px;
   --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
@@ -15,7 +16,7 @@
     --bg: #161615; --panel: #1f1f1d; --ink: #ecebe6; --muted: #cfcdc5; --faint: #b3b1a8;
     --line: #2e2e2b; --line-strong: #43423d; --accent: #8fb3c4; --accent-bg: #1e2b31;
     --ok: #5cc592; --ok-bg: #17291f; --warn: #e3b25a; --warn-bg: #2d2412; --bad: #f08a82; --bad-bg: #331a18;
-    --grid: #2a2a27; --axis: #77756d;
+    --grid: #2a2a27; --axis: #77756d; --ex-bg: #2e241b;
     --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #e0a020; --s5: #e87ba4; --s6: #9085e9; --s7: #3aa63a; --s8: #e66767;
   }
 }
@@ -68,6 +69,16 @@ input, select, textarea {
 .seg button { border: 0; border-radius: 0; border-right: 1px solid var(--line-strong); }
 .seg button:last-child { border-right: 0; }
 .starts { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 8px; }
+.starts.examples button { border-color: var(--rust); }
+.starts.examples button.on { background: var(--ex-bg); color: var(--rust); font-weight: 600; }
+.example-box { border: 1px solid var(--line); border-left: 4px solid var(--rust); background: var(--ex-bg);
+  border-radius: var(--radius); padding: 8px 12px 10px; margin-bottom: 10px; }
+.example-box p { margin: 4px 0 6px; }
+.example-box ul { margin: 4px 0 6px; padding-left: 20px; }
+.example-box li a { color: inherit; text-decoration: none; border-bottom: 1px dotted var(--rust); }
+.example-box li a:hover { color: var(--rust); }
+.ex-hl { outline: 2px solid var(--rust); outline-offset: 3px; border-radius: 4px; }
+.ex-flash { background: var(--ex-bg); transition: background 0.3s; }
 .seg button.on { background: var(--accent-bg); color: var(--accent); font-weight: 600; }
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; }

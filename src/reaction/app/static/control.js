@@ -5,6 +5,7 @@ let snap = null, waiting = false, chatCount = 0;
 
 let fluidKeys = "";
 let startKeys = "";
+let exampleKeys = "", exampleHidden = null;
 
 function pill(el, text, kind) { el.textContent = text; el.className = "pill " + (kind || ""); }
 
@@ -88,6 +89,7 @@ function render(s) {
   pill($("pill-engine"), e.ready === false ? "data missing" : e.ready ? "data loaded" : "data loads on first run",
     e.ready === false ? "bad" : e.ready ? "ok" : "");
   $("pill-engine").title = e.message;
+  renderExample(s);
 }
 
 function renderFluid(s) {
@@ -221,6 +223,53 @@ function renderStarts(s) {
     return b;
   }));
 }
+// Examples: one button loads a worked card and runs it.  The box under the buttons says what the example
+// shows and how the card sets it up, and the fields named there are outlined on the card.
+const EXAMPLE_TARGETS = { reactants: "reactants", blocked_minerals: "blocked", kind: "kindseg", mode: "modeseg" };
+
+function exampleTarget(field) {
+  const el = $(EXAMPLE_TARGETS[field] || "f-" + field);
+  return el && (el.closest("label.f") || el);
+}
+
+function renderExample(s) {
+  const list = s.examples || [], keys = list.map((x) => x.key).join();
+  if (keys !== exampleKeys) {
+    exampleKeys = keys;
+    $("examples").replaceChildren($("examples").firstElementChild, ...list.map((x) =>
+      h("button", { type: "button", "data-key": x.key, title: x.feature + ": " + x.description,
+        onclick: () => { exampleHidden = null; api("/api/example", { key: x.key }); } }, x.label)));
+  }
+  const ex = list.find((x) => x.key === s.example);
+  const running = s.run.state === "running";
+  document.querySelectorAll("#examples button").forEach((b) => {
+    b.classList.toggle("on", b.dataset.key === s.example);
+    b.disabled = running;
+  });
+  document.querySelectorAll(".ex-hl").forEach((el) => el.classList.remove("ex-hl"));
+  const box = $("example-box");
+  if (!ex || exampleHidden === ex.key) { box.hidden = true; return; }
+  box.hidden = false;
+  box.replaceChildren(
+    h("div", { class: "row", style: "justify-content:space-between;align-items:baseline" },
+      h("div", {}, h("b", {}, "Example: " + ex.label), h("span", { class: "muted" }, " · shows " + ex.feature.toLowerCase())),
+      h("button", { class: "ghost", title: "Hide this note and the outlines; the card stays as it is",
+        "aria-label": "Hide the example note", onclick: () => { exampleHidden = ex.key; render(snap); } }, "×")),
+    h("p", {}, ex.description),
+    h("div", { class: "small muted" }, "How the card sets it up (outlined below; click a line to go to it):"),
+    h("ul", {}, ...ex.setup.map(([field, text]) => h("li", {},
+      h("a", { href: "#", onclick: (ev) => {
+        ev.preventDefault();
+        const el = exampleTarget(field);
+        if (el) { el.scrollIntoView({ behavior: "smooth", block: "center" }); el.classList.add("ex-flash"); setTimeout(() => el.classList.remove("ex-flash"), 1200); }
+      } }, text)))),
+    h("div", { class: "hint" }, "Change anything on the card and press Run to see what difference it makes."));
+  for (const [field] of ex.setup) {
+    const el = exampleTarget(field);
+    if (el) el.classList.add("ex-hl");
+  }
+}
+
 $("open-results").addEventListener("click", () => {
   window.open("/results", "reaction-results", "popup=no");
 });
