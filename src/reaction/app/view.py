@@ -24,7 +24,7 @@ PROPERTY_WORDS = {"ph": "pH", "ionic strength": "ionic_strength", "ionic_strengt
                   "oxygen fugacity": "log_fO2", "eh": "Eh", "redox potential": "Eh",
                   "surface potential": "surface_potential_mV", "psi": "surface_potential_mV"}
 MAX_ITEMS = 8
-UNITS = ("mol", "mmol", "umol", "mg")
+UNITS = ("mol", "mmol", "umol", "mg", "ug")
 
 
 def unit_group(item: dict) -> str:

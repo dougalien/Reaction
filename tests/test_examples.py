@@ -39,6 +39,17 @@ def test_calcite_dissolves_ever_more_slowly(runs):
     assert left[0] - left[5] > 10 * (left[-6] - left[-1])            # fast at first, then near saturation
 
 
+def test_sinking_foram_loses_mass(runs):
+    run = runs["forams"]
+    ug = [v * 100.0869e6 for v in run["minerals"]["calcite"]]                 # the foram's calcite, µg
+    assert ug[0] == pytest.approx(20.0, rel=1e-3) and 14 < ug[-1] < 18
+    sat = run["saturation"]["calcite"]
+    assert sat[0] < -0.3 and sat[-1] < sat[0]                                # more corrosive with depth
+    assert all(a > b for a, b in zip(ug, ug[1:]))
+    ca = run["elements"]["Ca"]
+    assert abs(ca[-1] - ca[0]) < 1e-4 * ca[0]                                # the water hardly notices
+
+
 def test_evaporating_lake_lays_down_salts_in_order(runs):
     run = runs["lake"]
     first = {m: next(i for i, x in enumerate(v) if x) for m, v in run["minerals"].items() if v and any(v)}

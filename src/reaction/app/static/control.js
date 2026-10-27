@@ -48,7 +48,7 @@ function render(s) {
 
   const reactants = $("reactants");
   reactants.replaceChildren(...c.reactants.map((r, i) => h("span", { class: "chip on static" },
-    `${r.amount} ${r.unit} ${r.name}`,
+    (r.unit === "g" && r.amount > 0 && r.amount < 1e-3 ? `${+(r.amount * 1e6).toPrecision(6)} µg` : `${r.amount} ${r.unit}`) + ` ${r.name}`,
     h("button", { class: "ghost", style: "padding:0 4px", title: "Remove " + r.name, "aria-label": "Remove " + r.name,
       onclick: () => edit("reactants", c.reactants.filter((_, k) => k !== i)) }, "×"))));
   if (!c.reactants.length) reactants.replaceChildren(h("span", { class: "hint" }, "none: only temperature and pressure change"));

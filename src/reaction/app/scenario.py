@@ -30,9 +30,18 @@ ACTIVITY_MODELS = ("bdot", "davies", "pitzer")
 FLUID_FIELDS = ("analysis", "units", "ph", "fluid_t_c", "fluid_p_bar", "charge_balance", "redox",
                 "redox_value")                                       # what a custom fluid is
 REACTANT_UNITS = {"g": ("g", 1.0), "gram": ("g", 1.0), "grams": ("g", 1.0), "mg": ("g", 1e-3),
+                  "ug": ("g", 1e-6), "µg": ("g", 1e-6), "microgram": ("g", 1e-6), "micrograms": ("g", 1e-6),
                   "kg": ("g", 1e3), "mol": ("mol", 1.0), "mole": ("mol", 1.0), "moles": ("mol", 1.0),
                   "mmol": ("mol", 1e-3), "umol": ("mol", 1e-6)}
 MAX_REACTANTS = 6
+
+
+def reactant_text(r: dict) -> str:
+    """'10 g albite', with masses below a milligram in µg: '20 µg forams'."""
+    amount, unit = r["amount"], r["unit"]
+    if unit == "g" and 0 < amount < 1e-3:
+        amount, unit = amount * 1e6, "µg"
+    return f"{float(f'{amount:.6g}'):g} {unit} {r['name']}"
 MAX_UNCERTAINTY_RUNS = 200
 FOLLOW_PHASES = ("whole", "brine", "vapour")
 ISOTOPE_KEYS = {"d18o": "d18O", "18o": "d18O", "o18": "d18O", "d13c": "d13C", "13c": "d13C", "c13": "d13C",
@@ -457,7 +466,7 @@ class Scenario:
             return self._describe_column()
         text = self._describe_path()
         if self.reactants:
-            added = ", ".join(f"{r['amount']:g} {r['unit']} {r['name']}" for r in self.reactants)
+            added = ", ".join(reactant_text(r) for r in self.reactants)
             verb = (f"reacting with {added} for {self.duration:g} {self.duration_unit} at measured rates"
                     if self.kinetics else f"adding {added}")
             text = text.replace(f" ({self._how()}", f", {verb} ({self._how()}")
@@ -499,7 +508,7 @@ class Scenario:
             text += f", first filled with {fluid_label(self.pore_fluid).lower()}"
         bits = []
         if self.reactants:
-            bits.append(", ".join(f"{r['amount']:g} {r['unit']} {r['name']}" for r in self.reactants) + " per kg of pore water")
+            bits.append(", ".join(reactant_text(r) for r in self.reactants) + " per kg of pore water")
         if self.exchange_meq > 0:
             bits.append(f"{self.exchange_meq:g} meq of exchange sites")
         if self.hfo_g > 0:
@@ -738,8 +747,8 @@ def parse_reactants(value: Any) -> list[dict]:
             part = part.strip()
             if not part:
                 continue
-            m = (re.fullmatch(r"(?P<amount>\d*\.?\d+(?:e-?\d+)?)\s*(?P<unit>[a-z]+)\s+(?:of\s+)?(?P<name>.+)", part, re.I)
-                 or re.fullmatch(r"(?P<name>.+?)\s+(?P<amount>\d*\.?\d+(?:e-?\d+)?)\s*(?P<unit>[a-z]+)", part, re.I))
+            m = (re.fullmatch(r"(?P<amount>\d*\.?\d+(?:e-?\d+)?)\s*(?P<unit>[a-zµ]+)\s+(?:of\s+)?(?P<name>.+)", part, re.I)
+                 or re.fullmatch(r"(?P<name>.+?)\s+(?P<amount>\d*\.?\d+(?:e-?\d+)?)\s*(?P<unit>[a-zµ]+)", part, re.I))
             if not m:
                 raise ValueError(f"read '{part}' as an amount, a unit and a name, such as 10 g albite")
             items.append({"name": m["name"], "amount": m["amount"], "unit": m["unit"]})
@@ -752,9 +761,9 @@ def parse_reactants(value: Any) -> list[dict]:
             raise TypeError("each reactant needs a name, an amount and a unit")
         unit_text = str(item.get("unit", "g")).strip().lower()
         if unit_text not in REACTANT_UNITS:
-            raise ValueError(f"unknown unit '{unit_text}' for {item['name']} (use g, mg, kg, mol or mmol)")
+            raise ValueError(f"unknown unit '{unit_text}' for {item['name']} (use g, mg, ug, kg, mol or mmol)")
         unit, scale = REACTANT_UNITS[unit_text]
-        out.append({"name": str(item["name"]).strip(), "amount": float(item.get("amount", 0)) * scale,
+        out.append({"name": str(item["name"]).strip(), "amount": float(f"{float(item.get('amount', 0)) * scale:.12g}"),
                     "unit": unit})
     return out
 
@@ -836,6 +845,7 @@ class Example:
     setup: tuple[tuple[str, str], ...]
     plot: tuple[str, ...] = ()        # what the results window shows first, in words (view.resolve_item)
     log: bool = True
+    unit: str = ""                    # and in which unit (view.UNITS), when not the default
 
 
 # minerals that a low-temperature example blocks: silica other than amorphous silica forms too slowly, and the
@@ -974,33 +984,30 @@ EXAMPLES: dict[str, Example] = {e.key: e for e in (
                                         "proportional to it."),
              ("reactants", "Reactant: 1 g calcite per kg of water.")),
             ("calcite left",), False),
-    Example("forams", "Forams dissolving in deep water", "Kinetics in a flow-through column",
-            "Deep Pacific bottom water (2 C, 400 bar: about 4 km down, below the calcite saturation depth) flows "
-            "through 1 m of foraminiferal ooze, and the forams' calcite dissolves at its measured rate (Palandri and "
-            "Kharaka 2004). The water enters undersaturated in calcite and gains calcium as it goes, so dissolution "
-            "is fastest at the inlet and slows downstream as the water nears saturation; the profile tab shows the "
-            "gradient. Ten pore volumes pass in 10 hours. The model puts this water further from saturation than "
-            "measurements do, and the linear rate law is fast near saturation, so the dissolution is an upper "
-            "bound. About a minute and a half.",
-            {"title": "Forams dissolving in deep bottom water", "kind": "transport", "fluid": "custom",
+    Example("forams", "A foram sinking below the CCD", "Kinetics along a fall",
+            "One foraminifer test (20 µg of calcite) sinks from 4.5 to 5.5 km, below the calcite compensation depth, "
+            "at about 200 m a day, so the fall takes 5 days. The run follows the foram: it sees the water it falls "
+            "through, held at 1.5 C and compressed with depth (455 to 556 bar), so ever more corrosive to calcite. Its calcite dissolves at the measured rate (Palandri and Kharaka 2004). "
+            "So little dissolves that the water around it hardly changes, as for a grain in the open ocean. The "
+            "plot shows the foram's mass in µg; it loses about a fifth on the way down. The model puts this water "
+            "further from saturation than measurements do and the rate law is linear in (1 - Omega), so this is "
+            "an upper bound. A few seconds.",
+            {"title": "A foram sinking below the CCD", "fluid": "custom",
              "analysis": "Na+ 10768\nK+ 399.1\nCa+2 412.3\nMg+2 1291.8\nCl- 19353\nSO4-2 2712\nHCO3- 2.3 mmolal",
              "units": "mg/kg", "ph": 7.75, "fluid_t_c": 25.0, "charge_balance": "none", "redox": "air",
-             "t_start_c": 2.0, "t_end_c": 2.0, "p_start_bar": 400.0, "p_end_bar": 400.0,
-             "cells": 10, "column_m": 1.0, "dispersivity_m": 0.02, "pore_volumes": 10.0,
-             "kinetics": True, "duration": 10.0, "duration_unit": "hours", "surface_area_cm2_per_g": 100.0,
-             "reactants": [{"name": "calcite", "amount": 10.0, "unit": "g"}]},
-            (("kind", "Flow through a column: 10 cells over 1 m of sediment; 10 pore volumes of bottom water pass "
-                      "through."),
-             ("analysis", "Fluid flowing in: seawater with the extra CO2 of old deep water (2.3 mmol/kg carbonate, "
+             "t_start_c": 1.5, "t_end_c": 1.5, "p_start_bar": 455.0, "p_end_bar": 556.0, "steps": 26,
+             "kinetics": True, "duration": 5.0, "duration_unit": "days", "surface_area_cm2_per_g": 100.0,
+             "reactants": [{"name": "forams", "amount": 2e-5, "unit": "g"}]},
+            (("analysis", "The water: deep seawater with the extra CO2 of old bottom water (2.3 mmol/kg carbonate, "
                           "pH 7.75 measured at 25 C)."),
-             ("t_start_c", "Held at 2 C and 400 bar, the bottom of a 4 km water column."),
-             ("reactants", "Reactant: 10 g of foram calcite per kg of pore water in every cell."),
-             ("kinetics", "How they react: At measured rates. The calcite dissolves as fast as its rate law allows "
-                          "instead of reaching equilibrium at once."),
-             ("duration", "Run for 10 hours: the water spends an hour in the column."),
-             ("surface_area_cm2_per_g", "Surface area 100 cm2 per g, about that of grains of 0.1 mm, the size of "
-                                        "small forams.")),
-            ("calcite left", "Ca")),
+             ("p_start_bar", "Pressure 455 to 556 bar: the foram's depth, 4.5 to 5.5 km (about 10 m per bar), at "
+                             "1.5 C."),
+             ("reactants", "Reactant: one foram, 20 µg of calcite, in 1 kg of the water around it."),
+             ("kinetics", "How they react: At measured rates."),
+             ("duration", "Run for 5 days: 1 km at about 200 m a day, a typical sinking speed for a test of a few "
+                          "hundred µm."),
+             ("surface_area_cm2_per_g", "Surface area 100 cm2 per g, about that of grains of 0.1 mm.")),
+            ("calcite",), False, "ug"),
 )}
 
 

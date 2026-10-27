@@ -417,11 +417,15 @@ works on all three column views (rate and % left per cell, and the kinetic miner
 the outlet also gets a Time axis; a note gives the residence time, velocity and time per shift. Checked: with no
 dispersion the first cell's first shift equals a batch kinetic run of that length (within 2%); calcium balances
 exactly (dissolved = in the column + through the ends). Judgment calls: `kinetic_tol` 0.05 in the column (0.03
-in a static run): about 1-2% low on what dissolves at the inlet of the foram example against 0.03, at about half
+in a static run): about 1-2% low on what dissolves at the inlet of a foram-ooze column against 0.03, at about half
 the time; the column budget counts a kinetic cell-shift as 15 solves. Chat: "forams", "foraminifera", "foram
-calcite", "coccoliths", "chalk" are calcite. New example "Forams dissolving in deep water": bottom water (seawater
-with 2.3 mmol/kg carbonate, pH 7.75 at 25 C) at 2 C and 400 bar through 1 m of foram ooze (10 g calcite per kg
-of pore water), 10 pore volumes in 10 hours. The model's bottom water is further from calcite saturation (SI
-about -0.4) than measured (Omega about 0.7-0.9) and the Palandri-Kharaka law is linear in (1 - Omega), so it is
-an upper bound on dissolution; a seawater-specific calcite law (Subhas et al. 2015, (1 - Omega)^n) is the next
-refinement.
+calcite", "coccoliths", "chalk" are calcite.
+
+The foram example (Douglas, same day) became one foram sinking below the CCD, as a static kinetic path rather
+than a column: the run follows the foram (20 µg of calcite in 1 kg of the water around it, so the water hardly
+changes), 4.5 to 5.5 km (455 to 556 bar) at 1.5 C in 5 days (about 200 m a day). It loses about a fifth of its
+mass; the example opens on calcite in µg/kg (new plot unit `ug`; `Example.unit`). Reactant amounts take µg ("20
+ug forams"); amounts below a mg are shown in µg (`scenario.reactant_text`). The model's bottom water is further
+from calcite saturation (SI about -0.4) than measured (Omega about 0.7-0.9) and the Palandri-Kharaka law is linear
+in (1 - Omega), so it is an upper bound on dissolution; a seawater-specific calcite law (Subhas et al. 2015,
+(1 - Omega)^n) is the next refinement.
