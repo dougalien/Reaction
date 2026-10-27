@@ -5,6 +5,7 @@ no Ollama.  ``test_app_engine.py`` runs the real engine when the data is present
 """
 import http.client
 import json
+import re
 import threading
 import time
 
@@ -375,6 +376,18 @@ def test_pages_carry_the_dougalien_systems_brand(server):
         assert "Dougalien Systems" in page and "/static/dougalien_mark.svg" in page, path
     status, data = request(server, "GET", "/static/dougalien_mark.svg")
     assert status == 200 and data.startswith(b"<svg")
+
+
+def test_sources_page_lists_the_data_with_links(server):
+    for path in ("/control", "/results"):
+        assert 'href="/sources"' in request(server, "GET", path)[1].decode(), path
+    status, data = request(server, "GET", "/sources")
+    page = data.decode()
+    assert status == 200
+    for name in ("CHNOSZ", "EQ3/6", "B-dot", "Pitzer", "Horita", "Driesner", "Allison", "Bradbury"):
+        assert name in page, name
+    links = re.findall(r'href="(https?://[^"]+)"', page)
+    assert len(links) > 30 and all(u.startswith("https://") for u in links)
 
 
 def test_clear_chat_empties_the_chat_but_keeps_the_card(server):

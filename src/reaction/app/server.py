@@ -23,7 +23,7 @@ from .scenario import STARTING_CARDS
 from .session import Session
 
 STATIC = Path(__file__).resolve().parent / "static"
-PAGES = {"/": "control.html", "/control": "control.html", "/results": "results.html"}
+PAGES = {"/": "control.html", "/control": "control.html", "/results": "results.html", "/sources": "sources.html"}
 MAX_BODY = 1_000_000
 
 

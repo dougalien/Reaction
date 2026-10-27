@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reaction: sources | Dougalien Systems</title>
+<meta name="author" content="Dougalien Systems">
+<link rel="icon" type="image/svg+xml" href="/static/dougalien_mark.svg">
+<link rel="stylesheet" href="/static/app.css">
+<style>
+  .sources { max-width: 900px; margin: 0 auto; padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+  .sources h2 { margin-bottom: 4px; }
+  .sources p { margin: 4px 0 8px; }
+  .sources ul { margin: 0; padding-left: 18px; }
+  .sources li { margin: 6px 0; }
+  .sources .use { color: var(--muted); font-size: 12px; display: block; }
+  .sources a { color: var(--accent); }
+  .sources a:hover { color: var(--rust); }
+  .sources nav a { margin-right: 12px; white-space: nowrap; }
+</style>
+</head>
+<body>
+<div class="bar">
+  <img class="mark" src="/static/dougalien_mark.svg" alt="" width="26" height="26">
+  <h1>Reaction</h1>
+  <a class="brand small" href="https://dougalien.com" target="_blank" rel="noopener" title="Visit dougalien.com (opens in your browser)">by Dougalien Systems</a>
+  <span class="muted small">sources</span>
+</div>
+<!-- Where the data and models come from.  Keep this in step with the source notes in the code and in
+     src/reaction/data/*.tsv when a data set or model is added. -->
+<main class="sources">
+  <section class="panel">
+    <h2>Where the data and models come from</h2>
+    <p>Every number Reaction reports is computed from the published data and equations below. Links go to the
+      publisher (DOI) or to the official download where one exists. The thermodynamic databases are not part of
+      the app: they are read from your data folder, where <code>scripts/fetch_references.ps1</code> puts them.</p>
+    <nav class="small">
+      <a href="#databases">Databases</a><a href="#eos">Equations of state</a><a href="#activity">Activity models</a>
+      <a href="#kinetics">Kinetics</a><a href="#isotopes">Isotopes</a><a href="#phases">Brine and vapour</a>
+      <a href="#sorption">Sorption</a><a href="#fluids">Starting fluids and rocks</a><a href="#checks">Checks</a>
+    </nav>
+  </section>
+
+  <section class="panel" id="databases">
+    <h2>Thermodynamic databases</h2>
+    <ul>
+      <li>OBIGT, the database of CHNOSZ: Dick, J.M. (2019) CHNOSZ: Thermodynamic calculations and diagrams for
+        geochemistry. Frontiers in Earth Science 7, 180.
+        <a href="https://doi.org/10.3389/feart.2019.00180" target="_blank" rel="noopener">doi:10.3389/feart.2019.00180</a>;
+        data files from <a href="https://github.com/jedick/CHNOSZ" target="_blank" rel="noopener">github.com/jedick/CHNOSZ</a> (GPL-3.0).
+        <span class="use">Gibbs energies and HKF and Maier-Kelley parameters of aqueous species, minerals and gases (SUPCRT92, SLOP98, the inorganic and organic files).</span></li>
+      <li>Johnson, J.W., Oelkers, E.H. and Helgeson, H.C. (1992) SUPCRT92. Computers &amp; Geosciences 18, 899–947.
+        <a href="https://doi.org/10.1016/0098-3004(92)90029-Q" target="_blank" rel="noopener">doi:10.1016/0098-3004(92)90029-Q</a>
+        <span class="use">The SUPCRT92 dataset inside OBIGT and its scaling conventions.</span></li>
+      <li>Helgeson, H.C., Delany, J.M., Nesbitt, H.W. and Bird, D.K. (1978) Summary and critique of the thermodynamic
+        properties of rock-forming minerals. American Journal of Science 278-A, 1–229.
+        <span class="use">The older mineral data, used when the Berman files are missing.</span></li>
+      <li>Berman, R.G. (1988) Internally-consistent thermodynamic data for minerals in the system
+        Na2O-K2O-CaO-MgO-FeO-Fe2O3-Al2O3-SiO2-TiO2-H2O-CO2. Journal of Petrology 29, 445–522.
+        <a href="https://doi.org/10.1093/petrology/29.2.445" target="_blank" rel="noopener">doi:10.1093/petrology/29.2.445</a>
+        <span class="use">Silicate minerals, with the later additions in CHNOSZ <code>extdata/Berman</code>.</span></li>
+      <li>EQ3/6 version 8.0a (Wolery, T.J., Lawrence Livermore National Laboratory), the <code>data0</code> files:
+        <a href="https://github.com/LLNL/EQ3_6" target="_blank" rel="noopener">github.com/LLNL/EQ3_6</a>.
+        <span class="use">Ion sizes, the Drummond CO2 coefficients, ideal solid solutions and the speciation test cases.</span></li>
+      <li>Wagman, D.D. and others (1982) The NBS tables of chemical thermodynamic properties. Journal of Physical and
+        Chemical Reference Data 11, Supplement 2.
+        <span class="use">Element entropies that put Berman energies on the OBIGT scale.</span></li>
+    </ul>
+  </section>
+
+  <section class="panel" id="eos">
+    <h2>Equations of state and water</h2>
+    <ul>
+      <li>Helgeson, H.C., Kirkham, D.H. and Flowers, G.C. (1981) American Journal of Science 281, 1249–1516.
+        <a href="https://doi.org/10.2475/ajs.281.10.1249" target="_blank" rel="noopener">doi:10.2475/ajs.281.10.1249</a></li>
+      <li>Tanger, J.C. and Helgeson, H.C. (1988) Revised equations of state for the standard partial molal properties
+        of ions and electrolytes. American Journal of Science 288, 19–98.
+        <a href="https://doi.org/10.2475/ajs.288.1.19" target="_blank" rel="noopener">doi:10.2475/ajs.288.1.19</a></li>
+      <li>Shock, E.L., Oelkers, E.H., Johnson, J.W., Sverjensky, D.A. and Helgeson, H.C. (1992) Journal of the Chemical
+        Society, Faraday Transactions 88, 803–826.
+        <a href="https://doi.org/10.1039/FT9928800803" target="_blank" rel="noopener">doi:10.1039/FT9928800803</a>
+        <span class="use">The g function of the revised HKF equations.</span></li>
+      <li>Helgeson, H.C. and Kirkham, D.H. (1974) American Journal of Science 274, 1089–1198.
+        <a href="https://doi.org/10.2475/ajs.274.10.1089" target="_blank" rel="noopener">doi:10.2475/ajs.274.10.1089</a>
+        <span class="use">Debye-Hückel parameters of water.</span></li>
+      <li>Wagner, W. and Pruss, A. (2002) The IAPWS formulation 1995 for the thermodynamic properties of ordinary water
+        substance. Journal of Physical and Chemical Reference Data 31, 387–535.
+        <a href="https://doi.org/10.1063/1.1461829" target="_blank" rel="noopener">doi:10.1063/1.1461829</a></li>
+      <li>IAPWS-IF97, region 4 (vapour pressure of water):
+        <a href="https://www.iapws.org/" target="_blank" rel="noopener">iapws.org</a>.</li>
+      <li>Johnson, J.W. and Norton, D. (1991) Critical phenomena in hydrothermal systems. American Journal of Science
+        291, 541–648. <a href="https://doi.org/10.2475/ajs.291.6.541" target="_blank" rel="noopener">doi:10.2475/ajs.291.6.541</a>
+        <span class="use">Dielectric constant of water.</span></li>
+      <li>Marshall, W.L. and Franck, E.U. (1981) Ion product of water substance, 0–1000 °C, 1–10,000 bars. Journal of
+        Physical and Chemical Reference Data 10, 295–304.
+        <a href="https://doi.org/10.1063/1.555643" target="_blank" rel="noopener">doi:10.1063/1.555643</a>
+        <span class="use">The reliability rating shown before each run and under the plot.</span></li>
+      <li>Peng, D.-Y. and Robinson, D.B. (1976) A new two-constant equation of state. Industrial &amp; Engineering
+        Chemistry Fundamentals 15, 59–64.
+        <a href="https://doi.org/10.1021/i160057a011" target="_blank" rel="noopener">doi:10.1021/i160057a011</a>
+        <span class="use">Fugacity coefficients of the gas phase; critical constants from Poling, Prausnitz and O'Connell (2001) The Properties of Gases and Liquids, 5th ed., McGraw-Hill.</span></li>
+    </ul>
+  </section>
+
+  <section class="panel" id="activity">
+    <h2>Activity models</h2>
+    <ul>
+      <li>Helgeson, H.C. (1969) Thermodynamics of hydrothermal systems at elevated temperatures and pressures.
+        American Journal of Science 267, 729–804.
+        <a href="https://doi.org/10.2475/ajs.267.7.729" target="_blank" rel="noopener">doi:10.2475/ajs.267.7.729</a>
+        <span class="use">The B-dot equation (default activity model), tabulated to 300 °C.</span></li>
+      <li>Davies, C.W. (1962) Ion Association. Butterworths, London.
+        <span class="use">The Davies equation, with the 0.2 coefficient EQ3/6 uses.</span></li>
+      <li>Drummond, S.E. (1981) Boiling and mixing of hydrothermal fluids: chemical effects on mineral precipitation.
+        PhD thesis, Pennsylvania State University.
+        <span class="use">Salting-out of CO2, O2, H2 and other neutral species.</span></li>
+      <li>Harvie, C.E., Møller, N. and Weare, J.H. (1984) The prediction of mineral solubilities in natural waters.
+        Geochimica et Cosmochimica Acta 48, 723–751.
+        <a href="https://doi.org/10.1016/0016-7037(84)90098-X" target="_blank" rel="noopener">doi:10.1016/0016-7037(84)90098-X</a>
+        <span class="use">The Pitzer equations for brines.</span></li>
+      <li>Pitzer, K.S. (1975) Thermodynamics of electrolytes. V. Effects of higher-order electrostatic terms.
+        Journal of Solution Chemistry 4, 249–265.
+        <a href="https://doi.org/10.1007/BF00646562" target="_blank" rel="noopener">doi:10.1007/BF00646562</a>
+        <span class="use">Unsymmetrical mixing (E-theta).</span></li>
+      <li>Parkhurst, D.L. and Appelo, C.A.J. (2013) Description of input and examples for PHREEQC version 3.
+        U.S. Geological Survey Techniques and Methods 6-A43.
+        <a href="https://doi.org/10.3133/tm6A43" target="_blank" rel="noopener">doi:10.3133/tm6A43</a>;
+        <a href="https://www.usgs.gov/software/phreeqc-version-3" target="_blank" rel="noopener">PHREEQC download</a>.
+        <span class="use">The Pitzer parameters (<code>pitzer.dat</code>), the exchange and surface constants (<code>phreeqc.dat</code>) and the rate table (<code>phreeqc_rates.dat</code>).</span></li>
+      <li>Appelo, C.A.J., Parkhurst, D.L. and Post, V.E.A. (2014) Equations for calculating hydrogeochemical reactions of
+        minerals and gases such as CO2 at high pressures and temperatures. Geochimica et Cosmochimica Acta 125, 49–67.
+        <a href="https://doi.org/10.1016/j.gca.2013.10.003" target="_blank" rel="noopener">doi:10.1016/j.gca.2013.10.003</a></li>
+      <li>Appelo, C.A.J. (2015) Principles, caveats and improvements in databases for calculating hydrogeochemical
+        reactions in saline waters from 0 to 200 °C and 1 to 1000 atm. Applied Geochemistry 55, 62–71.
+        <span class="use">Temperature terms of the Pitzer parameters.</span></li>
+    </ul>
+  </section>
+
+  <section class="panel" id="kinetics">
+    <h2>Kinetics</h2>
+    <ul>
+      <li>Palandri, J.L. and Kharaka, Y.K. (2004) A compilation of rate parameters of water-mineral interaction
+        kinetics for application to geochemical modeling. U.S. Geological Survey Open-File Report 2004-1068.
+        <a href="https://doi.org/10.3133/ofr20041068" target="_blank" rel="noopener">doi:10.3133/ofr20041068</a>
+        <span class="use">Dissolution rate constants and activation energies of about 60 minerals.</span></li>
+      <li>Lasaga, A.C. (1984) Chemical kinetics of water-rock interactions. Journal of Geophysical Research 89,
+        4009–4025. <a href="https://doi.org/10.1029/JB089iB06p04009" target="_blank" rel="noopener">doi:10.1029/JB089iB06p04009</a>
+        <span class="use">The form of the rate law.</span></li>
+      <li>Gislason, S.R. and Oelkers, E.H. (2003) Mechanism, rates, and consequences of basaltic glass dissolution.
+        Geochimica et Cosmochimica Acta 67, 3817–3832.
+        <a href="https://doi.org/10.1016/S0016-7037(03)00176-5" target="_blank" rel="noopener">doi:10.1016/S0016-7037(03)00176-5</a>
+        <span class="use">Basalt glass dissolution rate.</span></li>
+    </ul>
+  </section>
+
+  <section class="panel" id="isotopes">
+    <h2>Isotope fractionation</h2>
+    <ul>
+      <li>Vho, A., Lanari, P. and Rubatto, D. (2020) An internally-consistent database for oxygen isotope fractionation
+        between minerals. Journal of Petrology 60, 2101–2129.
+        <a href="https://doi.org/10.1093/petrology/egaa001" target="_blank" rel="noopener">doi:10.1093/petrology/egaa001</a> (CC BY 4.0)
+        <span class="use">Mineral-water oxygen fractionation.</span></li>
+      <li>Ohmoto, H. and Rye, R.O. (1979) Isotopes of sulfur and carbon. In Barnes, H.L. (ed.) Geochemistry of
+        Hydrothermal Ore Deposits, 2nd ed., Wiley, 509–567.
+        <span class="use">Carbon (against CO2) and sulfur (against H2S) fractionation.</span></li>
+      <li>Ohmoto, H. and Lasaga, A.C. (1982) Kinetics of reactions between aqueous sulfates and sulfides in hydrothermal
+        systems. Geochimica et Cosmochimica Acta 46, 1727–1745.
+        <a href="https://doi.org/10.1016/0016-7037(82)90113-2" target="_blank" rel="noopener">doi:10.1016/0016-7037(82)90113-2</a>
+        <span class="use">Sulfate-sulfide fractionation.</span></li>
+      <li>Horita, J. and Wesolowski, D.J. (1994) Liquid-vapor fractionation of oxygen and hydrogen isotopes of water
+        from the freezing to the critical temperature. Geochimica et Cosmochimica Acta 58, 3425–3437.
+        <a href="https://doi.org/10.1016/0016-7037(94)90096-5" target="_blank" rel="noopener">doi:10.1016/0016-7037(94)90096-5</a>
+        <span class="use">δ18O and δD of water through evaporation and boiling.</span></li>
+      <li>Suzuoki, T. and Epstein, S. (1976) Hydrogen isotope fractionation between OH-bearing minerals and water.
+        Geochimica et Cosmochimica Acta 40, 1229–1240.
+        <a href="https://doi.org/10.1016/0016-7037(76)90158-7" target="_blank" rel="noopener">doi:10.1016/0016-7037(76)90158-7</a>
+        <span class="use">Muscovite and the general mineral-water D/H equation.</span></li>
+      <li>Graham, C.M., Harmon, R.S. and Sheppard, S.M.F. (1984) Experimental hydrogen isotope studies: hydrogen
+        isotope exchange between amphibole and water. American Mineralogist 69, 128–138.
+        <a href="https://www.minsocam.org/ammin/AM69/AM69_128.pdf" target="_blank" rel="noopener">minsocam.org (PDF)</a>
+        <span class="use">Amphibole-water D/H.</span></li>
+      <li>Sheppard, S.M.F. and Gilg, H.A. (1996) Stable isotope geochemistry of clay minerals. Clay Minerals 31, 1–24.
+        <a href="https://doi.org/10.1180/claymin.1996.031.1.01" target="_blank" rel="noopener">doi:10.1180/claymin.1996.031.1.01</a>
+        <span class="use">Kaolinite-water D/H.</span></li>
+      <li>Chacko, T., Cole, D.R. and Horita, J. (2001) Equilibrium oxygen, hydrogen and carbon isotope fractionation
+        factors applicable to geologic systems. Reviews in Mineralogy and Geochemistry 43, 1–81.
+        <a href="https://doi.org/10.2138/gsrmg.43.1.1" target="_blank" rel="noopener">doi:10.2138/gsrmg.43.1.1</a>
+        <span class="use">The uncertainty quoted for mineral δD.</span></li>
+    </ul>
+  </section>
+
+  <section class="panel" id="phases">
+    <h2>Brine and vapour (NaCl-H2O phase separation)</h2>
+    <ul>
+      <li>Driesner, T. and Heinrich, C.A. (2007) The system H2O-NaCl. Part I: Correlation formulae for phase
+        relations in temperature-pressure-composition space from 0 to 1000 °C, 0 to 5000 bar, and 0 to 1
+        X<sub>NaCl</sub>. Geochimica et Cosmochimica Acta 71, 4880–4901.
+        <a href="https://doi.org/10.1016/j.gca.2006.01.033" target="_blank" rel="noopener">doi:10.1016/j.gca.2006.01.033</a></li>
+      <li>Driesner, T. (2007) The system H2O-NaCl. Part II: Correlations for molar volume, enthalpy, and isobaric heat
+        capacity from 0 to 1000 °C, 1 to 5000 bar, and 0 to 1 X<sub>NaCl</sub>. Geochimica et Cosmochimica Acta 71,
+        4902–4919. <a href="https://doi.org/10.1016/j.gca.2007.05.026" target="_blank" rel="noopener">doi:10.1016/j.gca.2007.05.026</a></li>
+      <li>Oguntola, M.B. (2026) Thermodynamic lookup tables for saltwater systems based on Driesner &amp; Heinrich
+        (2007) correlations. Zenodo.
+        <a href="https://doi.org/10.5281/zenodo.20394023" target="_blank" rel="noopener">doi:10.5281/zenodo.20394023</a> (CC BY 4.0)
+        <span class="use">The table of coexisting brine and vapour (computed with xThermal).</span></li>
+      <li>Bischoff, J.L. and Rosenbauer, R.J. (1988) Liquid-vapor relations in the critical region of the system
+        NaCl-H2O from 380 to 415 °C. Geochimica et Cosmochimica Acta 52, 2121–2126.
+        <a href="https://doi.org/10.1016/0016-7037(88)90192-5" target="_blank" rel="noopener">doi:10.1016/0016-7037(88)90192-5</a>
+        <span class="use">The seawater two-phase boundary the app is checked against.</span></li>
+    </ul>
+  </section>
+
+  <section class="panel" id="sorption">
+    <h2>Sorption</h2>
+    <ul>
+      <li>Allison, J.D. and Allison, T.L. (2005) Partition Coefficients for Metals in Surface Water, Soil, and Waste.
+        U.S. EPA report EPA/600/R-05/074 (public domain).
+        <a href="https://www.leg.mn.gov/docs/2015/other/150681/PFEISref_2/USEPA%202005.pdf" target="_blank" rel="noopener">PDF</a>
+        (copy kept by the Minnesota Legislative Reference Library)
+        <span class="use">Kd values for soil, sediment and suspended matter.</span></li>
+      <li>Bradbury, M.H. and Baeyens, B. (2005) Modelling the sorption of Mn(II), Co(II), Ni(II), Zn(II), Cd(II),
+        Eu(III), Am(III), Sn(IV), Th(IV), Np(V) and U(VI) on montmorillonite: linear free energy relationships and
+        estimates of surface binding constants. Geochimica et Cosmochimica Acta 69, 875–892.
+        <a href="https://doi.org/10.1016/j.gca.2004.07.020" target="_blank" rel="noopener">doi:10.1016/j.gca.2004.07.020</a>
+        <span class="use">The montmorillonite LFER for metals without a fitted constant.</span></li>
+      <li>Bradbury, M.H. and Baeyens, B. (2005) Experimental measurements and modeling of sorption competition on
+        montmorillonite. Geochimica et Cosmochimica Acta 69, 4187–4197.
+        <a href="https://doi.org/10.1016/j.gca.2005.04.014" target="_blank" rel="noopener">doi:10.1016/j.gca.2005.04.014</a>
+        <span class="use">Montmorillonite edge sites (2SPNE SC/CE), after Baeyens and Bradbury (1997) Journal of Contaminant Hydrology 27, 199–222.</span></li>
+      <li>Bradbury, M.H. and Baeyens, B. (2009) Sorption modelling on illite Part I: Titration measurements and the
+        sorption of Ni, Co, Eu and Sn. Geochimica et Cosmochimica Acta 73, 990–1003.
+        <a href="https://doi.org/10.1016/j.gca.2008.11.017" target="_blank" rel="noopener">doi:10.1016/j.gca.2008.11.017</a>
+        <span class="use">Illite edge sites and Ni and Co exchange.</span></li>
+      <li>Bradbury, M.H. and Baeyens, B. (2009) Sorption modelling on illite. Part II: Actinide sorption and linear
+        free energy relationships. Geochimica et Cosmochimica Acta 73, 1004–1013.
+        <a href="https://doi.org/10.1016/j.gca.2008.11.016" target="_blank" rel="noopener">doi:10.1016/j.gca.2008.11.016</a>
+        <span class="use">The illite LFER.</span></li>
+      <li>Dzombak, D.A. and Morel, F.M.M. (1990) Surface Complexation Modeling: Hydrous Ferric Oxide. Wiley, New York.
+        <span class="use">Iron oxide surface sites (as in <code>phreeqc.dat</code>).</span></li>
+      <li>Ion exchange (Gaines-Thomas) constants from PHREEQC's <code>phreeqc.dat</code> (Parkhurst and Appelo, above).</li>
+      <li>Marinich, O., Marques Fernandes, M., Miron, G.D. and Kulik, D.A. (2024) ClaySor 2023. Nagra Technical Report
+        NTB 23-05. <span class="use">Illite cation exchange capacity.</span></li>
+      <li>van Olphen, H. and Fripiat, J.J. (1979) Data Handbook for Clay Materials and Other Non-metallic Minerals.
+        Pergamon, Oxford; values as listed by the
+        <a href="https://www.clays.org/" target="_blank" rel="noopener">Clay Minerals Society Source Clays Repository</a>.
+        <span class="use">Exchange capacity and surface area of kaolinite and montmorillonite.</span></li>
+    </ul>
+  </section>
+
+  <section class="panel" id="fluids">
+    <h2>Starting fluids and rocks</h2>
+    <ul>
+      <li>Seawater: the EQ3/6 test case <code>swmaj</code> (EQ3/6 v8.0a, above).</li>
+      <li>Vent fluid: rounded after Von Damm, K.L., Edmond, J.M., Grant, B., Measures, C.I., Walden, B. and Weiss, R.F.
+        (1985) Chemistry of submarine hydrothermal solutions at 21 °N, East Pacific Rise. Geochimica et Cosmochimica
+        Acta 49, 2197–2220. <a href="https://doi.org/10.1016/0016-7037(85)90222-4" target="_blank" rel="noopener">doi:10.1016/0016-7037(85)90222-4</a></li>
+      <li>River water: Livingstone, D.A. (1963) Chemical composition of rivers and lakes. U.S. Geological Survey
+        Professional Paper 440-G. <a href="https://doi.org/10.3133/pp440G" target="_blank" rel="noopener">doi:10.3133/pp440G</a></li>
+      <li>Great Salt Lake brine: Drever, J.I. (1997) The Geochemistry of Natural Waters, 3rd ed., Prentice Hall; and
+        Jones, B.F., Naftz, D.L., Spencer, R.J. and Oviatt, C.G. (2009) Geochemical evolution of Great Salt Lake, Utah,
+        USA. Aquatic Geochemistry 15, 123–195.
+        <a href="https://doi.org/10.1007/s10498-008-9047-y" target="_blank" rel="noopener">doi:10.1007/s10498-008-9047-y</a></li>
+      <li>Basalt glass: close to the global mean of Gale, A., Dalton, C.A., Langmuir, C.H., Su, Y. and Schilling, J.-G.
+        (2013) The mean composition of ocean ridge basalts. Geochemistry, Geophysics, Geosystems 14, 489–518.
+        <a href="https://doi.org/10.1029/2012GC004334" target="_blank" rel="noopener">doi:10.1029/2012GC004334</a></li>
+      <li>Rainwater and the contaminated stream are illustrative values, not samples.</li>
+    </ul>
+  </section>
+
+  <section class="panel" id="checks">
+    <h2>Checks the test suite runs against</h2>
+    <ul>
+      <li>Bischoff, J.L. and Seyfried, W.E. (1978) Hydrothermal chemistry of seawater from 25 to 350 °C. American
+        Journal of Science 278, 838–860.
+        <a href="https://doi.org/10.2475/ajs.278.6.838" target="_blank" rel="noopener">doi:10.2475/ajs.278.6.838</a>
+        <span class="use">Anhydrite forming in heated seawater near 150 °C.</span></li>
+      <li>Robinson, R.A. and Stokes, R.H. (1959) Electrolyte Solutions, 2nd ed. Butterworths, London.
+        <span class="use">Activity and osmotic coefficients of NaCl and CaCl2 for the Pitzer model.</span></li>
+      <li>Duan, Z. and Sun, R. (2003) An improved model calculating CO2 solubility in pure water and aqueous NaCl
+        solutions from 273 to 533 K and from 0 to 2000 bar. Chemical Geology 193, 257–271.
+        <a href="https://doi.org/10.1016/S0009-2541(02)00263-2" target="_blank" rel="noopener">doi:10.1016/S0009-2541(02)00263-2</a>
+        <span class="use">CO2 solubility with a gas phase.</span></li>
+      <li>The 41 speciation cases of the EQ3/6 test library and PHREEQC 3.7.3 for cross-checks.</li>
+    </ul>
+  </section>
+</main>
+</body>
+</html>
