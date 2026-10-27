@@ -27,10 +27,10 @@ import numpy as np
 from ..constants import WATER_MOLES_PER_KG
 from ..database import load_data0
 from ..database.model import Kind
-from ..equilibrium import System
+from ..equilibrium import REDOX_APART, System, redox_intermediates
 from ..kinetics import basalt_glass, rate_law
 from ..network import PROTON, WATER
-from ..path import PathPoint, ReactionPath, Reactant, _composition_row, mineral_reactant
+from ..path import PathPoint, ReactionPath, Reactant, _composition_row, bulk_over, mineral_reactant
 from ..phasesep import phase_state, salinity_from_chloride
 from ..solidsolution import table as solid_solution_table
 from .. import sorption as sorption_mod
@@ -39,9 +39,9 @@ from ..speciation import PH, Couple, Eh, LogFO2, Molal, Pe, Speciation, speciate
 from ..thermo import validity
 from ..transport import Column
 from ..thermo.eosdb import DEFAULT_MASTERS, load_eos_database
-from .. import isotopes
+from .. import catabolic, isotopes
 from . import analysis, config, rocks
-from .fluids import AIR_LOG_FO2, preset
+from .fluids import AIR_LOG_FO2, PRESETS, preset
 from .names import pretty_mineral, pretty_species
 from .scenario import ALWAYS_EXCLUDED, MODE_LABELS, Scenario
 
@@ -219,6 +219,7 @@ class Engine:
                          "The constants are for 25 °C; exchange constants with an enthalpy follow van 't Hoff, the rest "
                          "are held at their 25 °C values.")
         notes.extend(clay_notes(sc))
+        notes.extend(redox_notes(sc))
         if sc.solid_solutions:
             notes.append("Solid solutions mix ideally on their sites (the EQ3/6 models). Real carbonates and "
                          "feldspars unmix at low temperature, so there the minor endmember is overstated.")
@@ -266,7 +267,8 @@ class Engine:
         if sc.mixing:
             extra = self._mixing_axes(sc, len(points))
             axes.update(extra)
-            varies = list(extra) + varies
+            # steps even in temperature: temperature is the natural axis, the amounts mixed the other choice
+            varies = varies + list(extra) if sc.mix_even_in_t else list(extra) + varies
         return {
             "id": _dt.datetime.now().strftime("%Y%m%d-%H%M%S-") + uuid.uuid4().hex[:4],
             "created": _dt.datetime.now().isoformat(timespec="seconds"),
@@ -452,7 +454,10 @@ class Engine:
         """The starting fluid, the reactants' names, the second fluid, the system and its bulk."""
         db = self.db
         progress(0.0, f"Speciating {sc.fluid_spec().label.lower()}")
-        sp0, fluid_notes = self.starting_fluid(sc)
+        # with redox held apart the species in between (thiosulfate, organic acids ...) are left out from the
+        # start, so that every redox species is counted in its own column
+        inter = redox_intermediates(db, REDOX_APART) if sc.redox_apart else []
+        sp0, fluid_notes = self.starting_fluid(sc, inter)
         inflow = None
         if sc.transport and sc.pore_fluid and sc.pore_fluid != sc.fluid:
             # a column first filled with another fluid: that one is the start, the card's fluid flows in
@@ -481,22 +486,30 @@ class Engine:
         mix = None
         if sc.mixing:
             progress(0.0, f"Speciating {preset(sc.mix_with).label.lower()}")
-            mix, mix_notes = self.starting_fluid(Scenario(fluid=sc.mix_with, activity_model=sc.activity_model))
+            mix, mix_notes = self.starting_fluid(Scenario(fluid=sc.mix_with, activity_model=sc.activity_model), inter)
             fluid_notes += [f"Second fluid: {n}" for n in mix_notes]
             basis += [b for b in mix.basis_names if b not in basis and b not in (WATER, PROTON)]
         if inflow is not None:
             mix = inflow
             basis += [b for b in inflow.basis_names if b not in basis and b not in (WATER, PROTON)]
         hold = [b for b in basis if db.species[b].kind != Kind.BASIS]     # CH4, held apart
+        if sc.redox_apart:
+            if "O2(g)" not in basis:
+                raise ValueError("holding redox apart needs fluids whose redox state is tracked (dissolved O2 or "
+                                 "H2, air, log fO2, Eh or pe)")
+            hold += [h for h, partner in REDOX_APART.items() if h not in hold and (partner is None or partner in basis)]
         blocked = {b.lower() for b in sc.blocked_minerals}
-        mixes = [ss for ss in solid_solution_table() if ss.name not in blocked] if sc.solid_solutions else []
+        mixes = [ss for ss in solid_solution_table() if ss.name not in blocked] \
+            if sc.solid_solutions and sc.minerals_form else []
         sorb = sorption_for(sc)
         system = System(db, [b for b in basis if b not in hold], activity_model=sc.activity_model,
                         gas_phase=sc.gas_phase, hold_apart=hold, solid_solutions=mixes,
-                        sorption=sorb if sorb.active else None)
-        bulk0 = dict(sp0.component_totals)
+                        sorption=sorb if sorb.active else None, suppress=inter)
+        bulk0 = bulk_over(system, sp0) if sc.redox_apart else dict(sp0.component_totals)
         for b in basis:
             bulk0.setdefault(b, TRACE)                   # a trace, so the solution has a start
+        if sc.redox_apart:                               # each held column too, and O2 in a reduced fluid
+            bulk0 = {k: v if k in (WATER, PROTON) else max(v, TRACE) for k, v in bulk0.items()}
         t0 = sp0.temperature_c
         if sorb.exchange_eq > 0 or sorb.edges:
             model = system.model(t0, sp0.pressure_bar)
@@ -603,7 +616,7 @@ class Engine:
 
     def _mixing_axes(self, sc: Scenario, steps: int) -> dict:
         """Second fluid added (kg of its water per kg of the first's) and its fraction of the mixture."""
-        kg = [sc.mix_ratio * i / max(steps - 1, 1) for i in range(steps)]
+        kg = [sc.mix_ratio * f for f in sc.fractions()]
         other = preset(sc.mix_with).label.lower()
         return {"mixed": {"key": "mixed", "label": f"{other.capitalize()} added", "unit": "kg per kg",
                           "values": [_sig(k) for k in kg]},
@@ -627,9 +640,10 @@ class Engine:
                 "water_rock": {"key": "water_rock", "label": "Water/rock", "unit": "by mass",
                                "values": [_sig(1000.0 / g) if g > 0 else None for g in grams]}}
 
-    def starting_fluid(self, sc: Scenario) -> tuple[Speciation, list[str]]:
+    def starting_fluid(self, sc: Scenario, suppress=()) -> tuple[Speciation, list[str]]:
         """Speciate the card's fluid at its measurement temperature, closing the charge balance as the
-        card asks.  Returns the speciation and sentences about what was adjusted."""
+        card asks.  Returns the speciation and sentences about what was adjusted.  ``suppress`` leaves
+        species out (the redox intermediates, when the card holds redox apart)."""
         db = self.db
         fluid = sc.fluid_spec()
         read = analysis.parse(fluid.analysis, fluid.units)
@@ -656,7 +670,7 @@ class Engine:
 
         def solve(balance_on=None):
             if kind != "couple":
-                return speciate(db, fluid.measured_t_c, constraints, redox=redox,
+                return speciate(db, fluid.measured_t_c, constraints, redox=redox, suppress=suppress,
                                 pressure_bar=fluid.measured_p_bar, balance_on=balance_on, activity_model=sc.activity_model)
             own = dict(constraints)
             partner = analysis.REDOX[arg]
@@ -664,9 +678,9 @@ class Engine:
                 rest = folded[partner] - (0.0 if arg == "CH4" and apart else molal[arg])
                 own[partner] = Molal(rest)
             own[arg] = Molal(molal[arg])
-            first = speciate(db, fluid.measured_t_c, own, redox=Couple(arg),
+            first = speciate(db, fluid.measured_t_c, own, redox=Couple(arg), suppress=suppress,
                              pressure_bar=fluid.measured_p_bar, balance_on=balance_on, activity_model=sc.activity_model)
-            return speciate(db, fluid.measured_t_c, constraints, redox=LogFO2(first.log_fo2),
+            return speciate(db, fluid.measured_t_c, constraints, redox=LogFO2(first.log_fo2), suppress=suppress,
                             pressure_bar=fluid.measured_p_bar, balance_on=balance_on, activity_model=sc.activity_model)
         notes = list(read.notes)
         sp = solve()
@@ -707,10 +721,11 @@ class Engine:
         step = sc.duration_s / last if sc.kinetics else 1.0      # reaction progress per step
         blocked = {b.lower() for b in sc.blocked_minerals} | set(ALWAYS_EXCLUDED)
         suppress = [name for name, kind in zip(system.net.phase_names, system.net.phase_kind)
-                    if kind == Kind.MINERAL and name.lower() in blocked]
+                    if kind == Kind.MINERAL and (name.lower() in blocked or not sc.minerals_form)]
         reactants = self._reactants(system, sc, self._reactant_names(sc), n, notes)
         if mix is not None:          # the second fluid, per kg of its water, as one more reactant
-            composition = {k: v for k, v in mix.component_totals.items() if k in system.basis}
+            totals = bulk_over(system, mix) if sc.redox_apart else mix.component_totals
+            composition = {k: v for k, v in totals.items() if k in system.basis}
             reactants.append(Reactant(f"mix:{sc.mix_with}", composition, sc.mix_ratio,
                                       (sc.mix_ratio / (last * step), 0.0, 0.0)))
         if sc.evaporating:           # water taken away, evenly in the logarithm of the concentration
@@ -723,17 +738,20 @@ class Engine:
                             pressure=lambda xi: sc.tp(xi / (last * step))[1],
                             suppress_minerals=suppress, flow_through=flow_through)
 
+        xis = [f * last * step for f in sc.fractions()]
+        where = {round(x, 9): i for i, x in enumerate(xis)}
+
         def failed(xi, exc):
-            t, p = points[int(round(xi / step))]
+            t, p = points[where.get(round(xi, 9), min(int(round(xi / step)), n - 1))]
             notes.append(f"No equilibrium found at {t:.0f} C and {p:.0f} bar ({exc}); that point is "
                          f"left blank.")
 
-        solved = path.run([i * step for i in range(n)], on_failure=failed, progress=tick)
+        solved = path.run(xis, on_failure=failed, progress=tick)
         kinetic = [r for r in reactants if r.kinetic]
-        run = _pack([None if pt is None else self._record(db, pt, kinetic) for pt in solved])
+        run = _pack([None if pt is None else self._record(db, pt, kinetic, sc.energy) for pt in solved])
         add_partition(run, sc)
         if separate is not None:
-            run["split"] = [split.get(round(i * step, 9)) for i in range(n)]
+            run["split"] = [split.get(round(x, 9)) for x in xis]
         if sc.isotopes:
             run["isotopes"] = self._isotopes(sc, bulk0, reactants, solved, points, notes)
         return run
@@ -1017,7 +1035,7 @@ class Engine:
                 self._pool = None
         return self._pool
 
-    def _record(self, db, point: PathPoint, kinetic: list | None = None) -> dict:
+    def _record(self, db, point: PathPoint, kinetic: list | None = None, energy: bool = False) -> dict:
         state = point.state
         spec = state.speciation
         elements: dict[str, float] = {}
@@ -1052,7 +1070,7 @@ class Engine:
             rates[f"rate:{r.name}"] = point.rates.get(r.name, 0.0)
             rates[f"left:{r.name}"] = 100.0 * max(left, 0.0) / r.amount
         phases = {"salinity": 100.0 * salinity_from_chloride(spec.component_totals.get("Cl-", 0.0))}
-        return {"kinetic": rates, "composition": composition, "phases": phases, "pH": spec.ph, "ionic_strength": spec.ionic_strength, "water_kg": state.water_kg,
+        return {"energy": catabolic.energies(db, spec, state.water_kg) if energy else {}, "kinetic": rates, "composition": composition, "phases": phases, "pH": spec.ph, "ionic_strength": spec.ionic_strength, "water_kg": state.water_kg,
                 "log_fO2": spec.log_fo2, "Eh": spec.eh_volts,
                 "log_aw": spec.log_a_water, "species": species,
                 "log_a": {n: spec.species[n].log_activity for n in spec.basis_names
@@ -1179,6 +1197,31 @@ def sorption_for(sc: Scenario) -> Sorption:
     return Sorption(exchange_eq=exchange_eq, hfo_g=sc.hfo_g, kd_solid_kg=sc.kd_solid_g / 1000.0, kd=kd, edges=edges)
 
 
+def redox_notes(sc: Scenario) -> list[str]:
+    """What holding redox apart and the catabolic energies mean."""
+    out = []
+    if sc.redox_apart:
+        out.append("Redox held apart: H2, sulfide, methane, Fe(III) and nitrate each keep their own total, apart from "
+                   "O2, sulfate, carbonate, Fe(II) and ammonia, so no electrons pass between them, as when mixing is "
+                   "faster than the redox reactions (which are slow without microbes below about 100-150 C). "
+                   "Species in between (thiosulfate, polysulfides, organic acids, nitrite, N2) are left out. "
+                   "Acid-base and complexing reactions still reach equilibrium.")
+    if not sc.minerals_form:
+        out.append("No minerals form: the fluid keeps everything it carries even where a mineral is supersaturated "
+                   "(the saturation indices show which ones are).")
+    if sc.energy:
+        out.append("Catabolic energy: ΔG = RT ln(Q/K) of each reaction at the fluid's temperature, pressure and "
+                   "activities (log K from the database's Gibbs energies), in kJ per mole of the reaction as written. "
+                   "The energy available is -ΔG times the moles of reaction the limiting reactant allows, per kg of "
+                   "water, holding ΔG at its starting value as McCollom and Shock (1997) did; it is an upper bound, "
+                   "since ΔG shrinks as a reaction proceeds and each reaction is counted as if it had the reactants to "
+                   "itself. Iron oxidation is taken to hematite.")
+        if not sc.redox_apart:
+            out.append("The redox couples are at equilibrium in this run, so every ΔG is close to zero; hold redox "
+                       "apart on the card to keep the disequilibrium the fluids bring.")
+    return out
+
+
 def reliability_notes(points: list[tuple[float, float]], rels: list[validity.Reliability],
                       varies: list[str]) -> list[str]:
     """One sentence per stretch of the path where the thermodynamics is not 'good'."""
@@ -1240,6 +1283,8 @@ def _pack(rows: list[dict | None]) -> dict:
         "minerals": column(lambda r, k: r["minerals"].get(k, 0.0), mineral_keys),
         "gas": column(lambda r, k: r.get("gas", {}).get(k, 0.0), gas_keys),
         "kinetic": column(lambda r, k: r.get("kinetic", {}).get(k), sorted({k for r in good for k in r.get("kinetic", {})})),
+        "energy": column(lambda r, k: r.get("energy", {}).get(k),
+                         list(dict.fromkeys(k for r in good for k in r.get("energy", {})))),
         "phases": column(lambda r, k: r.get("phases", {}).get(k), ["salinity"]),
         "composition": column(lambda r, k: r.get("composition", {}).get(k),
                               sorted({k for r in good for k in r.get("composition", {})})),
@@ -1433,8 +1478,14 @@ def _catalog(db, runs: dict[str, dict], sc: Scenario) -> dict:
             else:
                 ion = re.sub(r"X\d*$", "", k)
                 sorbed[k] = {"label": f"{ion} on exchange sites ({k})", "unit": "mol"}
+    energy = {}
+    first = preset(sc.fluid).label.lower() if sc.fluid in PRESETS else "the starting fluid"
+    for r in catabolic.REACTIONS:
+        energy[f"dG:{r.key}"] = {"label": f"ΔG {r.label.lower()} ({r.equation})", "unit": "kJ/mol"}
+        energy[f"E:{r.key}"] = {"label": f"{r.label} energy", "unit": "J/kg"}
+        energy[f"Es:{r.key}"] = {"label": f"{r.label} energy per kg of {first}", "unit": "J/kg"}
     return {"species": species, "elements": elements, "minerals": minerals, "gas": gases,
-            "kinetic": kinetic, "composition": composition, "phases": phases, "isotopes": isotope,
+            "kinetic": kinetic, "energy": energy, "composition": composition, "phases": phases, "isotopes": isotope,
             "sorbed": sorbed, "partition": partition}
 
 

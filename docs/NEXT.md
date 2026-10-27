@@ -304,6 +304,25 @@ weathering of albite by plain rainwater goes to pH 9 to 10 at once, so the examp
 OBIGT, so brucite stays pure.
 `tests/test_examples.py` checks that each example shows what its note says.
 
+Vent mixing and catabolic energy (Douglas's request, 2026-10-27): new card fields `redox_apart` (each redox couple held
+apart: H2 from O2, H2S from sulfate, CH4 from carbonate, Fe+3 from Fe+2, NO3- from NH3; `equilibrium.REDOX_APART`),
+`minerals_form` (false: every mineral suppressed), `energy` (catabolic energies, `catabolic.py`) and `mix_spacing`
+("temperature": steps even in the mixture's temperature, `Scenario.fractions`). A held species now carries its whole
+redox family (`equilibrium._tie_family`: HS-, metal bisulfides and pyrrhotite with H2S, Fe(III) complexes and hematite
+with Fe+3), and species in between (thiosulfate, polysulfides, organic acids and their complexes, nitrite, N2, pyrite,
+magnetite; `redox_intermediates`) are suppressed, in the starting fluids too; `path.bulk_over` re-counts an
+equilibrium speciation over the held columns. Energies: dG = RT ln(Q/K) of seven reactions (H2, sulfide, CH4 and
+Fe(II) oxidation by O2, Fe to hematite; methanogenesis; sulfate reduction by H2; anaerobic methane oxidation) and
+-dG times the limiting reactant's total, J per kg of fluid and per kg of the starting fluid (McCollom and Shock 1997;
+Amend and others 2011); an Energy tab in the results and a story sentence. New preset `deep_seawater` (2 C, 0.11
+mmol/kg O2, 2.3 mmol/kg carbonate, pH 7.8; illustrative). Example "Vent fluid meets seawater": the vent preset plus
+0.08 mmol/kg CH4 at 350 C, 250 bar, mixed to 5 C (115 kg per kg), 70 steps, 2 s; sulfate reduction leads above about
+285 C, then Fe, H2 and, below about 90 C, sulfide oxidation (up to 43 J/kg). Found on the way: the vent fluid preset
+speciated at 25 C with its H2 puts most of its carbonate into organic-acid complexes (Na(Pent) ...), since OBIGT's
+metal-organic complexes are not held apart from carbonate in ordinary runs; worth a look. Judgment calls: dG held at
+its starting value (upper bound, as in the papers); a reactant or product below 1e-10 mol/kg leaves dG blank;
+mixed-valence minerals such as magnetite are suppressed when redox is held apart.
+
 462 tests pass with the data folder present. The data folder needs `OBIGT/Berman/` (run
 `scripts/fetch_references.ps1` again); without it the old minerals are used and every run says so.
 

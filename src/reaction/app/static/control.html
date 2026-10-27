@@ -114,6 +114,7 @@
             <label class="f">Mix in a second fluid<select id="f-mix_with"></select></label>
             <label class="f">Up to (kg per kg)<input id="f-mix_ratio" type="number" min="0" max="1000" step="any"></label>
             <label class="f">Its temperature (&deg;C)<input id="f-mix_t_c" type="number" min="0" max="600" step="any" placeholder="follow the path"></label>
+            <label class="f" title="Even in the amount mixed, or even in the mixture's temperature (needs the second fluid's temperature): a vent fluid reaches 50 C after only a few percent of seawater, so even amounts skip the hot end">Steps even in<select id="f-mix_spacing"><option value="ratio">Amount mixed</option><option value="temperature">Temperature</option></select></label>
           </div>
           <div id="mix-hint" class="hint" style="margin-top:4px"></div>
           <div style="margin-top:10px">
@@ -157,6 +158,9 @@
             <label class="f" title="δ18O, δ13C, δ34S of the fluid and minerals and 87Sr/86Sr of the fluid along the run; starting values can be set in the chat, e.g. &quot;fluid d18O -5&quot; or &quot;basalt glass 87Sr/86Sr 0.7030&quot;">Isotopes<select id="f-isotopes"><option value="false">Off</option><option value="true">On</option></select></label>
             <label class="f" title="A gas phase (CO2, CH4, steam, H2, H2S ...) forms when the dissolved gases' fugacities add up to the pressure">Gas phase<select id="f-gas_phase"><option value="true">Can form</option><option value="false">Suppressed</option></select></label>
             <label class="f" title="Below about 150 C methane and sulfate do not react on human time scales; held apart, each keeps its own total">Methane and sulfate<select id="f-methane_sulfate"><option value="apart">Held apart</option><option value="react">Can react</option></select></label>
+            <label class="f" title="Held apart: H2, sulfide, methane, Fe(III) and nitrate keep their own totals, apart from O2, sulfate, carbonate, Fe(II) and ammonia, so no electrons pass between them and a mixture keeps the redox disequilibrium its fluids bring (as when mixing outruns the redox reactions)">Redox couples<select id="f-redox_apart"><option value="false">Reach equilibrium</option><option value="true">Held apart</option></select></label>
+            <label class="f" title="Suppressed: no mineral forms, even where one is supersaturated (conservative mixing)">Minerals<select id="f-minerals_form"><option value="true">Can form</option><option value="false">Suppressed</option></select></label>
+            <label class="f" title="The Gibbs energy of chemosynthetic reactions (H2, sulfide, methane and Fe(II) oxidation, methanogenesis, sulfate reduction, anaerobic methane oxidation) and the energy each makes available per kg of fluid, at every step (McCollom and Shock 1997). Meaningful with the redox couples held apart">Catabolic energy<select id="f-energy"><option value="false">Off</option><option value="true">On</option></select></label>
           </div>
           <label class="f" style="margin-top:8px" title="Extra runs with every log K shifted at random by its uncertainty (larger where the reliability check is worse); the plots then shade the middle 90% of them. 0 = a single run. Each run takes as long as the main one, spread over the processors">Uncertainty range (extra runs, 0 = off)<input id="f-uncertainty_runs" type="number" min="0" max="200" step="1"></label>
         </fieldset>

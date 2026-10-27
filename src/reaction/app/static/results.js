@@ -36,7 +36,7 @@ function frame(res = result) {
 const UNIT_SCALE = { mol: 1, mmol: 1e3, umol: 1e6, mg: 1e3, ug: 1e6 };
 const UNIT_TEXT = { mol: "mol", mmol: "mmol", umol: "µmol", mg: "mg", ug: "µg" };
 const TABS = [["species", "Species"], ["elements", "Elements"], ["minerals", "Mineral amounts"],
-  ["gas", "Gas phase"], ["kinetic", "Rates"], ["composition", "Solid solutions"], ["phases", "Brine and vapour"], ["isotopes", "Isotopes"], ["sorbed", "Sorbed"], ["partition", "Partition coefficients"], ["saturation", "Saturation index"], ["property", "Properties"]];
+  ["gas", "Gas phase"], ["kinetic", "Rates"], ["energy", "Energy"], ["composition", "Solid solutions"], ["phases", "Brine and vapour"], ["isotopes", "Isotopes"], ["sorbed", "Sorbed"], ["partition", "Partition coefficients"], ["saturation", "Saturation index"], ["property", "Properties"]];
 const PROPS = { pH: "pH", ionic_strength: "Ionic strength", water_kg: "Solvent mass", log_aw: "log water activity", log_fO2: "log fO2", Eh: "Eh (V)", surface_potential_mV: "Surface potential (mV)" };
 
 function pill(el, text, kind) { el.textContent = text; el.className = "pill " + (kind || ""); }
@@ -71,6 +71,7 @@ function labelOf(item) {
   if (item.group === "partition") return (cat.partition && cat.partition[item.key] ? cat.partition[item.key].label : item.key);
   if (item.group === "isotopes") return (cat.isotopes && cat.isotopes[item.key] ? cat.isotopes[item.key].label : item.key);
   if (item.group === "composition") return (cat.composition && cat.composition[item.key] ? cat.composition[item.key].label : item.key);
+  if (item.group === "energy") return (cat.energy && cat.energy[item.key] ? cat.energy[item.key].label : item.key);
   if (item.group === "kinetic") return (cat.kinetic && cat.kinetic[item.key] ? cat.kinetic[item.key].label : item.key);
   return PROPS[item.key];
 }
@@ -129,6 +130,11 @@ function yLabel(items, view) {
     return items[0].key.startsWith("87") ? "87Sr/86Sr" : `${items[0].key.split(":")[0].replace("d", "δ")} (${c ? c.unit : "‰"})`;
   }
   if (g === "phases") return items[0].key === "vapour_share" ? "% of the fluid's mass in the vapour" : "wt% NaCl (equivalent)";
+  if (g === "energy") {
+    const k = items[0].key;
+    if (k.startsWith("dG:")) return "ΔG, kJ per mole of reaction (below 0: energy released)";
+    return k.startsWith("Es:") ? "energy available, J per kg of the starting fluid" : "energy available, J per kg of fluid";
+  }
   if (g === "kinetic") {
     const c = result.catalog.kinetic && result.catalog.kinetic[items[0].key];
     return items[0].key.startsWith("rate:") ? `${c ? c.unit : "mol/s"} per kg water (+ dissolves)` : "% of starting amount left";
@@ -229,7 +235,7 @@ function draw() {
   const items = view.items;
   const g = items.length ? items[0].group : "";
   const logOk = g === "species" || g === "elements" || g === "minerals" || g === "gas" || g === "sorbed" || g === "partition" || (g === "property" && items[0].key === "ionic_strength")
-    || (g === "kinetic" && items[0].key.startsWith("rate:")) || g === "phases";
+    || (g === "kinetic" && items[0].key.startsWith("rate:")) || g === "phases" || (g === "energy" && !items[0].key.startsWith("dG:"));
   const useLog = view.log && logOk;
   document.querySelectorAll("#axis button").forEach((b) => {
     b.classList.toggle("on", (b.dataset.log === "1") === useLog);
@@ -259,7 +265,7 @@ function draw() {
   plot.set(xax.values, series, {
     log: useLog, yLabel: yLabel(items, view), xLabel: `${xax.label} (${xax.unit})`,
     xName: xax.label, xUnit: " " + xax.unit,
-    hoverFixed: g === "isotopes" ? (items[0].key.startsWith("87") ? 5 : 2) : 0, refLines: g === "saturation" ? [0] : null,
+    hoverFixed: g === "isotopes" ? (items[0].key.startsWith("87") ? 5 : 2) : 0, refLines: g === "saturation" || (g === "energy" && items[0].key.startsWith("dG:")) ? [0] : null,
     title: result.summary, strip: anyRisk ? rel : null,
     sub: other ? (i) => `${other.label} ${fmtVal(other.values[i])} ${other.unit}` : null,
   });
@@ -279,6 +285,9 @@ function candidates() {
   }
   if (tab === "gas") {
     return Object.keys(run.gas || {}).map((k) => ({ group: "gas", key: k, label: labelOf({ group: "gas", key: k }) }));
+  }
+  if (tab === "energy") {
+    return Object.keys(run.energy || {}).map((k) => ({ group: "energy", key: k, label: labelOf({ group: "energy", key: k }) }));
   }
   if (tab === "kinetic") {
     return Object.keys(run.kinetic || {}).map((k) => ({ group: "kinetic", key: k, label: labelOf({ group: "kinetic", key: k }) }));
@@ -307,7 +316,7 @@ function candidates() {
 
 function drawPicker() {
   const run0 = lead();
-  const shown = TABS.filter(([id]) => (id !== "kinetic" && id !== "composition" && id !== "phases" && id !== "isotopes" && id !== "sorbed" && id !== "partition") ||
+  const shown = TABS.filter(([id]) => (id !== "kinetic" && id !== "composition" && id !== "phases" && id !== "isotopes" && id !== "sorbed" && id !== "partition" && id !== "energy") ||
     (id === "phases" ? "vapour_share" in (run0.phases || {}) : Object.keys(run0[id] || {}).length));
   if (!shown.some(([id]) => id === tab)) tab = "species";
   $("tabs").replaceChildren(...shown.map(([id, label]) => h("button", {

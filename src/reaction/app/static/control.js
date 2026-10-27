@@ -22,6 +22,10 @@ function render(s) {
   $("f-follow_phase").value = c.follow_phase || "whole";
   $("f-isotopes").value = c.isotopes ? "true" : "false";
   $("f-methane_sulfate").value = c.methane_sulfate || "apart";
+  $("f-redox_apart").value = c.redox_apart ? "true" : "false";
+  $("f-minerals_form").value = c.minerals_form === false ? "false" : "true";
+  $("f-energy").value = c.energy ? "true" : "false";
+  $("f-mix_spacing").value = c.mix_spacing || "ratio";
   $("f-kinetics").value = c.kinetics ? "true" : "false";
   $("f-duration_unit").value = c.duration_unit || "years";
   for (const k of ["duration", "surface_area_cm2_per_g", "evaporate", "uncertainty_runs", "exchange_meq", "hfo_g",
@@ -185,6 +189,8 @@ $("f-clay_edges").addEventListener("change", (ev) => edit("clay_edges", ev.targe
 $("f-follow_phase").addEventListener("change", (ev) => edit("follow_phase", ev.target.value));
 $("f-isotopes").addEventListener("change", (ev) => edit("isotopes", ev.target.value === "true"));
 $("f-methane_sulfate").addEventListener("change", (ev) => edit("methane_sulfate", ev.target.value));
+for (const k of ["redox_apart", "minerals_form", "energy"]) $("f-" + k).addEventListener("change", (ev) => edit(k, ev.target.value === "true"));
+$("f-mix_spacing").addEventListener("change", (ev) => edit("mix_spacing", ev.target.value));
 $("f-kinetics").addEventListener("change", (ev) => edit("kinetics", ev.target.value === "true"));
 for (const k of ["duration", "duration_unit", "surface_area_cm2_per_g", "evaporate", "uncertainty_runs", "exchange_meq", "hfo_g",
   "kaolinite_g", "illite_g", "montmorillonite_g", "kd_solid_g", "kd_medium"]) {

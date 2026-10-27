@@ -55,8 +55,8 @@ class System:
                                suppress_phases=suppress_phases, decoupled=tuple(hold_apart))
         except NetworkError as exc:
             raise EquilibriumError(str(exc)) from exc
-        for d in hold_apart:                         # its gas follows it, not the rest of the basis
-            _tie_gas_to(self.net, db, d)
+        for d in hold_apart:                         # its gas and its redox family follow it
+            _tie_family(self.net, db, d)
         self.db = db
         self.gas_phase = gas_phase
         self.solid_solutions = tuple(solid_solutions)        # solidsolution.SolidSolution entries
@@ -95,22 +95,85 @@ class System:
         return self._models[key]
 
 
-def _tie_gas_to(net: Network, db, species: str) -> None:
-    """Rewrite the gas of a held-apart species (CH4(g) for CH4) over that species' own column, so that
-    the gas exchanges with it and not with the rest of the basis.  Both are written over the core basis
-    with the same formula, so CH4(g) = CH4(aq) with the difference of their logK."""
-    gas = f"{db[species].formula}(g)"
-    if gas not in net.phase_names:
-        return
-    k = net.phase_names.index(gas)
+# Redox species that can be held apart from the oxidation state (O2) and from each other, each with the basis
+# species of its element: no electrons pass between sulfide and sulfate, methane and carbonate, H2 and O2,
+# Fe(III) and Fe(II), nitrate and ammonia.
+REDOX_APART = {"H2": None, "H2S": "SO4-2", "CH4": "HCO3-", "Fe+3": "Fe+2", "NO3-": "NH3"}
+
+
+def redox_intermediates(db: ThermoDatabase, held: Iterable[str]) -> list[str]:
+    """Species and phases whose oxidation state is neither the basis one, O2, nor that of a held species
+    (thiosulfate, polysulfides, organic acids and their complexes, nitrite, N2, pyrite, magnetite ...).
+    With the redox couples held apart they would carry electrons between them through O2, so a run that
+    keeps redox apart leaves them out."""
+    def row(name):
+        return {k: c for k, c in db[name].reaction.items() if k != name}
+
+    fams = [(row(h), REDOX_APART.get(h)) for h in held if h in db] + [({OXYGEN: 1.0}, None)]
+    out = []
+    for sp in db.of_kind(Kind.AQUEOUS, Kind.GAS, Kind.MINERAL):
+        if sp.name in held or not sp.reaction:
+            continue
+        r = row(sp.name)
+        if abs(r.get(OXYGEN, 0.0)) < 1e-12:
+            continue
+        member = False
+        for own, key in fams:
+            j = key if key is not None else max(own, key=lambda k: abs(own[k]))
+            if abs(r.get(j, 0.0)) < 1e-12:
+                continue
+            a = r[j] / own[j]
+            rest = {k: r.get(k, 0.0) - a * own.get(k, 0.0) for k in set(r) | set(own)}
+            if key is None:
+                member = all(abs(v) < 1e-9 for v in rest.values())
+            else:
+                member = abs(rest.get(OXYGEN, 0.0)) < 1e-9
+            if member:
+                break
+        if not member:
+            out.append(sp.name)
+    return out
+
+
+def _tie_family(net: Network, db, species: str) -> None:
+    """Rewrite every species and phase in the same oxidation state as a held-apart species over that
+    species' own column, so that they exchange with it and not with the rest of the basis: CH4(g) with
+    CH4; HS-, metal bisulfide complexes and pyrrhotite with H2S; Fe(III) complexes and hematite with
+    Fe+3.  A row qualifies when it is a multiple of the held species' row plus a row with neither its
+    element column nor O2(g), i.e. no electrons to trade.  A held species without such an element
+    column (H2) takes only rows that are an exact multiple of its own (its gas)."""
     own, terms = net.couple[species]
-    if np.max(np.abs(net.nu_phase[k] - own)) > 1e-9:
-        return
     col = net.basis.index(species)
-    row = np.zeros(len(net.basis))
-    row[col] = 1.0
-    net.nu_phase[k] = row
-    net.phase_terms[k] = list(net.phase_terms[k]) + [(-cf, lk) for cf, lk in terms]
+    skip = {net.basis.index(n) for n in (WATER, PROTON, OXYGEN) if n in net.basis}
+    keys = [j for j in range(len(net.basis)) if abs(own[j]) > 1e-12 and j not in skip]
+    o2 = net.basis.index(OXYGEN) if OXYGEN in net.basis else None
+    key = keys[0] if len(keys) == 1 else None
+
+    def tie(row, row_terms):
+        if key is not None:
+            if abs(row[key]) < 1e-12:
+                return None
+            a = row[key] / own[key]
+            rest = row - a * own
+            if o2 is not None and abs(rest[o2]) > 1e-9:
+                return None
+        else:
+            j = max(range(len(own)), key=lambda i: abs(own[i]))
+            a = row[j] / own[j]
+            rest = row - a * own
+            if abs(a) < 1e-12 or np.max(np.abs(rest)) > 1e-9:
+                return None
+        new = rest.copy()
+        new[col] += a
+        return new, list(row_terms) + [(-a * cf, lk) for cf, lk in terms]
+
+    for rows, term_lists in ((net.nu_dep, net.dep_terms), (net.nu_phase, net.phase_terms)):
+        for k in range(len(rows)):
+            if abs(rows[k][col]) > 1e-12:            # already written through a held column
+                continue
+            got = tie(rows[k], term_lists[k])
+            if got is not None:
+                rows[k], term_lists[k] = got
 
 
 @dataclass

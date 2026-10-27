@@ -599,6 +599,7 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
         ch["ph"] = pasted.ph
     ch.update(_redox(low))
     ch.update(_gas_options(low))
+    ch.update(_disequilibrium_options(low))
     ch.update(_kinetic_options(low))
     ch.update(_brine_options(low))
     ch.update(_uncertainty_options(low))
@@ -706,6 +707,12 @@ def change_bits(ch: dict, card: Scenario) -> list[str]:
                      "davies": "Davies activity coefficients"}[ch["activity_model"]])
     if "solid_solutions" in ch:
         bits.append("solid solutions can form" if ch["solid_solutions"] else "pure minerals only")
+    if "redox_apart" in ch:
+        bits.append("redox couples held apart" if ch["redox_apart"] else "redox couples in equilibrium")
+    if "minerals_form" in ch:
+        bits.append("minerals can form" if ch["minerals_form"] else "no minerals forming")
+    if "energy" in ch:
+        bits.append("catabolic energies" if ch["energy"] else "no catabolic energies")
     if "exchange_meq" in ch:
         bits.append(f"{ch['exchange_meq']:g} meq of exchange sites" if ch["exchange_meq"] else "no exchanger")
     if "hfo_g" in ch:
@@ -997,6 +1004,27 @@ def _uncertainty_options(low: str) -> dict:
         return {"uncertainty_runs": 0}
     m = re.search(r"(\d+)\s*(?:runs|samples|draws|realizations|realisations|times)\b", low)
     return {"uncertainty_runs": int(m.group(1)) if m else DEFAULT_UNCERTAINTY_RUNS}
+
+
+def _disequilibrium_options(low: str) -> dict:
+    """Redox held apart, minerals suppressed and the catabolic energies, from the user's words."""
+    out: dict = {}
+    off = r"\b(no|without|don'?t|do not|turn off|switch off|stop)\b"
+    if re.search(r"\bredox\b[^.]*\b(apart|held apart|disequilibrium|suppress\w*|frozen|no reaction)\b|"
+                 r"\b(hold|keep|holding|keeping)\b[^.]*\bredox\b[^.]*\bapart\b|\bredox disequilibrium\b|"
+                 r"\b(suppress\w*|no|without)\b[^.]*\bredox (reactions?|changes?)\b", low):
+        out["redox_apart"] = True
+    elif re.search(r"\bredox\b[^.]*\b(equilibrat\w*|react freely|reach equilibrium)\b", low):
+        out["redox_apart"] = False
+    if re.search(r"\b(no|without|suppress\w*|block all)\b[^.]*\b(minerals?|precipitation|precipitates?)\b(?! named)|"
+                 r"\bconservative mixing\b|\bminerals?\b[^.]*\b(suppressed|not form|off)\b", low) \
+            and not re.search(r"\bblock(ed)?\s+[a-z]+ite\b", low):
+        out["minerals_form"] = False
+    elif re.search(r"\b(let|allow)\b[^.]*\bminerals?\b[^.]*\b(form|precipitate)\b", low):
+        out["minerals_form"] = True
+    if re.search(r"\b(catabolic|metabolic|chemosynthe\w*|chemolitho\w*)\b[^.]*\benerg|\benergy\b[^.]*\b(microb\w*|chemosynthe\w*)", low):
+        out["energy"] = not re.search(off + r"\s+(?:the\s+)?(?:\w+\s+)?energ", low)
+    return out
 
 
 def _gas_options(low: str) -> dict:
