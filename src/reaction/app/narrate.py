@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 
+from ..thermo.eosdb import ATOMIC_WEIGHTS
 from .names import pretty_mineral
 from .scenario import Scenario
 
@@ -113,7 +114,38 @@ def _when(result: dict, i: int) -> str:
     return f"from about {temps[i]:.0f} °C"
 
 
-def _mineral_clauses(result: dict, run: dict, blocked: set[str]) -> list[str]:
+NUMBER_WORDS = ["no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"]
+
+
+def _count(n: int, word: str) -> str:
+    return f"{NUMBER_WORDS[n] if n < len(NUMBER_WORDS) else n} {word}{'' if n == 1 else 's'}"
+
+
+def _listing(items: list[str]) -> str:
+    """'a', 'a and b', 'a, b and c'."""
+    return items[0] if len(items) == 1 else ", ".join(items[:-1]) + " and " + items[-1]
+
+
+def mineral_word(name: str) -> str:
+    """A mineral's name for a sentence: 'albite,low' -> 'low albite', no brackets."""
+    if "," in name:
+        base, rest = name.split(",", 1)
+        return f"{rest.replace(',', ' ')} {base}".lower()
+    return name.lower()
+
+
+def plain(text: str) -> str:
+    """A sentence without brackets: 'heat seawater (static)' -> 'heat seawater, static'."""
+    text = re.sub(r"\s*\(([^()]*)\)", lambda m: ", " + m.group(1) if m.group(1) else "", text)
+    return re.sub(r",\s*,", ",", text)
+
+
+def _sentence(text: str) -> str:
+    return text[:1].upper() + text[1:]
+
+
+def _mineral_sentences(result: dict, run: dict, blocked: set[str]) -> tuple[list[str], list[str]]:
+    """(names in the order they appear, one or two plain sentences about each)."""
     found = []
     kinetic = {k.split(":", 1)[1] for k in run.get("kinetic", {})}
     for name, series in run["minerals"].items():
@@ -124,21 +156,23 @@ def _mineral_clauses(result: dict, run: dict, blocked: set[str]) -> list[str]:
             continue
         end = series[_last_valid(series)]
         peak = max(v for v in series if v is not None)
-        clause = f"{pretty_mineral(name).lower()} {_when(result, i)}"
+        word = mineral_word(name)
+        text = f"{_sentence(word)} forms {_when(result, i)}."
         if end > APPEARS:
-            clause += f" ({_amount(end)} per kg of original water at the end"
-            clause += ")" if peak <= end * 1.05 else f", up to {_amount(peak)} on the way)"
+            text += f" At the end there is {_amount(end)} of it per kg of original water"
+            text += "." if peak <= end * 1.05 else f", after reaching {_amount(peak)} on the way."
         else:
-            clause += f" (up to {_amount(peak)} per kg of original water, gone by the end)"
+            text += f" It reaches {_amount(peak)} per kg of original water and has dissolved again by the end."
         mix = _composition_text(run, name, end > APPEARS)
         if mix:
-            clause += f", {mix}"
-        found.append((i, clause))
-    return [c for _, c in sorted(found)]
+            text += f" Its make-up is {mix}."
+        found.append((i, word, text))
+    found.sort(key=lambda f: f[0])
+    return [w for _, w, _ in found], [t for _, _, t in found]
 
 
 def _composition_text(run: dict, name: str, at_end: bool) -> str:
-    """'mostly anorthite (62%) at the end' for a solid solution; empty for a pure mineral."""
+    """'anorthite 62%, albite 38% at the end' for a solid solution; empty for a pure mineral."""
     parts = {k.split(":", 1)[1]: v for k, v in run.get("composition", {}).items() if k.split(":", 1)[0] == name}
     if not parts:
         return ""
@@ -149,7 +183,7 @@ def _composition_text(run: dict, name: str, at_end: bool) -> str:
         idx = [max(idx, key=lambda i: amounts[i] or 0.0)]
     i = idx[-1]
     shares = sorted(((v[i] or 0.0, k) for k, v in parts.items()), reverse=True)
-    text = ", ".join(f"{pretty_mineral(k).lower()} {100 * x:.0f}%" for x, k in shares if x >= 0.005)
+    text = ", ".join(f"{mineral_word(k)} {100 * x:.0f}%" for x, k in shares if x >= 0.005)
     return f"{text} {'at the end' if at_end else 'at its largest'}"
 
 
@@ -174,7 +208,7 @@ def _kinetic_clause(result: dict, run: dict) -> str:
         if si:
             i = _first(si[1:], lambda v: abs(v) < 0.02)
             if i is not None:
-                text += f" (at saturation by {point_text(result, i + 1)})"
+                text += f", reaching saturation by {point_text(result, i + 1)}"
         parts.append(text)
     return ("At the measured rates, " + "; ".join(parts) + ".") if parts else ""
 
@@ -284,7 +318,7 @@ def _sorption_clause(result: dict, run: dict) -> str:
             shares = [(f, ion) for f, ion in sorted(shares, reverse=True) if f >= 0.005]
             if shares:
                 bits.append("the exchange sites end up holding " + ", ".join(
-                    f"{100 * f:.0f}% {ion}" for f, ion in shares) + " (by charge)")
+                    f"{100 * f:.0f}% {ion}" for f, ion in shares) + " by charge")
     part = run.get("partition") or {}
     metals = ("Pb", "Cu", "Zn", "Cd", "Ni", "Hg", "As", "Cr")
     kd = {}
@@ -467,7 +501,11 @@ def _column_story(result: dict) -> list[str]:
     return paras
 
 
+MODE_WORDS = {"static": "static", "flow_through": "flow-through"}
+
+
 def story(result: dict) -> list[str]:
+    """What happened during the run, in plain sentences, one paragraph per idea."""
     if result["scenario"].get("kind") == "transport":
         return _column_story(result)
     sc = result["scenario"]
@@ -479,40 +517,34 @@ def story(result: dict) -> list[str]:
     ph = modes[first_key]["properties"]["pH"]
     i0, i1 = _first_valid(ph), _last_valid(ph)
     paras.append(
-        f"{result['summary'][0].upper()}{result['summary'][1:]}. The in situ pH goes from "
+        f"{_sentence(plain(result['summary']))}. The in situ pH goes from "
         f"{ph[i0]:.1f} at {point_text(result, i0)} to {ph[i1]:.1f} at {point_text(result, i1)}.")
 
-    labels = {"static": "Static", "flow_through": "Flow-through"}
     for key, run in modes.items():
-        clauses = _mineral_clauses(result, run, blocked)
+        run_name = f"In the {MODE_WORDS[key]} run"
+        sentences = []
+        kinetic = _kinetic_clause(result, run)
+        if kinetic:
+            sentences.append(kinetic)
+        names, about = _mineral_sentences(result, run, blocked)
+        if names:
+            sentences.append(f"{run_name}, {_count(len(names), 'mineral')} form{'s' if len(names) == 1 else ''}"
+                             f"{', in this order' if len(names) > 1 else ''}: {_listing(names)}.")
+            sentences += about
+        else:
+            sentences.append(f"{run_name}, no minerals form.")
         lost = []
         for el in ("S", "Mg", "Ca", "C"):
             kept = _retained(result, run, el)
             if kept is not None and kept < 0.95:
-                lost.append(f"{(1 - kept) * 100:.0f}% of the {ELEMENT_WORDS[el]}")
-        sentence = f"{labels[key]}: "
-        kinetic = _kinetic_clause(result, run)
-        if kinetic:
-            sentence += kinetic + " "
-        if clauses:
-            sentence += ("Minerals" if kinetic else "minerals") + " form in this order: " + "; ".join(clauses) + ". "
-        else:
-            sentence += ("No" if kinetic else "no") + " minerals form. "
+                lost.append(f"{(1 - kept) * 100:.0f}% of its {ELEMENT_WORDS[el]}")
         if lost:
-            sentence += "By the end the fluid has lost " + ", ".join(lost) + ". "
-        gas = _gas_clause(result, run, key)
-        if gas:
-            sentence += gas
-        split = _split_clause(result, run)
-        if split:
-            sentence = sentence.rstrip() + " " + split
-        sorb = _sorption_clause(result, run)
-        if sorb:
-            sentence = sentence.rstrip() + " " + sorb
-        iso = _isotope_clause(run)
-        if iso:
-            sentence = sentence.rstrip() + " " + iso
-        paras.append(sentence.strip())
+            sentences.append("By the end the fluid has lost " + _listing(lost) + ".")
+        for extra in (_gas_clause(result, run, key), _split_clause(result, run), _sorption_clause(result, run),
+                      _isotope_clause(run)):
+            if extra:
+                sentences.append(extra)
+        paras.append(" ".join(s.strip() for s in sentences))
         energy = _energy_clause(result, run)
         if energy:
             paras.append(energy)
@@ -523,13 +555,13 @@ def story(result: dict) -> list[str]:
         for el in ("S", "Mg", "Ca", "C"):
             ka, kb = _retained(result, a, el), _retained(result, b, el)
             if ka is not None and kb is not None and abs(ka - kb) > 0.05:
-                diffs.append(f"{ELEMENT_WORDS[el]} ({ka * 100:.0f}% left when static, {kb * 100:.0f}% "
-                             f"when flow-through)")
+                diffs.append(f"{ka * 100:.0f}% of the {ELEMENT_WORDS[el]} is left when static and "
+                             f"{kb * 100:.0f}% when flow-through")
         pa, pb = a["properties"]["pH"], b["properties"]["pH"]
         ea, eb = _last_valid(pa), _last_valid(pb)
         ph_note = ""
         if ea is not None and eb is not None and abs(pa[ea] - pb[eb]) > 0.1:
-            ph_note = f" The final pH differs: {pa[ea]:.1f} static, {pb[eb]:.1f} flow-through."
+            ph_note = f" The final pH is {pa[ea]:.1f} static and {pb[eb]:.1f} flow-through."
         if diffs:
             paras.append("Where the two modes differ: " + "; ".join(diffs) + "." + ph_note)
         else:
@@ -540,17 +572,78 @@ def story(result: dict) -> list[str]:
         for run in modes.values():
             sat = run["saturation"].get(name)
             if sat and max((v for v in sat if v is not None), default=-9) > 0.1:
-                held.append(pretty_mineral(name).lower())
+                held.append(mineral_word(name))
                 break
     if held:
-        paras.append("Held out as kinetically blocked although the fluid is supersaturated in them: "
-                     + ", ".join(held) + ".")
+        paras.append("The fluid becomes supersaturated in " + _listing(held) + ", but "
+                     + ("it was" if len(held) == 1 else "they were") + " held out as kinetically blocked.")
 
     levels = result.get("reliability", {}).get("levels", [])
     if any(level != "good" for level in levels):
         worst = "poor" if "poor" in levels else "caution"
         where = "some" if worst == "caution" else "part"
         paras.append(f"{where.capitalize()} of this path lies where the thermodynamics of charged species is "
-                     f"less certain ({'unreliable' if worst == 'poor' else 'approximate'} there): see "
-                     f"Assumptions and limits, and the coloured strip under the plot.")
+                     f"less certain, so the numbers there are {'unreliable' if worst == 'poor' else 'approximate'}. "
+                     f"See Assumptions and limits, and the coloured strip under the plot.")
     return paras
+
+
+FLUID_PROPERTIES = (("temperature", "Temperature", "°C"), ("pressure", "Pressure", "bar"), ("pH", "pH", ""),
+                    ("Eh", "Eh", "V"), ("log_fO2", "log fO2", ""), ("ionic_strength", "Ionic strength", "mol/kg"),
+                    ("water_kg", "Water left", "kg per kg at the start"))
+
+
+def _num(v: float, digits: int = 3) -> str:
+    if v == 0:
+        return "0"
+    if abs(v) >= 1000:
+        return f"{v:,.0f}"
+    return f"{v:.{digits}g}"
+
+
+def end_lists(result: dict) -> list[dict]:
+    """The solids and the fluid at the end of each mode, as rows of plain text for two tables.
+
+    Solids are per kg of the original water; dissolved amounts are per kg of the water then present."""
+    if result["scenario"].get("kind") == "transport":
+        return []
+    cat = result.get("catalog", {})
+    temps, pressures, _ = _axes(result)
+    out = []
+    for key, run in result["modes"].items():
+        ph = run["properties"]["pH"]
+        i = _last_valid(ph)
+        if i is None:
+            continue
+        solids = []
+        for name, series in run["minerals"].items():
+            v = series[i] if i < len(series) else None
+            if v is None or v <= APPEARS:
+                continue
+            mw = (cat.get("minerals", {}).get(name) or {}).get("mw")
+            solids.append((v, [pretty_mineral(name), _num(v * 1000), _num(v * mw) if mw else ""]))
+        solids = [row for _, row in sorted(solids, key=lambda r: -r[0])]
+        props = []
+        for k, label, unit in FLUID_PROPERTIES:
+            if k == "temperature":
+                v = temps[i]
+            elif k == "pressure":
+                v = pressures[i]
+            else:
+                v = (run["properties"].get(k) or [None] * (i + 1))[i]
+            if v is None:
+                continue
+            text = f"{v:.2f}" if k in ("pH", "Eh") else f"{v:.1f}" if k == "log_fO2" else _num(v)
+            props.append([label, f"{text} {unit}".strip()])
+        dissolved = []
+        for el, series in run["elements"].items():
+            v = series[i] if i < len(series) else None
+            if not v or v < 1e-12 or el in ("H", "O"):
+                continue
+            mg = v * ATOMIC_WEIGHTS[el] * 1000 if el in ATOMIC_WEIGHTS else None
+            label = ELEMENT_WORDS.get(el, el)
+            dissolved.append((v, [f"{label[:1].upper()}{label[1:]}", _num(v * 1000), _num(mg) if mg else ""]))
+        dissolved = [row for _, row in sorted(dissolved, key=lambda r: -r[0])]
+        out.append({"mode": key, "title": f"End of the {MODE_WORDS[key]} run, at {point_text(result, i)}",
+                    "solids": solids, "fluid": props, "dissolved": dissolved})
+    return out

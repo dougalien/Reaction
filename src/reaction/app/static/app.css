@@ -28,7 +28,7 @@ h1 { font-size: 18px; } h2 { font-size: 15px; } h3 { font-size: 13px; color: var
 button, input, select, textarea { font: inherit; color: inherit; }
 button {
   background: var(--panel); border: 1px solid var(--line-strong); border-radius: var(--radius);
-  padding: 5px 12px; cursor: pointer;
+  padding: 8px 16px; cursor: pointer; min-height: 36px;
 }
 button:hover { border-color: var(--axis); }
 button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
@@ -36,7 +36,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 }
 button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
 button.primary:hover { filter: brightness(1.08); }
-button.ghost { border-color: transparent; background: transparent; color: var(--muted); padding: 3px 8px; }
+button.ghost { border-color: transparent; background: transparent; color: var(--muted); padding: 6px 12px; }
 button.ghost:hover { color: var(--ink); border-color: var(--line-strong); }
 input, select, textarea {
   background: var(--panel); border: 1px solid var(--line-strong); border-radius: var(--radius);
@@ -135,6 +135,15 @@ fieldset.group > legend { padding: 0 6px; font-weight: 600; color: var(--slate);
 /* results window */
 .results { max-width: 1180px; margin: 0 auto; padding: 14px 18px 40px; display: flex; flex-direction: column; gap: 14px; }
 .story p { margin: 0 0 8px; } .story p:last-child { margin: 0; }
+.endlists { margin-top: 12px; }
+.endblock { margin-top: 10px; }
+.endblock h3 { margin-bottom: 6px; }
+.endgrid { display: flex; flex-wrap: wrap; gap: 18px; align-items: flex-start; }
+.endtab { border-collapse: collapse; font-size: 13px; min-width: 200px; }
+.endtab caption { text-align: left; font-weight: 600; padding-bottom: 4px; }
+.endtab th, .endtab td { padding: 3px 10px 3px 0; border-bottom: 1px solid var(--line); text-align: left; }
+.endtab th { color: var(--muted); font-weight: 600; }
+.endtab .num { text-align: right; font-variant-numeric: tabular-nums; }
 .plotwrap { position: relative; height: 430px; }
 .plotwrap svg { width: 100%; height: 100%; display: block; }
 .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; margin-bottom: 6px; }
