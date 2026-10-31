@@ -13,7 +13,7 @@ from .assistant import Interpretation, Ollama, change_bits, interpret
 from . import analysis, carryover, diagrams
 from .engine import Engine, EngineUnavailable
 from .fluids import CUSTOM, CUSTOM_LABEL, PRESETS
-from .narrate import story
+from .narrate import end_lists, story
 from .scenario import EXAMPLES, STARTING_CARDS, Scenario, example_card, reactant_text, starting_card
 from .view import apply_patch, default_view, resolve_item, sanitize
 
@@ -531,7 +531,7 @@ class Session:
         data = self.result(run_id)
         if data is None:
             return None
-        return {**data, "story": story(data)}
+        return {**data, "story": story(data), "end": end_lists(data)}
 
     def list_runs(self) -> list[dict]:
         out = []

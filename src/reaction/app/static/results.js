@@ -203,6 +203,7 @@ function draw() {
   $("title").textContent = result.title || result.scenario.title;
   $("meta").textContent = `${result.summary} · ${result.created.replace("T", " ")} · ${result.elapsed_s} s`;
   $("story").replaceChildren(...(result.story || []).map((p) => h("p", {}, p)));
+  drawEndLists(result.end || []);
   $("notes").replaceChildren(...result.notes.map((n) => h("li", {}, n)));
   document.title = `Reaction${W === "2" ? " (2)" : ""}: ${result.title || result.scenario.title} | Dougalien Systems`;
 
@@ -406,6 +407,27 @@ function diaControls(spec) {
 }
 
 function diaSend(request) { return api("/api/diagram", { request }); }
+document.querySelectorAll("button[data-dia]").forEach((b) => b.addEventListener("click", () => {
+  diaSend({ kind: b.dataset.dia });
+  setTimeout(() => $("dia").scrollIntoView({ behavior: "smooth", block: "start" }), 300);
+}));
+
+/* ---- the solids and the fluid at the end of the run -------------------------------------------- */
+function endTable(caption, head, rows) {
+  return h("table", { class: "endtab" }, h("caption", {}, caption),
+    h("thead", {}, h("tr", {}, head.map((t, k) => h("th", { class: k ? "num" : "" }, t)))),
+    h("tbody", {}, rows.map((r) => h("tr", {}, r.map((c, k) => h("td", { class: k ? "num" : "" }, c))))));
+}
+
+function drawEndLists(ends) {
+  $("endlists").replaceChildren(...ends.map((e) => h("div", { class: "endblock" },
+    h("h3", {}, e.title),
+    h("div", { class: "endgrid" },
+      endTable("Solids", ["Mineral", "mmol per kg starting water", "g per kg starting water"],
+        e.solids.length ? e.solids : [["None", "", ""]]),
+      endTable("Fluid", ["Property", "Value"], e.fluid),
+      endTable("Dissolved", ["Element", "mmol/kg", "mg/kg"], e.dissolved)))));
+}
 document.querySelectorAll("#dia-kind button").forEach((b) => b.addEventListener("click", () => diaSend({ kind: b.dataset.kind })));
 [["dia-el", "element"], ["dia-t", "t_c"], ["dia-p", "p_bar"], ["dia-a", "log_a"], ["dia-with", "with"], ["dia-cat", "cation"]]
   .forEach(([id, key]) => $(id).addEventListener("change", (ev) => diaSend({ [key]: ev.target.value })));

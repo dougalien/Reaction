@@ -224,7 +224,7 @@ def test_resolve_item_finds_species_minerals_elements_properties():
 def test_story_quotes_the_tables():
     result = fake_result(Scenario(mode="both"))
     text = " ".join(story(result))
-    assert "anhydrite from about" in text
+    assert "Anhydrite forms from about" in text
     assert "pH goes from 8.0" in text and "5.5" in text
     assert "dolomite" in text.lower() and "blocked" in text            # supersaturated but held out
     assert "Where the two modes differ" in text or "almost the same" in text
@@ -550,7 +550,7 @@ def test_story_describes_a_pressure_path_in_bar(session=None):
     result = fake_result(Scenario(t_start_c=300, t_end_c=300, p_start_bar=1000, p_end_bar=100))
     text = " ".join(story(result))
     assert "pH goes from 8.0 at 1000 bar to 5.5 at 100 bar" in text
-    assert "anhydrite at about" in text and "bar" in text
+    assert "Anhydrite forms at about" in text and "bar" in text
 
 
 def test_chat_runs_a_decompression_and_keeps_the_pressure_axis(session):
@@ -646,3 +646,15 @@ def test_example_endpoint(server):
     assert request(server, "POST", "/api/example", {"key": "lake"})[0] == 200
     assert server.session.card.isotopes and server.session.card.evaporate == 10.0
     assert request(server, "POST", "/api/example", {"key": "nonsense"})[0] == 400
+
+
+def test_story_has_no_brackets_and_end_lists_give_solids_and_fluid():
+    from reaction.app.narrate import end_lists
+    result = fake_result(Scenario(mode="both"))
+    text = " ".join(story(result))
+    assert "(" not in text and ")" not in text
+    ends = end_lists(result)
+    assert [e["mode"] for e in ends] == ["static", "flow_through"]
+    assert ends[0]["solids"][0][0] == "Anhydrite"
+    assert ["pH", "5.50"] in ends[0]["fluid"]
+    assert {row[0] for row in ends[0]["dissolved"]} == {"Magnesium", "Calcium", "Sulfur"}
