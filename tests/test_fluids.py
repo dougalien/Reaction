@@ -157,7 +157,9 @@ def test_redox_species_are_read_and_need_a_redox_state():
 def test_presets_carry_their_redox_state():
     assert Scenario(fluid="seawater").redox_setting() == ("air", None)
     assert Scenario(fluid="vent_fluid").redox_setting() == ("couple", "H2")
-    assert Scenario(fluid="formation_brine").redox_setting() == ("none", None)
+    assert Scenario(fluid="formation_brine").redox_setting() == ("eh", -0.1)
+    # a custom analysis without any redox species is taken to be in equilibrium with air
+    assert Scenario(fluid="custom", analysis="Na 10\nCl 15", ph=7.0).redox_setting() == ("air", "assumed")
     card, _ = Scenario(fluid="vent_fluid").changed({"ph": 3.0})     # a custom copy keeps it
     assert card.fluid == "custom" and card.redox_setting() == ("couple", "H2")
 

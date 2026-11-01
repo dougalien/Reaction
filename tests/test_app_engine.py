@@ -148,13 +148,13 @@ def test_charge_balance_closes_on_the_chosen_ion(engine):
     card = Scenario(fluid="custom", analysis="Na 100 mmol/kg\nCl 80 mmol/kg\nCa 5 mmol/kg", ph=7.0)
     sp, notes = engine.starting_fluid(card)
     assert abs(sp.charge_imbalance) < 1e-10
-    assert sp.totals["Cl-"] > 0.08 / (1 - 6.4e-3) and "Cl⁻" in notes[0]
+    assert sp.totals["Cl-"] > 0.08 / (1 - 6.4e-3) and any("Cl⁻" in n for n in notes)
     card.charge_balance = "Na+"
     sp, notes = engine.starting_fluid(card)
     assert abs(sp.charge_imbalance) < 1e-10 and sp.totals["Na+"] < 0.1
     card.charge_balance = "none"
     sp, notes = engine.starting_fluid(card)
-    assert sp.charge_imbalance > 0.01 and "out of charge balance" in notes[0]
+    assert sp.charge_imbalance > 0.01 and any("out of charge balance" in n for n in notes)
 
 
 def test_reacting_albite_makes_clay_and_quartz_and_a_water_rock_axis(engine):
@@ -186,9 +186,9 @@ def test_unknown_or_redox_reactants_are_refused_clearly(engine):
     base = dict(t_start_c=25.0, t_end_c=25.0, p_start_bar=1.0, p_end_bar=1.0, steps=4)
     with pytest.raises(ValueError, match="not a mineral"):
         engine.run(Scenario(**base, reactants=[{"name": "unobtainium", "amount": 1.0, "unit": "g"}]))
-    with pytest.raises(ValueError, match="redox state"):        # the brine's redox is not tracked
-        engine.run(Scenario(**base, fluid="formation_brine",
-                            reactants=[{"name": "magnetite", "amount": 1.0, "unit": "g"}]))
+    brine, _ = Scenario(**base, fluid="formation_brine").changed({"redox": "none"})
+    with pytest.raises(ValueError, match="redox state"):        # redox switched off on purpose
+        engine.run(brine.changed({"reactants": [{"name": "magnetite", "amount": 1.0, "unit": "g"}]})[0])
 
 
 def test_solved_state_carries_the_water_activity_it_was_solved_with(engine):
@@ -261,8 +261,29 @@ def test_a_reduced_fluid_heats_without_failed_steps(engine):
 
 
 def test_without_redox_there_is_no_fo2_to_plot(engine):
-    card = Scenario(fluid="formation_brine", t_start_c=25.0, t_end_c=100.0, steps=3)
+    card, _ = Scenario(fluid="formation_brine", t_start_c=25.0, t_end_c=100.0, steps=3).changed({"redox": "none"})
     assert "log_fO2" not in engine.run(card)["modes"]["static"]["properties"]
+
+
+def test_every_fluid_carries_redox_and_the_story_tells_it(engine):
+    from reaction.app.narrate import story
+    card = Scenario(fluid="custom", analysis="Na 100\nCl 154\nCa 10\nHCO3 60", ph=7.0, t_start_c=25.0,
+                    t_end_c=100.0, steps=3, mode="static")
+    res = engine.run(card)
+    assert "log_fO2" in res["modes"]["static"]["properties"]
+    assert any("assumed" in n for n in res["notes"])
+    assert "Eh goes from" in story(res)[0]
+
+
+def test_crystalline_basalt_brings_its_oxides_sulfide_and_apatite(engine):
+    from reaction.app import rocks
+    names = [r["name"] for r in rocks.mineral_reactants(rocks.MINERAL_ROCKS["crystalline_basalt"], 10.0)]
+    assert {"magnetite", "pyrrhotite", "hydroxyapatite"} <= set(names)
+    card = Scenario(fluid="formation_brine", t_start_c=25.0, t_end_c=150.0, steps=3, mode="static",
+                    reactants=[{"name": n, "amount": a["amount"], "unit": "g"} for n, a in
+                               zip(names, rocks.mineral_reactants(rocks.MINERAL_ROCKS["crystalline_basalt"], 10.0))])
+    res = engine.run(card)
+    assert all(v is not None for v in res["modes"]["static"]["properties"]["pH"])
 
 
 def test_iron_oxides_react_once_the_redox_state_is_tracked(engine):

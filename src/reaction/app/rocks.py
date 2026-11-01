@@ -40,8 +40,9 @@ ROCKS: dict[str, Rock] = {
 # Crystalline rocks: a mode (weight percent of each mineral) rather than a glass.  Putting one on the card
 # writes its minerals as separate reactants, so each dissolves (and with kinetics, at its own rate) and
 # each can also precipitate again.  Plagioclase, pyroxene and olivine are written as their endmembers.
-# Minor phases with no usable dissolved species or that need the fluid's redox state (Fe-Ti oxides,
-# sulfides, phosphate) are left out and the rest scaled to 100.
+# The minor phases are in too: Fe-Ti oxides as magnetite (the database has no titanium, so ilmenite and the
+# titanium of titanomagnetite are left out), sulfide as pyrrhotite or pyrite and phosphate as hydroxyapatite.
+# They need the fluid's redox state, which every fluid now has (air unless the card says otherwise).
 @dataclass(frozen=True)
 class MineralRock:
     key: str
@@ -55,16 +56,17 @@ class MineralRock:
 MINERAL_ROCKS: dict[str, MineralRock] = {r.key: r for r in (
     MineralRock("crystalline_basalt", "Crystalline basalt",
                 {"anorthite": 33.0, "albite": 22.0, "diopside": 20.0, "hedenbergite": 10.0, "enstatite": 5.0,
-                 "forsterite": 7.0, "fayalite": 3.0},
+                 "forsterite": 7.0, "fayalite": 3.0, "magnetite": 3.0, "hydroxyapatite": 0.5, "pyrrhotite": 0.2},
                 "Diabase-like basalt: plagioclase An60, augite, a little orthopyroxene and olivine Fo80.",
-                "rounded mode of a tholeiitic dolerite (55% plagioclase, 35% pyroxene, 10% olivine); "
-                "Fe-Ti oxides left out",
+                "rounded mode of a tholeiitic dolerite (55% plagioclase, 35% pyroxene, 10% olivine) with a few "
+                "percent of Fe-Ti oxide (as magnetite), apatite and pyrrhotite",
                 ("crystalline basalt", "diabase", "dolerite", "basalt crystalline")),
     MineralRock("granite", "Granite",
                 {"quartz": 30.0, "K-feldspar": 35.0, "albite": 22.0, "anorthite": 3.0, "muscovite": 5.0,
-                 "annite": 3.0, "phlogopite": 2.0},
+                 "annite": 3.0, "phlogopite": 2.0, "magnetite": 1.0, "hydroxyapatite": 0.3, "pyrite": 0.1},
                 "Granite: quartz, K-feldspar, oligoclase (An12), muscovite and biotite.",
-                "rounded mode of a two-mica granite; biotite as annite and phlogopite",
+                "rounded mode of a two-mica granite; biotite as annite and phlogopite; accessory magnetite, "
+                "apatite and pyrite",
                 ("granite", "granitic rock", "granodiorite")),
     MineralRock("lherzolite", "Lherzolite",
                 {"forsterite": 52.0, "fayalite": 8.0, "enstatite": 22.0, "ferrosilite": 3.0, "diopside": 12.0,
@@ -75,11 +77,12 @@ MINERAL_ROCKS: dict[str, MineralRock] = {r.key: r for r in (
                 ("lherzolite", "peridotite", "mantle peridotite", "mantle rock", "spinel lherzolite")),
     MineralRock("mars_meteorite", "Mars meteorite",
                 {"enstatite": 22.0, "ferrosilite": 20.0, "diopside": 14.0, "hedenbergite": 14.0, "anorthite": 12.0,
-                 "albite": 11.0},
+                 "albite": 11.0, "magnetite": 2.0, "hydroxyapatite": 0.5, "pyrrhotite": 0.3},
                 "Basaltic shergottite like Shergotty: iron-rich pigeonite and augite with maskelynite "
                 "(shocked plagioclase, An50).",
                 "rounded mode of the Shergotty meteorite (about 70% pyroxene and 23% maskelynite; Stolper and "
-                "McSween 1979); its few percent of Fe-Ti oxides, phosphate and sulfide left out",
+                "McSween 1979) with its few percent of Fe-Ti oxide (as magnetite), phosphate (as apatite) and "
+                "pyrrhotite",
                 ("mars meteorite", "martian meteorite", "mars meteor", "martian meteor", "shergottite",
                  "shergotty", "martian basalt", "mars basalt", "mars rock", "martian rock")),
     MineralRock("sandstone", "Sandstone",

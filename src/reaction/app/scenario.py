@@ -294,7 +294,7 @@ class Scenario:
         return analysis.parse(spec.analysis, spec.units)
 
     def redox_setting(self) -> tuple[str, Any]:
-        """How the starting fluid's redox state is set: ("none", None), ("air", None),
+        """How the starting fluid's redox state is set: ("none", None), ("air", None or "assumed"),
         ("log_fo2" | "eh" | "pe", value) or ("couple", species).  Raises ValueError when the
         card cannot say."""
         return resolve_redox(self.fluid_spec(), self.fluid_analysis())
@@ -618,7 +618,9 @@ def resolve_redox(spec: FluidPreset, got: analysis.Analysis) -> tuple[str, Any]:
             raise ValueError(f"{names} needs the redox state of the fluid: give its partner too "
                              f"(Fe(II) with Fe(III), sulfate with sulfide), dissolved O2 or H2, or set "
                              f"the redox state (air, log fO2, Eh or pe)")
-        return "none", None
+        # no redox species at all: the fluid is taken to be in equilibrium with air, so the redox state
+        # is always known and iron oxides, sulfides and ferric iron can react; the run says so
+        return "air", "assumed"
     if choice == "none":
         if present:
             names = ", ".join(analysis.SOLUTES_LABEL(s) for s in present)
