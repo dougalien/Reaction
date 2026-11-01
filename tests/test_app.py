@@ -612,7 +612,7 @@ def test_reset_endpoint_takes_a_starting_card(server):
 
 
 # ---- examples ------------------------------------------------------------------------------------
-def test_an_example_loads_its_card_and_runs(session):
+def test_an_example_fills_its_card_and_waits_for_run(session):
     from reaction.app.scenario import EXAMPLES, Scenario as Card
     snap = session.snapshot()
     assert [e["key"] for e in snap["examples"]] == list(EXAMPLES) and len(EXAMPLES) == 10
@@ -623,6 +623,8 @@ def test_an_example_loads_its_card_and_runs(session):
     assert session.load_example("serpentinization")
     assert session.card.solid_solutions and session.card.reactants[0]["name"] == "olivine fo90"
     assert session.snapshot()["example"] == "serpentinization"
+    assert session.run_state["state"] != "running" and not session.current     # filled, not run
+    assert session.start_run()
     assert wait(lambda: session.run_state["state"] == "idle" and session.current)
     session.reset_card("brine")
     assert session.snapshot()["example"] is None
@@ -637,6 +639,7 @@ def test_foram_example_opens_on_its_mass_in_micrograms(session, monkeypatch):
     monkeypatch.setitem(scenario.EXAMPLES, "forams", dataclasses.replace(scenario.EXAMPLES["forams"], plot=("anhydrite",)))
     assert session.load_example("forams")
     assert reactant_text(session.card.reactants[0]) == "20 µg forams"
+    assert session.start_run()
     assert wait(lambda: session.run_state["state"] == "idle" and session.current)
     assert session.view["unit"] == "ug" and session.view["items"] == [{"group": "minerals", "key": "anhydrite"}]
     assert not session.view["log"]

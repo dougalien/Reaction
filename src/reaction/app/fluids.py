@@ -153,6 +153,28 @@ PRESETS: dict[str, FluidPreset] = {
                  "Silica is left out: at 25 C it would make magnesium silicates (talc, sepiolite) that do "
                  "not form in the lake on these time scales. Add \"SiO2 48\" to the analysis to put it "
                  "back.")),
+    "groundwater": FluidPreset(
+        "groundwater", "Groundwater",
+        "Shallow groundwater from a granitic aquifer at 10 C: dilute, Ca-Na-bicarbonate, silica-rich, "
+        "slightly acid, still carrying some oxygen.",
+        10.0,
+        "Ca+2 15\nMg+2 3\nNa+ 12\nK+ 2\nHCO3- 75\nSO4-2 8\nCl- 6\nSiO2 20",
+        6.8,
+        "illustrative values of typical magnitude for shallow groundwater in granite and gneiss, not a "
+        "specific sample (mg/L); oxygen from equilibrium with air",
+        units="mg/l", charge_balance="none", redox="air",
+        caveats=("Deeper groundwater loses its oxygen and becomes reducing; set the redox state on the card "
+                 "for that.",)),
+    "karst_spring": FluidPreset(
+        "karst_spring", "Karst spring water",
+        "Spring water from a limestone aquifer at 12 C: hard, Ca-Mg-bicarbonate, near calcite saturation, "
+        "with soil CO2 well above the atmosphere's.",
+        12.0,
+        "Ca+2 70\nMg+2 12\nNa+ 5\nK+ 1\nHCO3- 250\nSO4-2 15\nCl- 8\nSiO2 8",
+        7.3,
+        "illustrative values of typical magnitude for a karst spring, not a specific sample (mg/L); "
+        "oxygen from equilibrium with air",
+        units="mg/l", charge_balance="none", redox="air"),
     "hydrothermal": FluidPreset(
         "hydrothermal", "Hydrothermal fluid",
         "Seawater after the default heating run: heated from 2 to 350 C at 500 bar, with the anhydrite "

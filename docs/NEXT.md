@@ -279,8 +279,9 @@ to solve (B-dot at low density), as before. The phase-separation tests moved to 
 Next: salt effect on liquid-vapour and mineral D/H; Lewis and Lowell (2009) two-phase flow benchmarks once the
 column can follow phases. (Kinetics in the column: done, P7f below.)
 
-Examples (Douglas's request, 2026-10-27): a second row of buttons on the card, "Examples, load and run"
-(`scenario.EXAMPLES`, `/api/example`, `Session.load_example`). One press fills the card and runs it; a note under
+Examples (Douglas's request, 2026-10-27): a second row of buttons on the card, "Examples, fill the card"
+(`scenario.EXAMPLES`, `/api/example`, `Session.load_example`). One press fills the card and the user presses Run
+(Douglas, 2026-11-01: buttons fill, they never run); a note under
 the buttons says what the example shows and lists the card fields that set it up (each line scrolls to its field),
 and those fields are outlined on the card until another card is loaded or the note is closed. The first run opens
 the results on the example's own plot (`Example.plot`, in words, read by `view.resolve_item`). Douglas's list
@@ -456,3 +457,10 @@ Each is its own component (decoupled), tied to its acid(s) and metal complexes b
 `via_ligand` in `Network` when O2 is not in the basis); every other organic species is suppressed
 (`organic_held_apart`). CH4 stays as before. Path runs warm-start their first point from the starting
 fluid's speciation (cold start as fallback), which the vent fluid at 25 C needs now.
+
+Rock cards (Douglas, 2026-11-01): a "Rock" row above the reactants (`rocks.ROCK_CARDS`, `rock_cards()` in the
+snapshot) with a grams box; a button replaces the reactants with that rock. Basalt glass stays one congruent glass
+reactant; the crystalline rocks (`rocks.MINERAL_ROCKS`: crystalline basalt, granite, lherzolite, Mars meteorite as
+Shergotty, sandstone, calcitic/dolomitic/aragonitic limestone) are modes that `scenario.parse_reactants` expands into
+their minerals, so typing or saying "100 g granite" does the same. Fe-Ti oxides, sulfides and phosphate are left out
+(no redox dependence for a rock card). MAX_REACTANTS raised to 12. New fluids: groundwater (granitic), karst spring.

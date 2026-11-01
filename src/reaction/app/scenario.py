@@ -16,7 +16,7 @@ from dataclasses import asdict, dataclass, field, fields
 from typing import Any
 
 from ..thermo import water
-from . import analysis
+from . import analysis, rocks
 from .analysis import DEFAULT_UNIT
 from ..sorption import KD_MEDIA
 from .fluids import CUSTOM, CUSTOM_LABEL, PRESETS, REDOX_CHOICES, FluidPreset, label as fluid_label
@@ -33,7 +33,7 @@ REACTANT_UNITS = {"g": ("g", 1.0), "gram": ("g", 1.0), "grams": ("g", 1.0), "mg"
                   "ug": ("g", 1e-6), "µg": ("g", 1e-6), "microgram": ("g", 1e-6), "micrograms": ("g", 1e-6),
                   "kg": ("g", 1e3), "mol": ("mol", 1.0), "mole": ("mol", 1.0), "moles": ("mol", 1.0),
                   "mmol": ("mol", 1e-3), "umol": ("mol", 1e-6)}
-MAX_REACTANTS = 6
+MAX_REACTANTS = 12
 
 
 def reactant_text(r: dict) -> str:
@@ -814,8 +814,14 @@ def parse_reactants(value: Any) -> list[dict]:
         if unit_text not in REACTANT_UNITS:
             raise ValueError(f"unknown unit '{unit_text}' for {item['name']} (use g, mg, ug, kg, mol or mmol)")
         unit, scale = REACTANT_UNITS[unit_text]
-        out.append({"name": str(item["name"]).strip(), "amount": float(f"{float(item.get('amount', 0)) * scale:.12g}"),
-                    "unit": unit})
+        name, amount = str(item["name"]).strip(), float(f"{float(item.get('amount', 0)) * scale:.12g}")
+        rock = rocks.find_mineral_rock(name)
+        if rock is not None:                   # a crystalline rock goes on the card as its minerals
+            if unit != "g":
+                raise ValueError(f"give {rock.label.lower()} in grams")
+            out.extend(rocks.mineral_reactants(rock, amount))
+            continue
+        out.append({"name": name, "amount": amount, "unit": unit})
     return out
 
 
