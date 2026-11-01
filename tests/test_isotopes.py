@@ -115,7 +115,7 @@ def test_hydrogen_isotopes(engine):
     # residual water: R / R0 = f ** (1 / alpha - 1), alpha = R(liquid) / R(vapour)
     expected = (1000.0 - 54.0) * f ** (math.exp(-isotopes.liquid_vapour_h(25.0) / 1000.0) - 1.0) - 1000.0
     assert iso["dD:water"][-1] == pytest.approx(expected, rel=0.015)
-    assert not any(k.startswith("dD:") and k != "dD:water" for k in iso)
+    assert not any(k.startswith("dD:") and k != "dD:water" and not k.endswith("(g)") for k in iso)   # no minerals
     assert r["catalog"]["isotopes"]["dD:water"]["label"] == "δD water"
     # basalt alteration barely moves the water's dD: the minerals hold about 1% of the hydrogen
     r = _run(engine, temperature_c=350, pressure_bar=500, steps=3,
@@ -155,3 +155,41 @@ def test_mineral_dd_in_a_run(engine):
                 assert d < w - 15
     assert any("mineral-water D/H" in n for n in r["notes"])
     assert "lighter in δD than the water" in " ".join(story(r))
+
+
+def test_gas_fractionation_factors():
+    f = isotopes.table()
+    # CO2 gas - water 18O, Brenninkmeijer and others (1983): 41.1 permil at 25 C
+    assert f[("O", "CO2(g)")].delta(25.0) == pytest.approx(41.1, abs=0.1)
+    # dissolved - gaseous CO2 13C, Mook (1986): about -1.1 permil at 25 C
+    assert f[("C", "CO2(aq)")].delta(25.0) == pytest.approx(-1.06, abs=0.02)
+    # H2-water D/H: H2 about 3.8 times poorer in D than water at 25 C, about -440 permil at 350 C
+    assert isotopes.h2_water_h(25.0) == pytest.approx(-1000 * math.log(3.85), abs=10)
+    assert -470 < isotopes.h2_water_h(350.0) < -420
+    # CH4-water D/H near -140 permil at 350 C (Horibe and Craig 1995, their vent temperatures)
+    assert -160 < isotopes.ch4_water_h(350.0) < -120
+
+
+def test_gas_phase_isotopes_in_a_run(engine):
+    """Decompression degasses CO2 at 150 C: the CO2 gas sits at its fractionations from the liquid, the steam is
+    lighter than the water, and venting the gas as it forms (Rayleigh) takes the DIC further than the closed run."""
+    card = {"fluid": "custom", "analysis": "Na 0.5\nCl 0.5\nHCO3 1.0", "units": "molal", "ph": 5.0,
+            "fluid_t_c": 150, "t_start_c": 150, "t_end_c": 150, "p_start_bar": 300, "p_end_bar": 20, "steps": 8,
+            "mode": "both"}
+    r = _run(engine, **card)
+    st, fl = r["modes"]["static"]["isotopes"], r["modes"]["flow_through"]["isotopes"]
+    t = 150.0
+    dic, gas = st["d13C:DIC"][-1], st["d13C:CO2(g)"][-1]
+    # at pH 5 the DIC is mostly CO2(aq), slightly lighter than the gas (Mook 1986), bicarbonate near the gas's
+    assert 0 < gas - dic < -isotopes.table()[("C", "CO2(aq)")].delta(t) + 0.1
+    assert st["d18O:CO2(g)"][-1] - st["d18O:water"][-1] == pytest.approx(isotopes.table()[("O", "CO2(g)")].delta(t),
+                                                                      abs=0.01)
+    assert st["d18O:water"][-1] - st["d18O:H2O(g)"][-1] == pytest.approx(isotopes.liquid_vapour_o(t), abs=0.01)
+    # the closed run keeps its carbon (mean d13C 0 for a custom fluid), so DIC and gas straddle 0;
+    # venting takes the heavier gas away step by step and leaves the DIC lighter than the closed run's
+    assert dic < 0 < gas
+    assert fl["d13C:DIC"][-1] < st["d13C:DIC"][-1] - 0.2
+    assert fl["d13C:CO2(g)"][-1] < st["d13C:CO2(g)"][-1]
+    assert "d13C:CO2(g)" in r["catalog"]["isotopes"]
+    assert "CO₂ gas" in r["catalog"]["isotopes"]["d13C:CO2(g)"]["label"]
+    assert "the gas, where last present" in " ".join(story(r))

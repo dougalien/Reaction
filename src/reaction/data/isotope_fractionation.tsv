@@ -1,7 +1,8 @@
 # Equilibrium isotope fractionation: 1000 ln alpha(phase - reference) = a 1e8/T^3 + b 1e6/T^2 + c 1e3/T + d, T in K.
 # O: reference water; mineral rows are Vho et al. (2020) quartz-water minus quartz-mineral (their C = 0).
-# C: reference CO2 (gas or aqueous), Ohmoto and Rye (1979; after Bottinga 1968, 1969 and Mook et al. 1974).
+# C: reference CO2 gas, Ohmoto and Rye (1979; after Bottinga 1968, 1969 and Mook et al. 1974).
 # S: reference H2S, Ohmoto and Rye (1979) for sulfides; sulfate after Ohmoto and Lasaga (1982).
+# Gas rows: O CO2(g) against liquid water, Brenninkmeijer, Kraft and Mook (1983); C CO2(aq) against CO2 gas, Mook (1986).
 # t_max_c: upper end of the calibration where the source gives one (empty: none given).
 system	phase	a	b	c	d	t_max_c	source
 O	calcite	0	3.72	-3.48	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
@@ -72,10 +73,12 @@ O	andalusite	0	3.78	-5.05	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa
 O	cordierite	0	3.45	-4.91	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
 O	staurolite	0	3.65	-5.58	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
 O	chloritoid	0	3.34	-5.33	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
+O	CO2(g)	0	0	17.604	-17.93	100	Brenninkmeijer, Kraft and Mook 1983, Isotope Geoscience 1, 181-190, CO2 gas - liquid water
 O	quartz	0	4.11	-3.33	0		Vho, Lanari and Rubatto 2020, J. Petrology 61, egaa001 (CC BY 4.0), Table 1, with their quartz-water 4.11, -3.33
 C	calcite	-8.914	8.557	-18.11	8.24	600	Ohmoto and Rye 1979, in Geochemistry of Hydrothermal Ore Deposits, 2nd ed.
 C	dolomite	-8.914	8.737	-18.11	8.44	600	Ohmoto and Rye 1979, in Geochemistry of Hydrothermal Ore Deposits, 2nd ed.
 C	HCO3-	0	-2.16	20.16	-35.7	290	Ohmoto and Rye 1979, in Geochemistry of Hydrothermal Ore Deposits, 2nd ed.
+C	CO2(aq)	0	0	-0.373	0.19	60	Mook 1986, Netherlands Journal of Sea Research 20, 211-223 (after Vogel and others 1970), dissolved - gaseous CO2
 C	CO2	0	0	0	0		Ohmoto and Rye 1979, in Geochemistry of Hydrothermal Ore Deposits, 2nd ed.
 C	CH4	4.194	-5.21	-8.93	4.36	700	Ohmoto and Rye 1979, in Geochemistry of Hydrothermal Ore Deposits, 2nd ed.
 C	CO	0	-2.84	-17.56	9.1	330	Ohmoto and Rye 1979, in Geochemistry of Hydrothermal Ore Deposits, 2nd ed.

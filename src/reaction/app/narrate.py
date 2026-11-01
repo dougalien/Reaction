@@ -364,13 +364,22 @@ def _isotope_clause(run: dict) -> str:
     water = iso.get("dD:water") or []
     gaps = []                                   # how much lighter than the water the hydrous minerals end up
     for key, vals in iso.items():
-        if key.startswith("dD:") and key != "dD:water":
+        if key.startswith("dD:") and key != "dD:water" and not key.endswith(("(g)", ":H2", ":CH4")):
             if vals and vals[-1] is not None and len(water) == len(vals) and water[-1] is not None:
                 gaps.append(water[-1] - vals[-1])       # minerals still there at the end
     if gaps:
         lo, hi = round(min(gaps)), round(max(gaps))
         size = f"{lo}‰" if lo == hi else f"{lo} to {hi}‰"
         bits.append(f"the hydrous minerals end up {size} {'lighter' if lo >= 0 else 'different'} in δD than the water")
+    gas = []                                    # the gas where it was last present
+    for key, what in (("d13C:CO2(g)", "CO₂ δ13C"), ("d18O:CO2(g)", "CO₂ δ18O"), ("d18O:H2O(g)", "steam δ18O"),
+                      ("dD:H2O(g)", "steam δD"), ("d13C:CH4(g)", "methane δ13C"), ("dD:CH4(g)", "methane δD"),
+                      ("dD:H2(g)", "H₂ δD"), ("d34S:H2S(g)", "H₂S δ34S")):
+        e = ends(key)
+        if e is not None:
+            gas.append(f"{what} {e[1] + 0.0:+.1f}‰")
+    if gas:
+        bits.append("the gas, where last present, has " + ", ".join(gas))
     if not bits:
         return ""
     return "Isotopes: " + "; ".join(bits) + "."
