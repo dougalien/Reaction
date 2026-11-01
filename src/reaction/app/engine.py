@@ -689,7 +689,9 @@ class Engine:
         notes = list(read.notes)
         sp = solve()
         if kind != "none":
-            how = {"air": "equilibrium with air", "log_fo2": "the log fO2 given",
+            how = {"air": "equilibrium with air (assumed: the analysis has no redox species; set the redox "
+                          "state on the card for a reducing fluid)" if arg == "assumed" else "equilibrium with air",
+                   "log_fo2": "the log fO2 given",
                    "eh": "the Eh given", "pe": "the pe given"}.get(
                 kind, f"dissolved {analysis.SOLUTES_LABEL(arg) if kind == 'couple' else ''}")
             notes.append(f"Redox state from {how}: log fO2 {sp.log_fo2:.1f}, Eh {sp.eh_volts:+.2f} V "

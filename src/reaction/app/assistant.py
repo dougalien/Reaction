@@ -763,7 +763,7 @@ def change_bits(ch: dict, card: Scenario) -> list[str]:
         bits.append({"air": "redox from equilibrium with air", "none": "redox not tracked",
                      "log_fo2": f"log fO2 {ch.get('redox_value', 0):g}",
                      "eh": f"Eh {ch.get('redox_value', 0):g} V",
-                     "pe": f"pe {ch.get('redox_value', 0):g}"}[ch["redox"]])
+                     "pe": f"pe {ch.get('redox_value', 0):g}"}.get(ch["redox"], f"redox from {ch['redox']}"))
     return bits
 
 

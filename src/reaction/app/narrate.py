@@ -436,6 +436,20 @@ def _column_kinetic_clauses(result: dict, end: dict) -> list[str]:
     return out
 
 
+def _redox_sentence(props: dict, start: str, end: str) -> str:
+    """How the redox state moves: Eh and log fO2 from the first to the last point (empty without redox)."""
+    eh, fo2 = props.get("Eh"), props.get("log_fO2")
+    if not eh or _first_valid(eh) is None:
+        return ""
+    a, b = _first_valid(eh), _last_valid(eh)
+    text = f"Eh goes from {eh[a]:+.2f} V {start} to {eh[b]:+.2f} V {end}"
+    if fo2 and _first_valid(fo2) is not None:
+        fa, fb = fo2[_first_valid(fo2)], fo2[_last_valid(fo2)]
+        text += f" (log fO2 {fa:.1f} to {fb:.1f})"
+    word = "oxidizing" if eh[b] > 0.2 else "reducing" if eh[b] < 0.0 else "mildly oxidizing"
+    return f" {text}, so the fluid ends {word}."
+
+
 def _column_story(result: dict) -> list[str]:
     """A column run: what comes out at the outlet, and where the minerals sit along the column."""
     modes = result["modes"]
@@ -444,7 +458,7 @@ def _column_story(result: dict) -> list[str]:
     ph = out["properties"]["pH"]
     i0, i1 = _first_valid(ph), _last_valid(ph)
     paras = [f"{result['summary'][0].upper()}{result['summary'][1:]}. At the outlet the pH goes from {ph[i0]:.1f} "
-             f"to {ph[i1]:.1f} after {_pv(pv[i1])}."]
+             f"to {ph[i1]:.1f} after {_pv(pv[i1])}." + _redox_sentence(out["properties"], "at first", f"after {_pv(pv[i1])}")]
 
     moves = []
     for el, line in out["elements"].items():
@@ -527,7 +541,8 @@ def story(result: dict) -> list[str]:
     i0, i1 = _first_valid(ph), _last_valid(ph)
     paras.append(
         f"{_sentence(plain(result['summary']))}. The in situ pH goes from "
-        f"{ph[i0]:.1f} at {point_text(result, i0)} to {ph[i1]:.1f} at {point_text(result, i1)}.")
+        f"{ph[i0]:.1f} at {point_text(result, i0)} to {ph[i1]:.1f} at {point_text(result, i1)}."
+        + _redox_sentence(modes[first_key]["properties"], "at the start", "at the end"))
 
     for key, run in modes.items():
         run_name = f"In the {MODE_WORDS[key]} run"

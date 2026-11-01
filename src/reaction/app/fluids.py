@@ -28,7 +28,7 @@ CUSTOM_LABEL = "Custom fluid"
 # How the redox state of a fluid is set.  A species name (O2, H2, Fe+3, H2S, NO3-) uses its
 # concentration in the analysis as the redox couple, with its partner in the basis.
 REDOX_CHOICES = {
-    "auto": "from a redox species in the analysis (dissolved O2 or H2, Fe(III), sulfide), else not tracked",
+    "auto": "from a redox species in the analysis (dissolved O2 or H2, Fe(III), sulfide), else equilibrium with air",
     "none": "not tracked: only the basis oxidation states (Fe(II), sulfate, ...) are present",
     "air": "in equilibrium with air (O2 fugacity 0.21 bar)",
     "log_fo2": "a given log oxygen fugacity",
@@ -100,11 +100,13 @@ PRESETS: dict[str, FluidPreset] = {
         "HCO3- 150",
         6.0,
         "illustrative composition of a sedimentary basin brine, not a specific sample",
+        redox="eh", redox_value=-0.1,
         caveats=("The ionic strength is about 3 molal, beyond what the B-dot activity model is "
                  "calibrated for; treat activities and saturation states as rough until Pitzer "
                  "equations are added.",
-                 "The redox state is not tracked (no redox species in the analysis), so only "
-                 "ferrous iron and sulfate are present.")),
+                 "The redox state is an illustrative Eh of -0.1 V at 25 C, reducing as basin brines are "
+                 "(iron ferrous) but above sulfate reduction; change it on the card if you have a "
+                 "measurement.")),
     "freshwater": FluidPreset(
         "freshwater", "Fresh water",
         "World-average river water in equilibrium with the atmosphere (air oxygen, 420 ppm CO2).",
