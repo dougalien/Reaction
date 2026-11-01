@@ -194,6 +194,19 @@ the water (in nature they are far lighter). Default δD: seawater 0, vent fluid 
 rainwater -54 (meteoric line from δ18O -8), basalt glass -70, other hydrous reactants -60; all are named in a
 note. To finish: mineral factors from the papers, once Douglas can share them.
 
+Gas-phase isotopes (Douglas's request, 2026-11-01): the gas is a set of isotope carriers in equilibrium with
+the liquid. Steam (H2O(g)) takes the liquid-vapour 18O and D/H of Horita and Wesolowski (1994); CO2 gas its 18O
+against water (Brenninkmeijer and others 1983) and its 13C against dissolved CO2 (Mook 1986; CO2(aq) is no longer
+counted as the reference, the gas is); H2 and CH4, gas and dissolved, their D/H from water (Horibe and Craig 1995,
+with δ = (1000 + δ_ref) α − 1000 because H2 is some 700 permil lighter than water when cool). Flow-through keeps
+the state before venting (`PathPoint.before_vent`), so the vented gas leaves with its own δ (Rayleigh
+degassing). Results show δ13C and δ18O of CO2 gas, δ18O and δD of steam, δD of H2 and methane, δ34S of H2S gas;
+the story names the gas's values at the end. Judgment calls: H2S gas and dissolved H2S share δ34S (about 1
+permil apart near 25 C); Mook and Brenninkmeijer are extrapolated above 60 and 100 C with a note; CH4 D/H
+below 200 C is extrapolated with a note; dissolved and gas H2 (and CH4) share a ΔD. Not yet: salt effects on
+liquid-vapour (Chacko and others 2001 table 4) and isotopes of the brine and vapour above the critical point
+(no fractionation there in Horita and Wesolowski).
+
 Starting cards (Douglas's request, 2026-10-26): "Start from" buttons on the scenario card and chat ("brine card",
 "load the fresh water scenario") give a ready-made card (`scenario.STARTING_CARDS`, `/api/reset` with `start`):
 seawater (the default, 2 to 350 C at 500 bar); fresh water (Livingstone 1963 world-average river water at the

@@ -82,6 +82,7 @@ class PathPoint:
     transferred: tuple[str, ...] = ()          # mineral reactants now in the equilibrium system
     removed: dict[str, float] = field(default_factory=dict)   # flow-through: moles left behind so far
     rates: dict[str, float] = field(default_factory=dict)     # kinetic reactants: units per second
+    before_vent: EquilibriumState | None = None                # flow-through: the state with its gas, before venting
 
     @property
     def speciation(self) -> Speciation:
@@ -541,8 +542,10 @@ class ReactionPath:
                 on_failure(xi, exc)
                 points.append(None)
                 continue
+            before_vent = None
             if self.flow_through and new.gas:
                 # bubbles leave with the fluid's flow, like the minerals: the gas phase is vented
+                before_vent = new
                 for name, moles in new.gas.items():
                     self._removed[name] = self._removed.get(name, 0.0) + moles
                 new, reacted = self._solve(xi, new)
@@ -564,7 +567,7 @@ class ReactionPath:
             state, xi_prev = new, xi
             points.append(PathPoint(xi, self._temperature(xi), state.speciation.pressure_bar,
                                     state, reacted, tuple(sorted(self._transferred)),
-                                    dict(self._removed), self._kinetic_rates(state, n_kin)))
+                                    dict(self._removed), self._kinetic_rates(state, n_kin), before_vent))
         if progress:
             progress(len(xis), len(xis))
         self.step_hint = self._dt_hint

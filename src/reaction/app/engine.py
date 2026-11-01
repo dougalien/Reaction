@@ -795,15 +795,29 @@ class Engine:
                     tracker.evaporate(-step * r.composition.get(WATER, 0.0), t)
                 elif r.name in sources:
                     tracker.add(r.composition, sources[r.name], step)
-            deltas = tracker.point(pt.state, t, pt.speciation.component_totals.get("Cl-", 0.0))
+            cl = pt.speciation.component_totals.get("Cl-", 0.0)
+            vented = getattr(pt, "before_vent", None)
+            gas_deltas, gas_moles = {}, {}
+            if vented is not None:              # the gas, in equilibrium with the fluid, then leaves with its δ
+                gas_deltas = tracker.point(vented, t, cl)
+                gas_moles = {e: c.moles for e, c in tracker.prev.items()}
+            deltas = tracker.point(pt.state, t, cl)
+            for e, by in gas_deltas.items():
+                for carrier, d in by.items():
+                    if carrier.endswith("(g)"):
+                        deltas[e][carrier] = d
             row = {}
             for e, by in deltas.items():
                 key = isotopes.SYSTEMS[e]
                 for carrier, d in by.items():
-                    if carrier in ("CO2", "H2S", "other S", "organic C") or carrier.endswith("(g)"):
+                    if carrier in ("CO2", "H2S", "other S", "organic C"):
                         continue
                     if e == "H" and carrier != "water" and carrier in tracker.frac.hydrous:
                         continue                          # it only echoes the water's δD
+                    if (carrier.endswith("(g)") or carrier in ("H2", "CH4")) and \
+                            max(tracker.prev[e].moles.get(carrier, 0.0),
+                                gas_moles.get(e, {}).get(carrier, 0.0)) < 1e-9:
+                        continue                          # a trace of gas, or of H2 or methane
                     row[f"{key}:{carrier}"] = d
             ratio = tracker.sr_fluid_ratio
             if ratio is not None:
@@ -818,6 +832,12 @@ class Engine:
                      "δ18O and δ13C of carbonates against VSMOW and VPDB, δ34S against VCDT. Strontium is carried "
                      "with the fluid only (minerals are taken to keep none). δD (VSMOW) of the water follows evaporation "
                      "(liquid-vapour fractionation of Horita and Wesolowski 1994), mixing and phase separation.")
+        if any(k.split(":", 1)[1].endswith("(g)") for k in out):
+            said.append("Isotopes (gas): the gas is in isotopic equilibrium with the liquid. Steam takes the water's "
+                        "liquid-vapour fractionation (Horita and Wesolowski 1994); CO2 gas its 18O fractionation from "
+                        "water (Brenninkmeijer and others 1983) and 13C from dissolved CO2 (Mook 1986); H2 and CH4 "
+                        "their D/H from water (Horibe and Craig 1995). Gas that is vented or boiled off takes its own "
+                        "isotopes with it. H2S gas has the same δ34S as dissolved H2S.")
         frac = tracker.frac
         if frac.h_sources:
             said.append("Isotopes (dD): mineral-water D/H from " + "; ".join(
@@ -1455,7 +1475,9 @@ def _catalog(db, runs: dict[str, dict], sc: Scenario) -> dict:
                                "unit": "kg per kg of starting water"}}
     isotope = {}
     words = {"water": "water", "DIC": "dissolved inorganic carbon", "CH4": "dissolved methane",
-             "sulfate": "dissolved sulfate", "sulfide": "dissolved sulfide", "fluid": "fluid"}
+             "sulfate": "dissolved sulfate", "sulfide": "dissolved sulfide", "fluid": "fluid",
+             "H2": "dissolved H₂", "H2O(g)": "steam (water vapour in the gas)", "CO2(g)": "CO₂ gas",
+             "CH4(g)": "methane gas", "H2(g)": "H₂ gas", "H2S(g)": "H₂S gas"}
     for run in runs.values():
         for k in run.get("isotopes", {}):
             what, carrier = k.split(":", 1)
