@@ -37,6 +37,109 @@ ROCKS: dict[str, Rock] = {
         ("basalt glass", "basaltic glass", "morb glass", "morb", "basalt", "glass")),
 }
 
+# Crystalline rocks: a mode (weight percent of each mineral) rather than a glass.  Putting one on the card
+# writes its minerals as separate reactants, so each dissolves (and with kinetics, at its own rate) and
+# each can also precipitate again.  Plagioclase, pyroxene and olivine are written as their endmembers.
+# Minor phases with no usable dissolved species or that need the fluid's redox state (Fe-Ti oxides,
+# sulfides, phosphate) are left out and the rest scaled to 100.
+@dataclass(frozen=True)
+class MineralRock:
+    key: str
+    label: str
+    minerals: dict[str, float]        # weight percent of each mineral (database names)
+    description: str
+    source: str
+    names: tuple[str, ...] = ()
+
+
+MINERAL_ROCKS: dict[str, MineralRock] = {r.key: r for r in (
+    MineralRock("crystalline_basalt", "Crystalline basalt",
+                {"anorthite": 33.0, "albite": 22.0, "diopside": 20.0, "hedenbergite": 10.0, "enstatite": 5.0,
+                 "forsterite": 7.0, "fayalite": 3.0},
+                "Diabase-like basalt: plagioclase An60, augite, a little orthopyroxene and olivine Fo80.",
+                "rounded mode of a tholeiitic dolerite (55% plagioclase, 35% pyroxene, 10% olivine); "
+                "Fe-Ti oxides left out",
+                ("crystalline basalt", "diabase", "dolerite", "basalt crystalline")),
+    MineralRock("granite", "Granite",
+                {"quartz": 30.0, "K-feldspar": 35.0, "albite": 22.0, "anorthite": 3.0, "muscovite": 5.0,
+                 "annite": 3.0, "phlogopite": 2.0},
+                "Granite: quartz, K-feldspar, oligoclase (An12), muscovite and biotite.",
+                "rounded mode of a two-mica granite; biotite as annite and phlogopite",
+                ("granite", "granitic rock", "granodiorite")),
+    MineralRock("lherzolite", "Lherzolite",
+                {"forsterite": 52.0, "fayalite": 8.0, "enstatite": 22.0, "ferrosilite": 3.0, "diopside": 12.0,
+                 "spinel": 3.0},
+                "Spinel lherzolite (upper mantle): olivine Fo90, orthopyroxene En90, diopside and spinel.",
+                "rounded mode of a fertile spinel lherzolite (60% olivine, 25% orthopyroxene, 12% clinopyroxene, "
+                "3% spinel)",
+                ("lherzolite", "peridotite", "mantle peridotite", "mantle rock", "spinel lherzolite")),
+    MineralRock("mars_meteorite", "Mars meteorite",
+                {"enstatite": 22.0, "ferrosilite": 20.0, "diopside": 14.0, "hedenbergite": 14.0, "anorthite": 12.0,
+                 "albite": 11.0},
+                "Basaltic shergottite like Shergotty: iron-rich pigeonite and augite with maskelynite "
+                "(shocked plagioclase, An50).",
+                "rounded mode of the Shergotty meteorite (about 70% pyroxene and 23% maskelynite; Stolper and "
+                "McSween 1979); its few percent of Fe-Ti oxides, phosphate and sulfide left out",
+                ("mars meteorite", "martian meteorite", "mars meteor", "martian meteor", "shergottite",
+                 "shergotty", "martian basalt", "mars basalt", "mars rock", "martian rock")),
+    MineralRock("sandstone", "Sandstone",
+                {"quartz": 80.0, "K-feldspar": 8.0, "albite": 4.0, "kaolinite": 4.0, "calcite": 4.0},
+                "Subarkose sandstone: quartz with some feldspar, kaolinite and calcite cement.",
+                "rounded mode of a subarkosic sandstone",
+                ("sandstone", "sand", "arkose", "subarkose", "quartz sandstone")),
+    MineralRock("limestone_calcitic", "Limestone (calcitic)",
+                {"calcite": 97.0, "quartz": 3.0},
+                "Calcitic limestone: calcite with a little quartz.",
+                "illustrative composition of a pure limestone",
+                ("limestone", "calcitic limestone", "limestone calcitic", "limestone (calcitic)", "calcite limestone")),
+    MineralRock("limestone_dolomitic", "Limestone (dolomitic)",
+                {"dolomite": 90.0, "calcite": 7.0, "quartz": 3.0},
+                "Dolomitic limestone (dolostone): dolomite with some calcite and a little quartz.",
+                "illustrative composition of a dolostone",
+                ("dolomitic limestone", "limestone dolomitic", "limestone (dolomitic)", "dolostone",
+                 "dolomite rock")),
+    MineralRock("limestone_aragonitic", "Limestone (aragonitic)",
+                {"aragonite": 90.0, "calcite": 10.0},
+                "Aragonitic carbonate sediment, as young ooid or coral sand: aragonite with some calcite.",
+                "illustrative composition of a modern shallow-water carbonate sediment",
+                ("aragonitic limestone", "limestone aragonitic", "limestone (aragonitic)", "aragonite limestone",
+                 "ooid sand", "coral sand")),
+)}
+
+# The rock cards offered on the scenario card, in order: basalt glass dissolves as a glass, the rest as minerals
+ROCK_CARDS = ("basalt_glass", "crystalline_basalt", "granite", "lherzolite", "mars_meteorite", "sandstone",
+              "limestone_calcitic", "limestone_dolomitic", "limestone_aragonitic")
+
+
+def find_mineral_rock(name: str) -> MineralRock | None:
+    low = re.sub(r"\s+", " ", name.strip().lower().replace("_", " "))
+    for rock in MINERAL_ROCKS.values():
+        if low == rock.key.replace("_", " ") or low == rock.label.lower() or low in rock.names:
+            return rock
+    return None
+
+
+def mineral_reactants(rock: MineralRock, grams: float) -> list[dict]:
+    """The minerals of ``grams`` of a crystalline rock, as reactants."""
+    total = sum(rock.minerals.values())
+    return [{"name": m, "amount": float(f"{grams * w / total:.6g}"), "unit": "g"} for m, w in rock.minerals.items()]
+
+
+def rock_cards() -> list[dict]:
+    """The rock cards for the control window: key, label and what each puts on the card."""
+    out = []
+    for key in ROCK_CARDS:
+        if key in ROCKS:
+            r = ROCKS[key]
+            out.append({"key": key, "label": r.label, "description": "Mid-ocean ridge basalt glass, dissolving "
+                        "congruently as one reactant (" + r.source + ")."})
+        else:
+            r = MINERAL_ROCKS[key]
+            mode = ", ".join(f"{w:g}% {m}" for m, w in r.minerals.items())
+            out.append({"key": key, "label": r.label, "description": f"{r.description} {mode}. Source: {r.source}."})
+    return out
+
+
 _OXIDE = re.compile(r"([A-Z][a-z]?)(\d*)O(\d*)$")
 
 

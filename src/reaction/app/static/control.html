@@ -42,7 +42,7 @@
         <button class="ghost" id="reset" title="Back to the default card">Reset</button>
       </div>
       <div class="starts" id="starts" role="group" aria-label="Start from a ready-made card"><span class="small muted">Start from</span></div>
-      <div class="starts examples" id="examples" role="group" aria-label="Examples: load a card and run it"><span class="small muted" title="Each button fills the card with a worked example and runs it; the fields that set the example up are outlined">Examples, load and run</span></div>
+      <div class="starts examples" id="examples" role="group" aria-label="Examples: fill the card with a worked example"><span class="small muted" title="Each button fills the card with a worked example; press Run to run it. The fields that set the example up are outlined">Examples, fill the card</span></div>
       <div id="example-box" class="example-box" hidden></div>
       <label class="f">Title<input id="f-title" type="text" placeholder="optional"></label>
       <div class="cardgrid">
@@ -119,6 +119,7 @@
           <div id="mix-hint" class="hint" style="margin-top:4px"></div>
           <div style="margin-top:10px">
             <div class="small muted" style="margin-bottom:4px">Reactants <span class="hint" id="reactant-hint">(added steadily, all of it by the last step, per kg of water)</span></div>
+            <div class="starts rocks" id="rocks" role="group" aria-label="Rock cards: put a rock on the card as the reactant"><span class="small muted" title="Each button puts that rock on the card as the reactant, in place of what is there; a crystalline rock goes on as its minerals. Press Run when the card is ready">Rock</span><label class="small muted" style="display:inline-flex;align-items:center;gap:4px"><input id="rock-g" type="number" min="0" step="any" value="100" style="width:5.5em" aria-label="Grams of rock per kg of water"> g</label></div>
             <div id="reactants" class="row" style="gap:5px"></div>
             <input id="add-reactant" type="text" placeholder="e.g. 10 g albite or 0.05 mol HCl, press Enter" style="margin-top:6px" aria-label="Add a reactant">
             <div class="grid2" style="margin-top:8px">

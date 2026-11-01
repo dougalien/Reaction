@@ -158,7 +158,7 @@ class Handler(BaseHTTPRequestHandler):
             key = str(body.get("key", ""))
             if key not in EXAMPLES:
                 return self._error(400, f"unknown example {key!r}")
-            return self._json({"started": s.load_example(key)})
+            return self._json({"loaded": s.load_example(key)})
         if path == "/api/run":
             return self._json({"started": s.start_run()})
         if path == "/api/current":

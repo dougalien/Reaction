@@ -10,7 +10,7 @@ import traceback
 from pathlib import Path
 
 from .assistant import Interpretation, Ollama, change_bits, interpret
-from . import analysis, carryover, diagrams
+from . import analysis, carryover, diagrams, rocks
 from .engine import Engine, EngineUnavailable
 from .fluids import CUSTOM, CUSTOM_LABEL, PRESETS
 from .narrate import end_lists, story
@@ -140,6 +140,7 @@ class Session:
                                    "redox_species": _couples(analysis.parse(spec.analysis, spec.units).species)},
                     "starting_cards": [{"key": c.key, "label": c.label, "description": c.description}
                                        for c in STARTING_CARDS.values()],
+                    "rock_cards": rocks.rock_cards(),
                     "examples": [{"key": e.key, "label": e.label, "feature": e.feature,
                                   "description": e.description, "setup": [list(x) for x in e.setup]}
                                  for e in EXAMPLES.values()],
@@ -454,7 +455,8 @@ class Session:
         self._publish()
 
     def load_example(self, key: str) -> bool:
-        """Load one of the examples onto the card and run it.  False if a run is going (nothing changes)."""
+        """Fill the card with one of the examples; the user presses Run.  False if a run is going (nothing
+        changes).  The next run opens on what the example is there to show."""
         with self.lock:
             if self.run_state["state"] == "running":
                 return False
@@ -463,11 +465,8 @@ class Session:
             self.example = key
             self.example_pending = True
             self._save()
-        started = self.start_run()
-        if not started:
-            with self.lock:
-                self.example_pending = False
-        return started
+        self._publish()
+        return True
 
     def window(self, w: str = "1") -> dict:
         """What results window ``w`` shows: {"current": run id, "view": ...}.  Window 1 is the one the

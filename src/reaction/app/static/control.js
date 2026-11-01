@@ -4,7 +4,7 @@ const $ = (id) => document.getElementById(id);
 let snap = null, waiting = false, chatCount = 0;
 
 let fluidKeys = "";
-let startKeys = "";
+let startKeys = "", rockKeys = "";
 let exampleKeys = "", exampleHidden = null;
 
 function pill(el, text, kind) { el.textContent = text; el.className = "pill " + (kind || ""); }
@@ -14,6 +14,7 @@ function render(s) {
   const c = s.card;
   setIfIdle($("f-title"), c.title);
   renderStarts(s);
+  renderRocks(s);
   renderFluid(s);
   $("f-activity_model").value = c.activity_model;
   $("f-gas_phase").value = c.gas_phase === false ? "false" : "true";
@@ -232,7 +233,23 @@ function renderStarts(s) {
     return b;
   }));
 }
-// Examples: one button loads a worked card and runs it.  The box under the buttons says what the example
+// Rock cards: a button puts that rock on the card as the only reactant, at the grams in the box.
+function renderRocks(s) {
+  const cards = s.rock_cards || [], keys = cards.map((c) => c.key).join();
+  if (keys !== rockKeys) {
+    rockKeys = keys;
+    const head = [...$("rocks").children].slice(0, 2);
+    $("rocks").replaceChildren(...head, ...cards.map((c) =>
+      h("button", { type: "button", "data-key": c.key, title: c.description, onclick: () => {
+        const g = parseFloat($("rock-g").value);
+        if (!(g > 0)) { $("rock-g").reportValidity(); return; }
+        api("/api/card", { changes: { reactants: `${g} g ${c.label}` } });
+      } }, c.label)));
+  }
+  const running = s.run.state === "running";
+  document.querySelectorAll("#rocks button").forEach((b) => { b.disabled = running; });
+}
+// Examples: one button fills the card with a worked example; the user presses Run.  The box under the buttons says what the example
 // shows and how the card sets it up, and the fields named there are outlined on the card.
 const EXAMPLE_TARGETS = { reactants: "reactants", blocked_minerals: "blocked", kind: "kindseg", mode: "modeseg" };
 
@@ -272,7 +289,7 @@ function renderExample(s) {
         const el = exampleTarget(field);
         if (el) { el.scrollIntoView({ behavior: "smooth", block: "center" }); el.classList.add("ex-flash"); setTimeout(() => el.classList.remove("ex-flash"), 1200); }
       } }, text)))),
-    h("div", { class: "hint" }, "Change anything on the card and press Run to see what difference it makes."));
+    h("div", { class: "hint" }, "Press Run to see it. Change anything on the card first to see what difference it makes."));
   for (const [field] of ex.setup) {
     const el = exampleTarget(field);
     if (el) el.classList.add("ex-hl");
