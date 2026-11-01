@@ -36,7 +36,9 @@ class LinePlot {
     const w = this.host.clientWidth, hgt = this.host.clientHeight;
     if (!d || w < 50 || hgt < 50) return;
     const { x, series, opts } = d;
-    const m = { l: 70, r: 18, t: 12, b: 46 };
+    const labelled = series.filter((s) => s.label && !s.dash);
+    const room = labelled.length ? Math.min(170, 14 + 7 * Math.max(...labelled.map((s) => String(s.label).length))) : 18;
+    const m = { l: 70, r: room, t: 12, b: 46 };
     const pw = w - m.l - m.r, ph = hgt - m.t - m.b;
     const xs = [x, ...series.map((s) => s.x || [])].flat().filter((v) => v !== null && isFinite(v));
     const x0 = Math.min(...xs), x1 = Math.max(...xs);
@@ -126,13 +128,35 @@ class LinePlot {
         path += `${pen ? "L" : "M"}${f(sx(sxs[i]))},${f(sy(v))}`;
         pen = true;
       });
-      const stroke = s.dash ? `color-mix(in srgb, ${s.color} 55%, var(--ink))` : s.color;
-      g += `<path d="${path}" fill="none" style="stroke:${stroke}" stroke-width="${s.dash ? 1.7 : 3.2}" ` +
-        `stroke-linejoin="round" stroke-linecap="round"${s.dash ? ` stroke-dasharray="${s.dash}"` : ""}/>`;
+      if (s.dash) g += `<path d="${path}" fill="none" style="stroke:var(--panel)" stroke-width="4.6" ` +
+        `stroke-linejoin="round" stroke-linecap="round"/>`;              // a halo, so a dash stands out on a solid line
+      g += `<path d="${path}" fill="none" style="stroke:${s.color}" stroke-width="${s.dash ? 2.6 : 3.4}" ` +
+        `stroke-linejoin="round" stroke-linecap="round"${s.dash ? ` stroke-dasharray="10 6"` : ""}/>`;
+    });
+    // each solid line named at its right-hand end, pushed apart so the names do not overlap
+    const ends = [];
+    labelled.forEach((s) => {
+      const sxs = s.x || x;
+      for (let i = s.y.length - 1; i >= 0; i--) {
+        const v = s.y[i];
+        if (v !== null && isFinite(v) && (!opts.log || v > 0) && sxs[i] !== null && sxs[i] !== undefined) {
+          ends.push({ s, px: sx(sxs[i]), py: sy(v), py0: sy(v) });
+          break;
+        }
+      }
+    });
+    ends.sort((a, b) => a.py - b.py);
+    for (let k = 1; k < ends.length; k++) ends[k].py = Math.max(ends[k].py, ends[k - 1].py + 14);
+    for (let k = ends.length - 2; k >= 0; k--) ends[k].py = Math.min(ends[k].py, ends[k + 1].py - 14);
+    ends.forEach((e) => {
+      const lx = m.l + pw + 6;
+      g += `<circle cx="${f(e.px)}" cy="${f(e.py0)}" r="3.5" style="fill:${e.s.color}"/>`;
+      g += `<text class="endlabel" x="${f(lx)}" y="${f(e.py + 4)}" style="fill:${e.s.color}">${esc(String(e.s.label))}</text>`;
     });
     this.svgHost.innerHTML =
       `<svg viewBox="0 0 ${w} ${hgt}" width="${w}" height="${hgt}" xmlns="http://www.w3.org/2000/svg" role="img" ` +
       `aria-label="${(opts.title || "Plot").replace(/"/g, "")}">` +
+      `<rect x="${m.l}" y="${m.t}" width="${pw}" height="${ph}" class="plotbg"/>` +
       `<g class="axis"><line x1="${m.l}" x2="${m.l + pw}" y1="${m.t + ph}" y2="${m.t + ph}"/>` +
       `<line x1="${m.l}" x2="${m.l}" y1="${m.t}" y2="${m.t + ph}"/>${g}</g>` +
       `<text class="axislabel" x="${m.l + pw / 2}" y="${hgt - 6}" text-anchor="middle">${opts.xLabel || ""}</text>` +

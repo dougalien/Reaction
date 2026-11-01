@@ -387,7 +387,7 @@ async function drawDiagram() {
     `the uncertainty of logK here (water ionization ${REL_TEXT[rel.level]} at this temperature and pressure)` +
     (data.fields.some((f) => f.extrapolated) ? "; * dotted: data extrapolated" : "") +
     (Object.keys(data.water || {}).length ? "; dashed: water stability limits" : "") +
-    (Object.keys(data.path || {}).length ? "; black: the run's path, filled dots within 10 C of the diagram" : "");
+    (Object.keys(data.path || {}).length ? "; black: the run's path from the open square, start, to the red dot, end; filled dots within 10 C of the diagram" : "");
   $("dia-notes").replaceChildren(...data.notes.map((n) => h("li", {}, n)));
   dplot.set(data);
 }
