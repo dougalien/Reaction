@@ -113,10 +113,37 @@ class DiagramPlot {
       g += `<path ${clip} d="${line}" fill="none" style="stroke:var(--ink)" stroke-width="2.2" ` +
         `${mode === "flow_through" ? 'stroke-dasharray="7 5"' : ""}/>`;
       pts.forEach((p, k) => {
+        if (k === pts.length - 1) return;
         const near = Math.abs(p[2] - d.t_c) <= 10;
-        g += `<circle ${clip} cx="${f(sx(p[0]))}" cy="${f(sy(p[1]))}" r="${k === pts.length - 1 ? 5 : 3.6}" ` +
+        g += `<circle ${clip} cx="${f(sx(p[0]))}" cy="${f(sy(p[1]))}" r="3.6" ` +
           `style="fill:${near ? "var(--ink)" : "var(--panel)"};stroke:var(--ink)" stroke-width="1.5"/>`;
       });
+    });
+    // the start and the end of each mode's path, marked so they cannot be missed; an end off the
+    // diagram is pinned to its edge and says where it really is
+    const many = Object.keys(d.path || {}).length > 1;
+    Object.entries(d.path || {}).forEach(([mode, pts]) => {
+      const name = many ? (mode === "flow_through" ? "flow-through " : "static ") : "";
+      const pin = (p) => {
+        const px = sx(p[0]), py = sy(p[1]);
+        const cxp = Math.min(Math.max(px, m.l + 8), m.l + pw - 8), cyp = Math.min(Math.max(py, m.t + 8), m.t + ph - 8);
+        return { px: cxp, py: cyp, off: cxp !== px || cyp !== py };
+      };
+      const tag = (p, text, cls) => {
+        const q = pin(p);
+        const right = q.px < m.l + pw - 140;
+        const where = q.off ? `, off the diagram at ${fmtVal(p[0])}, ${fmtVal(p[1])}` : "";
+        return `<text x="${f(q.px + (right ? 12 : -12))}" y="${f(q.py - 9)}" text-anchor="${right ? "start" : "end"}" ` +
+          `class="flabel ${cls}">${esc(name + text + where)}</text>`;
+      };
+      const a = pin(pts[0]), b = pin(pts[pts.length - 1]);
+      if (pts.length > 1) {
+        g += `<rect x="${f(a.px - 5)}" y="${f(a.py - 5)}" width="10" height="10" style="fill:var(--panel);stroke:var(--ink)" stroke-width="2"/>`;
+        g += tag(pts[0], "start", "");
+      }
+      g += `<circle cx="${f(b.px)}" cy="${f(b.py)}" r="10" style="fill:var(--panel)"/>` +
+        `<circle cx="${f(b.px)}" cy="${f(b.py)}" r="7.5" style="fill:var(--bad);stroke:var(--ink)" stroke-width="2"/>`;
+      g += tag(pts[pts.length - 1], `end, ${fmtVal(pts[pts.length - 1][2])} C`, "endmark");
     });
     // axes
     let ax = "";
