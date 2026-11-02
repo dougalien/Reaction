@@ -88,7 +88,8 @@ function render(s) {
 
   $("hist").replaceChildren(...s.runs.map((r) => h("button", {
     class: r.id === s.current ? "on" : "", onclick: () => api("/api/current", { id: r.id }),
-    title: r.summary }, h("div", {}, r.summary), h("div", { class: "hint" }, r.created.replace("T", " ")))));
+    title: r.summary }, r.title ? h("b", {}, r.title + ": ") : null, r.summary, " ",
+    h("span", { class: "hint" }, "· " + r.created.replace("T", " ").slice(0, 16)))));
   if (!s.runs.length) $("hist").replaceChildren(h("div", { class: "hint" }, "No runs yet."));
 
   pill($("pill-llm"), s.llm.ready ? `${s.llm.model} ready` : `${s.llm.model || "language model"} offline: simple rules only`,
