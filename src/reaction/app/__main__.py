@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import multiprocessing
+import sys
 import threading
 import webbrowser
 
@@ -15,6 +16,9 @@ def main() -> None:
     ap.add_argument("--port", type=int, default=DEFAULT_PORT)
     ap.add_argument("--no-browser", action="store_true", help="do not open the windows")
     args = ap.parse_args()
+    if sys.platform == "win32":               # the console window says Reaction, not the path of the exe
+        import ctypes
+        ctypes.windll.kernel32.SetConsoleTitleW("Reaction, by Dougalien Systems")
     httpd = make_server(args.port)
     url = f"http://127.0.0.1:{httpd.server_address[1]}"
     print("Reaction, by Dougalien Systems (dougalien.com)")

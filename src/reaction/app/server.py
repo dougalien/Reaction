@@ -88,8 +88,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(data or {"none": True})
         if path == "/events":
             return self._events()
-        if path == "/favicon.ico":
-            return self._send(204, b"", "image/x-icon")
+        if path == "/favicon.ico":                      # the Reaction R, for browsers and pinned shortcuts that ask for it
+            return self._file(STATIC / "reaction.ico")
         self._error(404, "not found")
 
     def _file(self, path: Path) -> None:

@@ -378,6 +378,14 @@ def test_pages_carry_the_dougalien_systems_brand(server):
     assert status == 200 and data.startswith(b"<svg")
 
 
+def test_every_page_and_the_favicon_carry_the_reaction_r(server):
+    for path in ("/control", "/results", "/sources"):
+        page = request(server, "GET", path)[1].decode()
+        assert "/static/reaction_mark.svg" in page and "/favicon.ico" in page, path
+    status, data = request(server, "GET", "/favicon.ico")
+    assert status == 200 and data[:4] == b"\x00\x00\x01\x00"     # a Windows .ico, not an empty reply
+
+
 def test_sources_page_lists_the_data_with_links(server):
     for path in ("/control", "/results"):
         assert 'href="/sources"' in request(server, "GET", path)[1].decode(), path
