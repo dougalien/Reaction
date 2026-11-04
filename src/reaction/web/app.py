@@ -276,7 +276,7 @@ def input_page() -> None:
     with top[0]:
         header("water-rock reaction, speciation and reaction paths")
     with top[1]:
-        st.link_button("Open results window", f"{PATHS['results']}?w={wid}", use_container_width=True,
+        st.link_button("Open results window", f"{PATHS['results']}?w={wid}", width="stretch",
                        help="Opens the Results window in a new browser window; put it on a second screen. "
                             "It follows this window's runs.")
 
@@ -287,10 +287,10 @@ def input_page() -> None:
         for c, s in zip(st.columns(len(cards) + 1), cards + [None]):
             if s is None:
                 c.button("Reset", on_click=_reset, args=(sess, "seawater"), help="Back to the default card",
-                         use_container_width=True)
+                         width="stretch")
             else:
                 c.button(s["label"], key=f"start-{s['key']}", help=s["description"], on_click=_reset,
-                         args=(sess, s["key"]), use_container_width=True, disabled=running)
+                         args=(sess, s["key"]), width="stretch", disabled=running)
         st.caption("Examples, fill the card")
         exs = snap["examples"]
         per_row = 5
@@ -298,7 +298,7 @@ def input_page() -> None:
             row = exs[i:i + per_row]
             for c, e in zip(st.columns(per_row), row):
                 c.button(e["label"], key=f"ex-{e['key']}", help=f"{e['feature']}: {e['description']}",
-                         on_click=_example, args=(sess, e["key"]), use_container_width=True, disabled=running,
+                         on_click=_example, args=(sess, e["key"]), width="stretch", disabled=running,
                          type="primary" if snap["example"] == e["key"] else "secondary")
         ex = next((e for e in exs if e["key"] == snap["example"]), None)
         if ex:
@@ -379,7 +379,7 @@ def _fluid_box(sess, snap, card, col) -> None:
         with st.expander(summary):
             st.dataframe([{"As written": ln["written"], "Value": f"{ln['value']} {ln['unit']}",
                            "mol/kg water": "" if ln["molal"] is None else f"{ln['molal']:.4g}"}
-                          for ln in read.get("lines", [])], hide_index=True, use_container_width=True)
+                          for ln in read.get("lines", [])], hide_index=True, width="stretch")
             for t in read.get("notes", []):
                 st.caption(t)
         a, b = st.columns(2)
@@ -448,7 +448,7 @@ def _reactants_box(sess, snap, card, col, running) -> None:
         for i in range(0, len(rocks), 3):
             for c, r in zip(st.columns(3), rocks[i:i + 3]):
                 c.button(r["label"], key=f"rock-{r['key']}", help=r["description"], on_click=_rock,
-                         args=(sess, r["label"]), disabled=running, use_container_width=True)
+                         args=(sess, r["label"]), disabled=running, width="stretch")
         rs = card.get("reactants") or []
         if rs:
             for c, (i, r) in zip(st.columns(min(len(rs), 4) or 1) * 4, enumerate(rs)):
@@ -511,7 +511,7 @@ def run_bar(sess: Session, input_page: bool) -> None:
     running = rs["state"] == "running"
     cols = st.columns([1, 7])
     if input_page:
-        if cols[0].button("Running…" if running else "Run", type="primary", disabled=running, use_container_width=True):
+        if cols[0].button("Running…" if running else "Run", type="primary", disabled=running, width="stretch"):
             sess.start_run()
             st.rerun()
     if running:
@@ -717,7 +717,7 @@ def results_page() -> None:
     with top[0]:
         header("results")
     with top[1]:
-        st.link_button("Back to the input window", f"{PATHS['input']}?w={wid}", use_container_width=True)
+        st.link_button("Back to the input window", f"{PATHS['input']}?w={wid}", width="stretch")
     run_bar(sess, input_page=False)
     res = sess.result_with_story(snap["current"]) if snap["current"] else None
     if res is None:
@@ -753,7 +753,7 @@ def results_page() -> None:
     for c, (kind, lab) in zip(cols, [("eh_ph", "Eh-pH diagram"), ("fo2_ph", "log fO2-pH diagram"),
                                       ("activity", "Activity diagram")]):
         c.button(lab, key=f"dia-open-{kind}", on_click=sess.set_diagram, args=({"kind": kind},),
-                 use_container_width=True)
+                 width="stretch")
     if snap["diagram"]:
         _diagram(sess, snap, res["id"])
     with st.expander("Assumptions and limits"):
@@ -817,7 +817,7 @@ def _plot_panel(sess, res, other, view) -> None:
                       xaxis_title=f"{xax['label']} ({xax['unit']})", yaxis_title=y_label(items, view, res))
     fig.update_xaxes(gridcolor=GRID)
     fig.update_yaxes(gridcolor=GRID, type="log" if use_log else "linear", exponentformat="power")
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
     if any(lv != "good" for lv in rel):
         st.caption("Shaded columns: points where the thermodynamic data are less reliable (amber approximate, rust "
                    "unreliable), from the water-ionization check against Marshall and Franck (1981).")
@@ -882,13 +882,13 @@ def _end_lists(ends: list) -> None:
             a, b, c = st.columns(3)
             a.caption("Solids")
             a.dataframe([dict(zip(["Mineral", "mmol per kg starting water", "g per kg starting water"], r))
-                         for r in (e["solids"] or [["None", "", ""]])], hide_index=True, use_container_width=True)
+                         for r in (e["solids"] or [["None", "", ""]])], hide_index=True, width="stretch")
             b.caption("Fluid")
             b.dataframe([dict(zip(["Property", "Value"], r)) for r in e["fluid"]], hide_index=True,
-                        use_container_width=True)
+                        width="stretch")
             c.caption("Dissolved")
             c.dataframe([dict(zip(["Element", "mmol/kg", "mg/kg"], r)) for r in e["dissolved"]], hide_index=True,
-                        use_container_width=True)
+                        width="stretch")
 
 
 def _dia_edit(sess: Session, key: str, field: str) -> None:
@@ -903,7 +903,7 @@ def _diagram(sess: Session, snap: dict, run_id: str | None) -> None:
         data = sess.diagram_data(run_id)
         top[0].markdown(f"**{(data or {}).get('title') or 'Diagram'}**")
         top[1].button("Close", key="dia-close", on_click=sess.set_diagram, args=({"close": True},),
-                      use_container_width=True)
+                      width="stretch")
         act = spec["kind"] == "activity"
         c = st.columns(5)
         if act:
@@ -988,7 +988,7 @@ def _draw_diagram(d: dict) -> None:
                       xaxis_title=d["x"]["label"], yaxis_title=d["y"]["label"], font=dict(color="#2B3134"))
     fig.update_xaxes(range=[x0, x1])
     fig.update_yaxes(range=[y0, y1])
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 # ---- the Sources page -------------------------------------------------------------------------------
