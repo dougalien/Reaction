@@ -51,7 +51,9 @@
         <a href="https://doi.org/10.3389/feart.2019.00180" target="_blank" rel="noopener">doi:10.3389/feart.2019.00180</a>;
         data files from <a href="https://github.com/jedick/CHNOSZ" target="_blank" rel="noopener">github.com/jedick/CHNOSZ</a> (GPL-3.0).
         <span class="use">Gibbs energies and HKF and Maier-Kelley parameters of aqueous species, minerals and gases (SUPCRT92, SLOP98, the inorganic and organic files).</span></li>
-      <li>Johnson, J.W., Oelkers, E.H. and Helgeson, H.C. (1992) SUPCRT92. Computers &amp; Geosciences 18, 899–947.
+      <li>Johnson, J.W., Oelkers, E.H. and Helgeson, H.C. (1992) SUPCRT92: a software package for calculating
+        the standard molal thermodynamic properties of minerals, gases, aqueous species, and reactions from 1 to
+        5000 bar and 0 to 1000 °C. Computers &amp; Geosciences 18, 899–947.
         <a href="https://doi.org/10.1016/0098-3004(92)90029-Q" target="_blank" rel="noopener">doi:10.1016/0098-3004(92)90029-Q</a>
         <span class="use">The SUPCRT92 dataset inside OBIGT and its scaling conventions.</span></li>
       <li>Helgeson, H.C., Delany, J.M., Nesbitt, H.W. and Bird, D.K. (1978) Summary and critique of the thermodynamic
@@ -61,37 +63,69 @@
         Na2O-K2O-CaO-MgO-FeO-Fe2O3-Al2O3-SiO2-TiO2-H2O-CO2. Journal of Petrology 29, 445–522.
         <a href="https://doi.org/10.1093/petrology/29.2.445" target="_blank" rel="noopener">doi:10.1093/petrology/29.2.445</a>
         <span class="use">Silicate minerals, with the later additions in CHNOSZ <code>extdata/Berman</code>.</span></li>
-      <li>EQ3/6 version 8.0a (Wolery, T.J., Lawrence Livermore National Laboratory), the <code>data0</code> files:
+      <li>EQ3/6 version 8.0a, Lawrence Livermore National Laboratory, the <code>data0</code> files:
         <a href="https://github.com/LLNL/EQ3_6" target="_blank" rel="noopener">github.com/LLNL/EQ3_6</a>.
+        Wolery, T.J. and Jarek, R.L. (2003) Software User's Manual, EQ3/6 Version 8.0. Sandia National
+        Laboratories, 10813-UM-8.0-00; and Wolery, T.J. (1992) EQ3NR, a computer program for geochemical aqueous
+        speciation-solubility calculations: theoretical manual, user's guide, and related documentation (version
+        7.0). Lawrence Livermore National Laboratory, UCRL-MA-110662 Part III (the source of the activity models).
         <span class="use">Ion sizes, the Drummond CO2 coefficients, ideal solid solutions and the speciation test cases.</span></li>
-      <li>Wagman, D.D. and others (1982) The NBS tables of chemical thermodynamic properties. Journal of Physical and
-        Chemical Reference Data 11, Supplement 2.
-        <span class="use">Element entropies that put Berman energies on the OBIGT scale.</span></li>
+      <li>Cox, J.D., Wagman, D.D. and Medvedev, V.A. (1989) CODATA Key Values for Thermodynamics. Hemisphere,
+        New York.
+        <span class="use">Element entropies that put Berman energies on the OBIGT scale (as in CHNOSZ <code>element.csv</code>).</span></li>
+      <li>Wagman, D.D., Evans, W.H., Parker, V.B., Schumm, R.H., Halow, I., Bailey, S.M., Churney, K.L. and Nuttall,
+        R.L. (1982) The NBS tables of chemical thermodynamic properties: selected values for inorganic and C1 and C2
+        organic substances in SI units. Journal of Physical and Chemical Reference Data 11, Supplement 2.
+        <span class="use">The entropy of iron in the same element set.</span></li>
+      <li>Shock, E.L. and Koretsky, C.M. (1993) Metal-organic complexes in geochemical processes: calculation of
+        standard partial molal thermodynamic properties of aqueous acetate complexes at high pressures and
+        temperatures. Geochimica et Cosmochimica Acta 57, 4899–4922.
+        <a href="https://doi.org/10.1016/0016-7037(93)90128-J" target="_blank" rel="noopener">doi:10.1016/0016-7037(93)90128-J</a></li>
+      <li>Shock, E.L. and Koretsky, C.M. (1995) Metal-organic complexes in geochemical processes: estimation of
+        standard partial molal thermodynamic properties of aqueous complexes between metal cations and monovalent
+        organic acid ligands at high pressures and temperatures. Geochimica et Cosmochimica Acta 59, 1497–1532.
+        <a href="https://doi.org/10.1016/0016-7037(95)00058-8" target="_blank" rel="noopener">doi:10.1016/0016-7037(95)00058-8</a></li>
+      <li>Sverjensky, D.A., Shock, E.L. and Helgeson, H.C. (1997) Prediction of the thermodynamic properties of
+        aqueous metal complexes to 1000 °C and 5 kb. Geochimica et Cosmochimica Acta 61, 1359–1412.
+        <a href="https://doi.org/10.1016/S0016-7037(97)00009-4" target="_blank" rel="noopener">doi:10.1016/S0016-7037(97)00009-4</a>
+        <span class="use">With Shock and Koretsky, the metal complexes of carboxylic acids and other ligands in SLOP98.</span></li>
     </ul>
   </section>
 
   <section class="panel" id="eos">
     <h2>Equations of state and water</h2>
     <ul>
-      <li>Helgeson, H.C., Kirkham, D.H. and Flowers, G.C. (1981) American Journal of Science 281, 1249–1516.
+      <li>Helgeson, H.C., Kirkham, D.H. and Flowers, G.C. (1981) Theoretical prediction of the thermodynamic
+        behavior of aqueous electrolytes at high pressures and temperatures: IV. Calculation of activity
+        coefficients, osmotic coefficients, and apparent molal and standard and relative partial molal properties to
+        600 °C and 5 kb. American Journal of Science 281, 1249–1516.
         <a href="https://doi.org/10.2475/ajs.281.10.1249" target="_blank" rel="noopener">doi:10.2475/ajs.281.10.1249</a></li>
       <li>Tanger, J.C. and Helgeson, H.C. (1988) Revised equations of state for the standard partial molal properties
         of ions and electrolytes. American Journal of Science 288, 19–98.
         <a href="https://doi.org/10.2475/ajs.288.1.19" target="_blank" rel="noopener">doi:10.2475/ajs.288.1.19</a></li>
-      <li>Shock, E.L., Oelkers, E.H., Johnson, J.W., Sverjensky, D.A. and Helgeson, H.C. (1992) Journal of the Chemical
-        Society, Faraday Transactions 88, 803–826.
+      <li>Shock, E.L., Oelkers, E.H., Johnson, J.W., Sverjensky, D.A. and Helgeson, H.C. (1992) Calculation of the
+        thermodynamic properties of aqueous species at high pressures and temperatures: effective electrostatic
+        radii, dissociation constants and standard partial molal properties to 1000 °C and 5 kbar. Journal of the
+        Chemical Society, Faraday Transactions 88, 803–826.
         <a href="https://doi.org/10.1039/FT9928800803" target="_blank" rel="noopener">doi:10.1039/FT9928800803</a>
         <span class="use">The g function of the revised HKF equations.</span></li>
-      <li>Helgeson, H.C. and Kirkham, D.H. (1974) American Journal of Science 274, 1089–1198.
+      <li>Helgeson, H.C. and Kirkham, D.H. (1974) Theoretical prediction of the thermodynamic behavior of aqueous
+        electrolytes at high pressures and temperatures: II. Debye-Hückel parameters for activity coefficients and
+        relative partial molal properties. American Journal of Science 274, 1089–1198.
         <a href="https://doi.org/10.2475/ajs.274.10.1089" target="_blank" rel="noopener">doi:10.2475/ajs.274.10.1089</a>
         <span class="use">Debye-Hückel parameters of water.</span></li>
       <li>Wagner, W. and Pruss, A. (2002) The IAPWS formulation 1995 for the thermodynamic properties of ordinary water
         substance. Journal of Physical and Chemical Reference Data 31, 387–535.
         <a href="https://doi.org/10.1063/1.1461829" target="_blank" rel="noopener">doi:10.1063/1.1461829</a></li>
-      <li>IAPWS-IF97, region 4 (vapour pressure of water):
-        <a href="https://www.iapws.org/" target="_blank" rel="noopener">iapws.org</a>.</li>
-      <li>Johnson, J.W. and Norton, D. (1991) Critical phenomena in hydrothermal systems. American Journal of Science
-        291, 541–648. <a href="https://doi.org/10.2475/ajs.291.6.541" target="_blank" rel="noopener">doi:10.2475/ajs.291.6.541</a>
+      <li>Wagner, W., Cooper, J.R., Dittmann, A., Kijima, J., Kretzschmar, H.-J., Kruse, A., Mareš, R., Oguchi, K.,
+        Sato, H., Stöcker, I., Šifner, O., Takaishi, Y., Tanishita, I., Trübenbach, J. and Willkommen, Th. (2000) The
+        IAPWS Industrial Formulation 1997 for the thermodynamic properties of water and steam. Journal of Engineering
+        for Gas Turbines and Power 122, 150–184; release text at
+        <a href="https://www.iapws.org/" target="_blank" rel="noopener">iapws.org</a>.
+        <span class="use">Region 4: the vapour pressure of water.</span></li>
+      <li>Johnson, J.W. and Norton, D. (1991) Critical phenomena in hydrothermal systems: state,
+        thermodynamic, electrostatic, and transport properties of H2O in the critical region. American Journal of
+        Science 291, 541–648. <a href="https://doi.org/10.2475/ajs.291.6.541" target="_blank" rel="noopener">doi:10.2475/ajs.291.6.541</a>
         <span class="use">Dielectric constant of water.</span></li>
       <li>Marshall, W.L. and Franck, E.U. (1981) Ion product of water substance, 0–1000 °C, 1–10,000 bars. Journal of
         Physical and Chemical Reference Data 10, 295–304.
@@ -134,6 +168,7 @@
         <a href="https://doi.org/10.1016/j.gca.2013.10.003" target="_blank" rel="noopener">doi:10.1016/j.gca.2013.10.003</a></li>
       <li>Appelo, C.A.J. (2015) Principles, caveats and improvements in databases for calculating hydrogeochemical
         reactions in saline waters from 0 to 200 °C and 1 to 1000 atm. Applied Geochemistry 55, 62–71.
+        <a href="https://doi.org/10.1016/j.apgeochem.2014.11.007" target="_blank" rel="noopener">doi:10.1016/j.apgeochem.2014.11.007</a>
         <span class="use">Temperature terms of the Pitzer parameters.</span></li>
     </ul>
   </section>
@@ -168,6 +203,13 @@
         Cosmochimica Acta 75, 5736–5748.
         <a href="https://doi.org/10.1016/j.gca.2011.07.041" target="_blank" rel="noopener">doi:10.1016/j.gca.2011.07.041</a>
         <span class="use">The set of aerobic and anaerobic reactions, and energy per kg of mixed fluid.</span></li>
+      <li>McCollom, T.M. (2007) Geochemical constraints on sources of metabolic energy for chemolithoautotrophy in
+        ultramafic-hosted deep-sea hydrothermal systems. Astrobiology 7, 933–950.
+        <span class="use">The ultramafic-hosted vent case.</span></li>
+      <li>McCollom, T.M. and Bach, W. (2009) Thermodynamic constraints on hydrogen generation during serpentinization
+        of ultramafic rocks. Geochimica et Cosmochimica Acta 73, 856–875.
+        <a href="https://doi.org/10.1016/j.gca.2008.10.032" target="_blank" rel="noopener">doi:10.1016/j.gca.2008.10.032</a>
+        <span class="use">Ideal Mg-Fe mixing in serpentine (chrysotile-greenalite).</span></li>
     </ul>
   </section>
 
@@ -181,6 +223,16 @@
       <li>Ohmoto, H. and Rye, R.O. (1979) Isotopes of sulfur and carbon. In Barnes, H.L. (ed.) Geochemistry of
         Hydrothermal Ore Deposits, 2nd ed., Wiley, 509–567.
         <span class="use">Carbon (against CO2) and sulfur (against H2S) fractionation.</span></li>
+      <li>Bottinga, Y. (1968) Calculation of fractionation factors for carbon and oxygen isotopic exchange in the system
+        calcite-carbon dioxide-water. Journal of Physical Chemistry 72, 800–808; and Bottinga, Y. (1969) Calculated
+        fractionation factors for carbon and hydrogen isotope exchange in the system calcite-carbon
+        dioxide-graphite-methane-hydrogen-water vapor. Geochimica et Cosmochimica Acta 33, 49–64.
+        <a href="https://doi.org/10.1016/0016-7037(69)90092-1" target="_blank" rel="noopener">doi:10.1016/0016-7037(69)90092-1</a>
+        <span class="use">Behind the Ohmoto and Rye carbon fractionation curves.</span></li>
+      <li>Mook, W.G., Bommerson, J.C. and Staverman, W.H. (1974) Carbon isotope fractionation between dissolved
+        bicarbonate and gaseous carbon dioxide. Earth and Planetary Science Letters 22, 169–176.
+        <a href="https://doi.org/10.1016/0012-821X(74)90078-8" target="_blank" rel="noopener">doi:10.1016/0012-821X(74)90078-8</a>
+        <span class="use">Bicarbonate against CO2 gas, behind the Ohmoto and Rye carbon curves.</span></li>
       <li>Ohmoto, H. and Lasaga, A.C. (1982) Kinetics of reactions between aqueous sulfates and sulfides in hydrothermal
         systems. Geochimica et Cosmochimica Acta 46, 1727–1745.
         <a href="https://doi.org/10.1016/0016-7037(82)90113-2" target="_blank" rel="noopener">doi:10.1016/0016-7037(82)90113-2</a>
@@ -190,13 +242,18 @@
         <a href="https://doi.org/10.1016/0016-7037(94)90096-5" target="_blank" rel="noopener">doi:10.1016/0016-7037(94)90096-5</a>
         <span class="use">δ18O and δD of water through evaporation and boiling, and of steam in the gas.</span></li>
       <li>Brenninkmeijer, C.A.M., Kraft, P. and Mook, W.G. (1983) Oxygen isotope fractionation between CO2 and H2O.
-        Isotope Geoscience 1, 181–190.
+        Chemical Geology (Isotope Geoscience Section) 1, 181–190.
         <span class="use">δ18O of CO2 gas against the water.</span></li>
-      <li>Mook, W.G. (1986) 13C in atmospheric CO2. Netherlands Journal of Sea Research 20, 211–223 (after Vogel, J.C.,
-        Grootes, P.M. and Mook, W.G. 1970).
+      <li>Mook, W.G. (1986) 13C in atmospheric CO2. Netherlands Journal of Sea Research 20, 211–223.
+        <a href="https://doi.org/10.1016/0077-7579(86)90043-8" target="_blank" rel="noopener">doi:10.1016/0077-7579(86)90043-8</a>; after Vogel, J.C., Grootes, P.M. and Mook, W.G. (1970) Isotopic
+        fractionation between gaseous and dissolved carbon dioxide. Zeitschrift für Physik 230, 225–238.
+        <a href="https://doi.org/10.1007/BF01394688" target="_blank" rel="noopener">doi:10.1007/BF01394688</a>
         <span class="use">δ13C of dissolved against gaseous CO2.</span></li>
       <li>Horibe, Y. and Craig, H. (1995) D/H fractionation in the system methane-hydrogen-water. Geochimica et
-        Cosmochimica Acta 59, 5209–5217 (with Bardo, R.D. and Wolfsberg, M. 1976 for water-hydrogen).
+        Cosmochimica Acta 59, 5209–5217.
+        <a href="https://doi.org/10.1016/0016-7037(95)00391-6" target="_blank" rel="noopener">doi:10.1016/0016-7037(95)00391-6</a>; with Bardo, R.D. and Wolfsberg, M. (1976) A theoretical
+        calculation of the equilibrium constant for the isotopic exchange reaction between H2O and HD. Journal of
+        Physical Chemistry 80, 1068–1071, for water-hydrogen.
         <span class="use">δD of H2 and methane, gas and dissolved.</span></li>
       <li>Suzuoki, T. and Epstein, S. (1976) Hydrogen isotope fractionation between OH-bearing minerals and water.
         Geochimica et Cosmochimica Acta 40, 1229–1240.
@@ -253,7 +310,10 @@
       <li>Bradbury, M.H. and Baeyens, B. (2005) Experimental measurements and modeling of sorption competition on
         montmorillonite. Geochimica et Cosmochimica Acta 69, 4187–4197.
         <a href="https://doi.org/10.1016/j.gca.2005.04.014" target="_blank" rel="noopener">doi:10.1016/j.gca.2005.04.014</a>
-        <span class="use">Montmorillonite edge sites (2SPNE SC/CE), after Baeyens and Bradbury (1997) Journal of Contaminant Hydrology 27, 199–222.</span></li>
+        <span class="use">Montmorillonite edge sites (2SPNE SC/CE), after Baeyens, B. and Bradbury, M.H. (1997) A mechanistic
+        description of Ni and Zn sorption on Na-montmorillonite. Part I: Titration and sorption measurements.
+        Journal of Contaminant Hydrology 27, 199–222.
+        <a href="https://doi.org/10.1016/S0169-7722(97)00008-9" target="_blank" rel="noopener">doi:10.1016/S0169-7722(97)00008-9</a></span></li>
       <li>Bradbury, M.H. and Baeyens, B. (2009) Sorption modelling on illite Part I: Titration measurements and the
         sorption of Ni, Co, Eu and Sn. Geochimica et Cosmochimica Acta 73, 990–1003.
         <a href="https://doi.org/10.1016/j.gca.2008.11.017" target="_blank" rel="noopener">doi:10.1016/j.gca.2008.11.017</a>
@@ -261,12 +321,15 @@
       <li>Bradbury, M.H. and Baeyens, B. (2009) Sorption modelling on illite. Part II: Actinide sorption and linear
         free energy relationships. Geochimica et Cosmochimica Acta 73, 1004–1013.
         <a href="https://doi.org/10.1016/j.gca.2008.11.016" target="_blank" rel="noopener">doi:10.1016/j.gca.2008.11.016</a>
-        <span class="use">The illite LFER.</span></li>
+        <span class="use">The illite LFER, with the Ni and Co hydrolysis constants of its Table 6, from Gamsjäger,
+        H., Bugajski, J., Gajda, T., Lemire, R.J. and Preis, W. (2005) Chemical Thermodynamics of Nickel. OECD
+        Nuclear Energy Agency, Elsevier, Amsterdam; and Baes, C.F. and Mesmer, R.E. (1976) The Hydrolysis of
+        Cations. Wiley, New York.</span></li>
       <li>Dzombak, D.A. and Morel, F.M.M. (1990) Surface Complexation Modeling: Hydrous Ferric Oxide. Wiley, New York.
         <span class="use">Iron oxide surface sites (as in <code>phreeqc.dat</code>).</span></li>
       <li>Ion exchange (Gaines-Thomas) constants from PHREEQC's <code>phreeqc.dat</code> (Parkhurst and Appelo, above).</li>
       <li>Marinich, O., Marques Fernandes, M., Miron, G.D. and Kulik, D.A. (2024) ClaySor 2023. Nagra Technical Report
-        NTB 23-05. <span class="use">Illite cation exchange capacity.</span></li>
+        NTB 23-05, Nagra, Wettingen. <span class="use">Illite cation exchange capacity.</span></li>
       <li>van Olphen, H. and Fripiat, J.J. (1979) Data Handbook for Clay Materials and Other Non-metallic Minerals.
         Pergamon, Oxford; values as listed by the
         <a href="https://www.clays.org/" target="_blank" rel="noopener">Clay Minerals Society Source Clays Repository</a>.
@@ -290,6 +353,11 @@
       <li>Basalt glass: close to the global mean of Gale, A., Dalton, C.A., Langmuir, C.H., Su, Y. and Schilling, J.-G.
         (2013) The mean composition of ocean ridge basalts. Geochemistry, Geophysics, Geosystems 14, 489–518.
         <a href="https://doi.org/10.1029/2012GC004334" target="_blank" rel="noopener">doi:10.1029/2012GC004334</a></li>
+      <li>Mars meteorite: the mode of Shergotty after Stolper, E. and McSween, H.Y. (1979) Petrology and origin of the
+        shergottite meteorites. Geochimica et Cosmochimica Acta 43, 1475–1498.
+        <a href="https://doi.org/10.1016/0016-7037(79)90142-X" target="_blank" rel="noopener">doi:10.1016/0016-7037(79)90142-X</a></li>
+      <li>The other rock cards (crystalline basalt, granite, lherzolite, sandstone and the limestones) are rounded
+        textbook modes, illustrative rather than samples.</li>
       <li>Deep seawater: the major ions of the seawater above, with dissolved O2, carbonate and pH rounded to values
         typical of deep Pacific water; illustrative, not a sample.</li>
       <li>Rainwater and the contaminated stream are illustrative values, not samples.</li>
