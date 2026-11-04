@@ -1,34 +1,28 @@
-# Builds Reaction.exe on Windows and publishes it as the "Latest Windows build" release.
-name: Windows exe
+# The Windows exe is no longer built or published here: the apps are hosted on Streamlit and are not
+# for download. This job removes the old public "Latest Windows build" release, its tag, and the exe
+# files kept from earlier runs. It runs once when this file reaches main, and can be run again by hand.
+name: Remove public downloads
 
 on:
   push:
     branches: [main]
-    paths: ["src/**", "packaging/**", ".github/workflows/windows-exe.yml"]
+    paths: [".github/workflows/windows-exe.yml"]
   workflow_dispatch:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
-  build:
-    runs-on: windows-latest
+  remove:
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Build
-        run: powershell -File packaging\build_exe.ps1
-      - name: Check that it starts
-        run: dist\Reaction.exe --help
-      - uses: actions/upload-artifact@v4
-        with:
-          name: Reaction-exe
-          path: dist/Reaction.exe
-      - name: Publish
+      - name: Delete the release, its tag and old build artifacts
         env:
           GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
         run: |
-          gh release delete windows-latest --yes --cleanup-tag 2>$null
-          gh release create windows-latest dist/Reaction.exe --target ${{ github.sha }} --title "Latest Windows build" --notes "Reaction.exe built from ${{ github.sha }}. Double-click to start; the thermodynamic data stays in %LOCALAPPDATA%\Reaction\external."
+          gh release delete windows-latest --repo "$REPO" --yes --cleanup-tag || echo "No release left"
+          for id in $(gh api "repos/$REPO/actions/artifacts" --paginate -q '.artifacts[].id'); do
+            gh api -X DELETE "repos/$REPO/actions/artifacts/$id" && echo "Deleted artifact $id"
+          done
