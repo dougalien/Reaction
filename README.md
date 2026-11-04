@@ -34,14 +34,28 @@ Ollama is running (default model `qwen2.5:7b`, override with
 without it, plain rules read the obvious details.  The language model never
 produces numbers, only the card and the plot request.
 
-Needed beside the code: the OBIGT csv files in `OBIGT/` and `EQ36_DB/data0.cmp`
-(ion sizes only) under `%LOCALAPPDATA%\Reaction\external` (override with
-`REACTION_DATA_DIR`).  Saved runs go to `workspace/` (override with
+The thermodynamic data come with the app: the OBIGT csv files of CHNOSZ (GPL-3.0) in
+`src/reaction/data/reference/` and the EQ3/6 ion sizes, as numbers, in `src/reaction/data/ion_sizes_eq36.tsv`
+(see the NOTICE there).  A filled `%LOCALAPPDATA%\Reaction\external` (or `REACTION_DATA_DIR`) still
+takes precedence, as for the validation tests.  Saved runs go to `workspace/` (override with
 `REACTION_WORKSPACE`).  What exists so far is seawater along a straight
 temperature-pressure path (0 to 600 C, 1 to 5000 bar, either or both changing),
 static and flow-through.  There are no fixed-pressure databases: equilibrium
 constants are computed at every point, and the app rates how far to trust them
 there; see [docs/PRODUCT.md](docs/PRODUCT.md) for the plan and the accuracy map.
+
+## On the web (Streamlit)
+
+Reaction also runs as a hosted Streamlit app with the same two windows: Input (the scenario card, at the
+app's address) and Results (`/results`, opened from the "Open results window" button, so it can sit on a
+second screen).  The two windows share one session through a private `?w=` id in the address; each
+visitor has their own card and runs, and one copy of the thermodynamic data serves everyone, one run at a
+time.  The science code is the same; only the front end (`src/reaction/web/`) is new.
+
+    pip install -r requirements.txt
+    streamlit run streamlit_app.py
+
+On Streamlit Community Cloud: New app, this repository, entry point `streamlit_app.py`.
 
 ## Try it (library)
 

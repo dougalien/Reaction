@@ -6,9 +6,9 @@ __pycache__/
 build/
 dist/
 
-# Third-party thermodynamic databases and reference codes are never committed:
-# their licenses are unclear or differ from this project's. Point the importers
-# at a local copy instead (see docs/DESIGN.md, "Data policy").
+# Third-party thermodynamic databases and reference codes are not committed, except the
+# OBIGT csv files in src/reaction/data/reference (GPL-3.0, bundled since 2026-11-04 so the
+# app carries its data; see docs/DESIGN.md, "Data policy").
 data/external/
 *.data0
 data0.*

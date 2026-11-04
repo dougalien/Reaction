@@ -136,7 +136,8 @@ class Engine:
                         f"Thermodynamic data not found in {self.data_dir}. Expected OBIGT/ with the "
                         f"CHNOSZ csv files; scripts/fetch_references.ps1 downloads them, or set "
                         f"REACTION_DATA_DIR.")
-                ion_sizes = load_data0(eq36) if eq36.exists() else None
+                # ion sizes from an installed EQ3/6 database, else the bundled table of its values
+                ion_sizes = load_data0(eq36) if eq36.exists() else "table"
                 self._db = load_eos_database(obigt, "current", eq36_database=ion_sizes)
             return self._db
 
