@@ -1,5 +1,5 @@
 # PyInstaller recipe for Reaction.exe: one file holding Python, numpy, scipy, the app and its own data
-# tables.  The thermodynamic databases are not inside it; they stay in %LOCALAPPDATA%\Reaction\external.
+# tables, including the OBIGT and EQ3/6 reference data in reaction/data/reference (see its NOTICE.md).
 # Build with packaging/build_exe.ps1 (or: pyinstaller packaging/reaction.spec from the repository root).
 from pathlib import Path
 
@@ -10,6 +10,7 @@ a = Analysis(
     [str(ROOT / "packaging" / "reaction_exe.py")],
     pathex=[str(ROOT / "src")],
     datas=[(str(SRC / "data" / "*.tsv"), "reaction/data"),
+           (str(SRC / "data" / "reference"), "reaction/data/reference"),
            (str(SRC / "app" / "static"), "reaction/app/static")],
     excludes=["matplotlib", "pandas", "tkinter", "pytest", "IPython"],
 )

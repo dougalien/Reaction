@@ -366,6 +366,26 @@ def set_ion_sizes_from_eq36(db: EosDatabase, eq36_db: ThermoDatabase) -> int:
     return n
 
 
+ION_SIZE_TABLE = Path(__file__).resolve().parents[1] / "data" / "ion_sizes_eq36.tsv"
+
+
+def set_ion_sizes_from_table(db: EosDatabase, path: str | Path = ION_SIZE_TABLE) -> int:
+    """Copy ion-size parameters and nonpolar-neutral flags from the bundled table (``ion_sizes_eq36.tsv``,
+    the values of EQ3/6's data0.cmp), the same way :func:`set_ion_sizes_from_eq36` does from the database
+    itself.  Returns the number of species updated."""
+    n = 0
+    for line in Path(path).read_text(encoding="utf-8").splitlines():
+        if not line or line.startswith("#") or line.startswith("species\t"):
+            continue
+        name, a0, kind = line.split("\t")
+        target = db.species.get(eq36_name_to_obigt(name))
+        if target is not None and target.kind in (Kind.BASIS, Kind.AQUEOUS):
+            target.a0 = float(a0)
+            target.activity_type = int(kind)
+            n += 1
+    return n
+
+
 def eq36_name_to_obigt(name: str) -> str:
     """Translate an EQ3/6 aqueous species name to the OBIGT spelling (Ca++ -> Ca+2)."""
     if name.endswith("(aq)"):
@@ -389,13 +409,14 @@ PRESETS = {
 
 
 def load_eos_database(obigt_dir: str | Path, preset: str = "current",
-                      eq36_database: ThermoDatabase | None = None,
+                      eq36_database: ThermoDatabase | str | None = None,
                       masters: dict[str, str] | None = None) -> EosDatabase:
     """Read OBIGT csv files from ``obigt_dir`` and build an :class:`EosDatabase`.
 
     ``eq36_database`` optionally supplies ion-size parameters (angstrom) for the
-    Debye-Hueckel and B-dot activity models; without it species get 4.0 (ions)
-    or 3.0 (neutrals).
+    Debye-Hueckel and B-dot activity models: an EQ3/6 database, or ``"table"`` for the
+    bundled table of the same values (``data/ion_sizes_eq36.tsv``); without it species get
+    4.0 (ions) or 3.0 (neutrals).
     """
     data = load_obigt(obigt_dir, PRESETS[preset])
     db = build_eos_database(data, masters=masters, title=f"OBIGT/HKF ({preset})")
@@ -407,6 +428,8 @@ def load_eos_database(obigt_dir: str | Path, preset: str = "current",
         db.data_notes.append(
             "Methane data (OBIGT organic_aq.csv and organic_gas.csv) are missing from the data folder; "
             "run scripts/fetch_references.ps1 again to add them.")
-    if eq36_database is not None:
+    if isinstance(eq36_database, str) and eq36_database == "table":
+        set_ion_sizes_from_table(db)
+    elif eq36_database is not None:
         set_ion_sizes_from_eq36(db, eq36_database)
     return db

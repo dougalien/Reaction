@@ -159,8 +159,12 @@ Akinfiev-Diamond and DEW models are not implemented yet.
 
 ## Data policy
 
-* No third-party database is ever committed.  Importers read from a path you
+* No third-party database is committed except OBIGT (below).  Importers read from a path you
   supply (`REACTION_EQ36_DIR`, ...); `.gitignore` blocks `data0.*`.
+* Since 2026-11-04 (Douglas's decision, so the hosted app and the exe carry their own data):
+  the OBIGT csv files are bundled in `src/reaction/data/reference/` (GPL-3.0, with a NOTICE),
+  and the ion sizes the app reads from EQ3/6 `data0.cmp` are bundled as numbers only in
+  `src/reaction/data/ion_sizes_eq36.tsv`; the `data0` file itself is still not redistributed.
 * **EQ3/6 v8.0a** (github.com/LLNL/EQ3_6): the software is BSD-3.  The
   `Readme.txt` inside the Windows package (2010 text) still says commercial use
   needs notification to DOE/LLNL, and nothing found states the license of the

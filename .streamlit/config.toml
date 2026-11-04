@@ -1,0 +1,14 @@
+# Dougalien Systems colours (sand, slate, rust from the logo), on a soft warm background
+# rather than bright white, so the pages are easy on the eyes.
+[theme]
+base = "light"
+primaryColor = "#3E5C6B"
+backgroundColor = "#ECE9E1"
+secondaryBackgroundColor = "#E2DDD1"
+textColor = "#2B3134"
+borderColor = "#CFC8B8"
+linkColor = "#8E4422"
+font = "sans serif"
+
+[browser]
+gatherUsageStats = false
