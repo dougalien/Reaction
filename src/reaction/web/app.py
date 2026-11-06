@@ -549,7 +549,8 @@ TABS = [("species", "Species"), ("elements", "Elements"), ("minerals", "Mineral 
         ("isotopes", "Isotopes"), ("sorbed", "Sorbed"), ("partition", "Partition coefficients"),
         ("saturation", "Saturation index"), ("property", "Properties")]
 PROPS = {"pH": "pH", "ionic_strength": "Ionic strength", "water_kg": "Solvent mass", "log_aw": "log water activity",
-         "log_fO2": "log fO2", "Eh": "Eh (V)", "surface_potential_mV": "Surface potential (mV)"}
+         "log_fO2": "log fO2", "Eh": "Eh (V)", "surface_potential_mV": "Surface potential (mV)",
+         "net_acidity": "Net acidity (mg/kg as CaCO3)"}
 AMOUNT_GROUPS = ("species", "elements", "minerals", "gas", "sorbed")
 
 

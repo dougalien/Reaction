@@ -104,3 +104,16 @@ def test_vent_mixing_keeps_disequilibrium_and_gives_energy(runs):
     assert all(v is None or v < -300 for v in e["dG:h2s_ox"][1:])            # far from equilibrium
     es = e["Es:h2s_ox"][-1] / e["E:h2s_ox"][-1]
     assert es == pytest.approx(116, rel=1e-3)                                # per kg of vent fluid
+
+
+def test_pyrite_oxidation_makes_acid_mine_drainage(runs):
+    run = runs["amd"]
+    assert not _formed(run)                                          # Fe(III) solids blocked: iron stays dissolved
+    assert 1.9 < run["properties"]["pH"][-1] < 2.1
+    assert run["properties"]["ionic_strength"][-1] < 0.1             # inside the B-dot range
+    # 10 mmol pyrite fully oxidized and hydrolysed gives 40 meq of acid (2000 mg/kg as CaCO3), less the
+    # groundwater's alkalinity; net acidity counts it although only part is free H+
+    acidity = run["properties"]["net_acidity"]
+    assert acidity[0] < 0 and 1800 < acidity[-1] < 2000
+    assert all(a < b for a, b in zip(acidity, acidity[1:]))
+    assert run["species"]["Fe+2"][-1] > run["species"]["Fe+3"][-1]   # O2 enough for the sulfur, not the iron

@@ -37,7 +37,7 @@ const UNIT_SCALE = { mol: 1, mmol: 1e3, umol: 1e6, mg: 1e3, ug: 1e6 };
 const UNIT_TEXT = { mol: "mol", mmol: "mmol", umol: "µmol", mg: "mg", ug: "µg" };
 const TABS = [["species", "Species"], ["elements", "Elements"], ["minerals", "Mineral amounts"],
   ["gas", "Gas phase"], ["kinetic", "Rates"], ["energy", "Energy"], ["composition", "Solid solutions"], ["phases", "Brine and vapour"], ["isotopes", "Isotopes"], ["sorbed", "Sorbed"], ["partition", "Partition coefficients"], ["saturation", "Saturation index"], ["property", "Properties"]];
-const PROPS = { pH: "pH", ionic_strength: "Ionic strength", water_kg: "Solvent mass", log_aw: "log water activity", log_fO2: "log fO2", Eh: "Eh (V)", surface_potential_mV: "Surface potential (mV)" };
+const PROPS = { pH: "pH", ionic_strength: "Ionic strength", water_kg: "Solvent mass", log_aw: "log water activity", log_fO2: "log fO2", Eh: "Eh (V)", surface_potential_mV: "Surface potential (mV)", net_acidity: "Net acidity (mg/kg as CaCO3)" };
 
 function pill(el, text, kind) { el.textContent = text; el.className = "pill " + (kind || ""); }
 
