@@ -614,6 +614,7 @@ def story(result: dict) -> list[str]:
 
 FLUID_PROPERTIES = (("temperature", "Temperature", "°C"), ("pressure", "Pressure", "bar"), ("pH", "pH", ""),
                     ("Eh", "Eh", "V"), ("log_fO2", "log fO2", ""), ("ionic_strength", "Ionic strength", "mol/kg"),
+                    ("net_acidity", "Net acidity", "mg/kg as CaCO3"),
                     ("water_kg", "Water left", "kg per kg at the start"))
 
 

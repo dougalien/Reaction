@@ -81,6 +81,40 @@ class EngineUnavailable(RuntimeError):
     """The thermodynamic data the engine needs could not be found."""
 
 
+
+# Net acidity of a mine water, mg/kg as CaCO3 (Kirby and Cravotta 2005, Applied Geochemistry 20, 1920-1940):
+# the free acid plus the acid that the dissolved Fe, Al and Mn release when they oxidize and precipitate as
+# hydroxides (Fe(II) 2, Fe(III) 3, Al 3, Mn 2 equivalents per mole), less the carbonate and hydroxide alkalinity.
+# The H+ in HSO4- is counted too, so the acid of oxidized pyrite (4 H+ per FeS2) is all accounted for.
+# Below pH about 4.5 most of the acid of a mine water is in its metals, not in its free H+.
+ACIDITY_METALS = {"Al": ("Al+3", None), "Mn": ("Mn+2", None), "Fe": ("Fe+2", "Fe+3")}
+MG_CACO3_PER_EQ = 50.04e3
+
+
+def net_acidity(db, spec) -> float:
+    """Net acidity (mg/kg as CaCO3) of a speciated fluid.  Each Fe species counts as Fe(III) by the O2 in its
+    formation reaction from Fe+2 (Fe+3, FeOH+2, FeSO4+ ...), else as Fe(II)."""
+    eq = 10.0 ** -spec.ph                                   # free acid, from the pH as Kirby and Cravotta do,
+    if "HSO4-" in spec.species:                             # and the H+ held as bisulfate, which their formula
+        eq += spec.species["HSO4-"].molality                # leaves out (a fifth of the acid near pH 2)
+    for name, st in spec.species.items():
+        sp = db.species.get(name)
+        if sp is None or st.molality <= 0:
+            continue
+        for el, n in sp.elements.items():
+            if el == "Al":
+                eq += 3.0 * n * st.molality
+            elif el == "Mn":
+                eq += 2.0 * n * st.molality
+            elif el == "Fe":
+                o2 = sp.reaction.get("O2(g)", 0.0) + sp.reaction.get("O2", 0.0)
+                ferric = min(max(4.0 * o2 / n, 0.0), 1.0)    # a sulfide complex (O2 < 0) counts as Fe(II)
+                eq += (2.0 + ferric) * n * st.molality
+    alk = sum(k * spec.species[s].molality for s, k in (("HCO3-", 1.0), ("CO3-2", 2.0), ("OH-", 1.0))
+              if s in spec.species)
+    return (eq - alk) * MG_CACO3_PER_EQ
+
+
 def _sig(x: float | None, digits: int = 6):
     if x is None or (isinstance(x, float) and not math.isfinite(x)):
         return None
@@ -1098,7 +1132,7 @@ class Engine:
             rates[f"rate:{r.name}"] = point.rates.get(r.name, 0.0)
             rates[f"left:{r.name}"] = 100.0 * max(left, 0.0) / r.amount
         phases = {"salinity": 100.0 * salinity_from_chloride(spec.component_totals.get("Cl-", 0.0))}
-        return {"energy": catabolic.energies(db, spec, state.water_kg) if energy else {}, "kinetic": rates, "composition": composition, "phases": phases, "pH": spec.ph, "ionic_strength": spec.ionic_strength, "water_kg": state.water_kg,
+        return {"energy": catabolic.energies(db, spec, state.water_kg) if energy else {}, "kinetic": rates, "composition": composition, "phases": phases, "pH": spec.ph, "ionic_strength": spec.ionic_strength, "net_acidity": net_acidity(db, spec), "water_kg": state.water_kg,
                 "log_fO2": spec.log_fo2, "Eh": spec.eh_volts,
                 "log_aw": spec.log_a_water, "species": species,
                 "log_a": {n: spec.species[n].log_activity for n in spec.basis_names
@@ -1300,6 +1334,8 @@ def _pack(rows: list[dict | None]) -> dict:
             "log_aw": [_sig(r["log_aw"]) if r else None for r in rows],
             **{k: [_sig(r.get(k)) if r else None for r in rows] for k in ("log_fO2", "Eh")
                if any(r and math.isfinite(r.get(k, math.nan)) for r in rows)},   # only with redox
+            **({"net_acidity": [_sig(r.get("net_acidity")) if r else None for r in rows]}
+               if any(r and r["elements"].get(m, 0.0) > 1e-6 for r in good for m in ACIDITY_METALS) else {}),
             **({"surface_potential_mV": [_sig(r.get("surface_potential_mV")) if r else None for r in rows]}
                if any(r and r.get("surface_potential_mV") is not None for r in rows) else {}),
         },

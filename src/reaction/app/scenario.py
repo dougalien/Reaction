@@ -915,6 +915,11 @@ HIGH_T_MINERALS = ("lawsonite", "paragonite", "pumpellyite", "sudoite", "prehnit
                    "clinozoisite", "epidote", "pyrophyllite", "muscovite", "clinochlore", "talc", "tremolite", "diaspore",
                    "boehmite")
 
+# Fe(III) solids a mine-drainage example keeps from forming: the stable ones form slowly, and the ochres that do
+# form (ferrihydrite, schwertmannite) are not in the database
+FE3_MINERALS = ("hematite", "goethite", "lepidocrocite", "maghemite", "magnetite", "hisingerite", "jarosite",
+                "natrojarosite", "hydronium jarosite")
+
 
 EXAMPLES: dict[str, Example] = {e.key: e for e in (
     Example("solid_solutions", "Basalt alteration", "Solid solutions",
@@ -1070,6 +1075,25 @@ EXAMPLES: dict[str, Example] = {e.key: e for e in (
                           "hundred µm."),
              ("surface_area_cm2_per_g", "Surface area 100 cm2 per g, about that of grains of 0.1 mm.")),
             ("calcite",), False, "ug"),
+    Example("amd", "Acid mine drainage", "Acid from pyrite, and the acid stored in iron",
+            "Oxygenated groundwater oxidizes 10 mmol of pyrite per kg at 25 C, with the 3.5 O2 per pyrite that turns "
+            "its sulfur to sulfate: FeS2 + 7/2 O2 + H2O = Fe+2 + 2 SO4-2 + 2 H+. The pH falls from 6.7 to about 2, "
+            "but the free H+ is less than half the acid: the dissolved iron holds the rest, released when it "
+            "oxidizes and precipitates as Fe(OH)3 (Fe+2 + 1/4 O2 + 5/2 H2O = Fe(OH)3 + 2 H+). Net acidity "
+            "(Kirby and Cravotta 2005) counts both; compare it with pH on the Properties tab. The ionic strength "
+            "stays below 0.05 mol/kg, well inside the B-dot equation's range. A second.",
+            {"title": "Pyrite oxidizing in groundwater: acid mine drainage", "fluid": "groundwater", "redox": "air",
+             "t_start_c": 25.0, "t_end_c": 25.0, "p_start_bar": 1.0, "p_end_bar": 1.0, "steps": 21,
+             "reactants": [{"name": "pyrite", "amount": 1.2, "unit": "g"}, {"name": "O2", "amount": 0.035, "unit": "mol"}],
+             "blocked_minerals": DEFAULT_BLOCKED + list(FE3_MINERALS) + list(SILICA_POLYMORPHS) + list(HIGH_T_MINERALS)},
+            (("reactants", "Reactants: 1.2 g pyrite (10 mmol) and 35 mmol O2, added together and steadily: the O2 "
+                           "a mine's air brings, enough to oxidize the sulfur but not the iron."),
+             ("fluid", "Fluid: shallow groundwater (the Groundwater preset), in equilibrium with air at the start."),
+             ("blocked_minerals", "Blocked: the Fe(III) oxides, hydroxides and jarosites, so the iron stays "
+                                  "dissolved as at a mine seep before the ochre forms (ferrihydrite and "
+                                  "schwertmannite are not in the database); unblock goethite to let it go, "
+                                  "with more O2, to the end of the reaction.")),
+            ("pH",), False),
     Example("vent_energy", "Vent fluid meets seawater", "Chemosynthesis energy",
             "A 350 C black-smoker fluid mixes into 2 C deep seawater at a mid-ocean ridge (250 bar), from pure vent "
             "fluid down to 5 C (115 kg of seawater per kg). Mixing is faster than the redox reactions, so the fluid's "
