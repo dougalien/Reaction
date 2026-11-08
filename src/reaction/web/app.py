@@ -41,6 +41,38 @@ PALETTE = ["#3E5C6B", "#B4532A", "#C49A55", "#5E8C6A", "#8A6A9A", "#4F86A0", "#A
 PLOT_BG = "#F3F1EB"
 GRID = "#DDD8CC"
 
+# ---- display text: the engine's notes and stories are plain ASCII; show them with proper symbols -------
+_SUB = str.maketrans("0123456789", "₀₁₂₃₄₅₆₇₈₉")
+_SUP = str.maketrans("0123456789+-", "⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻")
+_FORMULA = re.compile(r"(?<![\w.])(fO2|H2O|H2S|H2|O2|CO2|CH4|SO4|SO2|N2|NO3|NH4|HCO3|CO3|SiO2|CaCO3|FeS2|"
+                      r"Fe\(OH\)3|Fe2O3|Al2O3|Na2O|K2O)(?![\w])")
+_CHARGE = re.compile(r"(?<![\w])((?:[A-Z][a-z]?[₀-₉]*)+)([+-])(\d)(?![\w.])")
+_SPELL = {"vapour": "vapor", "Vapour": "Vapor", "aluminium": "aluminum", "Aluminium": "Aluminum",
+          "behaviour": "behavior", "colour": "color", "centre": "center", "labelled": "labeled"}
+_SPELL_RE = re.compile(r"\b(" + "|".join(_SPELL) + r")")
+
+
+def tidy(text) -> str:
+    """Degree signs, subscripts, charges, δ, minus signs and U.S. spelling in text shown to people."""
+    if not isinstance(text, str):
+        return text
+    t = re.sub(r"(?<=\d) C\b", " °C", text)
+    t = _SPELL_RE.sub(lambda m: _SPELL[m.group(1)], t)
+    t = re.sub(r"(?<![\w])d(18O|13C|34S|D|7Li|11B|30Si|56Fe|26Mg|44Ca)(?![\w])", r"δ\1", t)
+    t = _FORMULA.sub(lambda m: m.group(1).translate(_SUB), t)
+    t = _CHARGE.sub(lambda m: m.group(1) + (m.group(3) + m.group(2)).translate(_SUP), t)
+    t = re.sub(r"(?:(?<=[\s(=])|^)-(?=\d)", "−", t)
+    return t
+
+
+def sentence(text: str) -> str:
+    """Tidy text that should start with a capital letter (mineral names in notes start lowercase)."""
+    t = tidy(text)
+    first = re.match(r"[a-z]+", t)
+    if first and first.group(0) not in ("log", "pH", "pe"):
+        t = t[0].upper() + t[1:]
+    return t
+
 
 # ---- workspaces: one Session per user, shared by that user's two windows -----------------------------
 @st.cache_resource
@@ -115,7 +147,7 @@ def header(subtitle: str) -> None:
 
 def footer(wid: str) -> None:
     st.divider()
-    st.caption(f"Reaction {__version__} · alpha · [Sources]({PATHS['sources']}?w={wid}) · [Report a problem]({FEEDBACK_URL}) · "
+    st.caption(f"Reaction {__version__} · beta · [Sources]({PATHS['sources']}?w={wid}) · [Report a problem]({FEEDBACK_URL}) · "
                "Every number comes from Reaction's own solver; nothing you enter leaves this app.")
 
 
@@ -129,7 +161,7 @@ NUM_FIELDS = {  # field: (label, min, max, step, help)
     "cells": ("Cells", 2, 100, 1, "Number of cells the column is divided into (2 to 100)"),
     "pore_volumes": ("Pore volumes", 0.0, 100.0, 0.5, "How many column volumes of fluid flow through"),
     "column_m": ("Column length (m)", 0.0, None, 0.1, None),
-    "dispersivity_m": ("Dispersivity (m)", 0.0, None, 0.01, "Spreads the fronts: D = dispersivity x velocity. 0 gives sharp fronts"),
+    "dispersivity_m": ("Dispersivity (m)", 0.0, None, 0.01, "Spreads the fronts: D = dispersivity × velocity. 0 gives sharp fronts"),
     "evaporate": ("Evaporate to (times concentrated)", 1.0, 10000.0, 1.0,
                   "Water is taken away until the fluid is this many times more concentrated; 1 means no evaporation"),
     "mix_ratio": ("Up to (kg per kg)", 0.0, 1000.0, 0.1, None),
@@ -151,7 +183,7 @@ NUM_FIELDS = {  # field: (label, min, max, step, help)
                          "middle 90% of them. Each takes as long as the main run"),
     "ph": ("pH", 0.0, 14.0, 0.1, None),
     "fluid_t_c": ("Measured at (°C)", 0.0, 600.0, 1.0, None),
-    "fluid_p_bar": ("Measured at (bar)", 1.0, 5000.0, 1.0, "Empty means 1 bar (or the boiling curve above 100 C)"),
+    "fluid_p_bar": ("Measured at (bar)", 1.0, 5000.0, 1.0, "Empty means 1 bar (or the boiling curve above 100 °C)"),
     "redox_value": ("Value", None, None, 0.1, None),
 }
 CHOICES = {  # field: (label, [(value, text)], help)
@@ -166,8 +198,8 @@ CHOICES = {  # field: (label, [(value, text)], help)
     "clay_edges": ("Clay edge sites", [(True, "Bind metals (2SPNE)"), (False, "Exchange sites only")], None),
     "kd_medium": ("Kd values for", [("sediment", "Bed sediment"), ("suspended", "Suspended matter"), ("soil", "Soil")], None),
     "solid_solutions": ("Solid solutions", [(False, "Pure minerals only"), (True, "Can form")], None),
-    "follow_phase": ("Follow", [("whole", "Whole fluid"), ("brine", "Brine"), ("vapour", "Vapour")],
-                     "Where a saline fluid splits into brine and vapour: which one the run follows"),
+    "follow_phase": ("Follow", [("whole", "Whole fluid"), ("brine", "Brine"), ("vapour", "Vapor")],
+                     "Where a saline fluid splits into brine and vapor: which one the run follows"),
     "isotopes": ("Isotopes", [(False, "Off"), (True, "On")], None),
     "gas_phase": ("Gas phase", [(True, "Can form"), (False, "Suppressed")], None),
     "methane_sulfate": ("Methane and sulfate", [("apart", "Held apart"), ("react", "Can react")], None),
@@ -175,7 +207,7 @@ CHOICES = {  # field: (label, [(value, text)], help)
     "minerals_form": ("Minerals", [(True, "Can form"), (False, "Suppressed")], None),
     "energy": ("Catabolic energy", [(False, "Off"), (True, "On")], None),
 }
-REDOX_LABEL = {"O2": "Dissolved O2", "H2": "Dissolved H2", "Fe+3": "Fe(III) / Fe(II)", "H2S": "Sulfide / sulfate",
+REDOX_LABEL = {"O2": "Dissolved O₂", "H2": "Dissolved H₂", "Fe+3": "Fe(III) / Fe(II)", "H2S": "Sulfide / sulfate",
                "NO3-": "Nitrate / ammonia"}
 
 
@@ -283,31 +315,32 @@ def input_page() -> None:
     with st.container(border=True):
         st.markdown("**Scenario card**")
         st.caption("Start from")
-        cards = snap["starting_cards"]
+        ex_labels = {e["label"] for e in snap["examples"]}
+        cards = [c for c in snap["starting_cards"] if c["label"] not in ex_labels]
         for c, s in zip(st.columns(len(cards) + 1), cards + [None]):
             if s is None:
                 c.button("Reset", on_click=_reset, args=(sess, "seawater"), help="Back to the default card",
                          width="stretch")
             else:
-                c.button(s["label"], key=f"start-{s['key']}", help=s["description"], on_click=_reset,
+                c.button(s["label"], key=f"start-{s['key']}", help=tidy(s["description"]), on_click=_reset,
                          args=(sess, s["key"]), width="stretch", disabled=running)
-        st.caption("Examples, fill the card")
+        st.caption("Or load a worked example")
         exs = snap["examples"]
         per_row = 5
         for i in range(0, len(exs), per_row):
             row = exs[i:i + per_row]
             for c, e in zip(st.columns(per_row), row):
-                c.button(e["label"], key=f"ex-{e['key']}", help=f"{e['feature']}: {e['description']}",
+                c.button(e["label"], key=f"ex-{e['key']}", help=tidy(f"{e['feature']}: {e['description']}"),
                          on_click=_example, args=(sess, e["key"]), width="stretch", disabled=running,
                          type="primary" if snap["example"] == e["key"] else "secondary")
         ex = next((e for e in exs if e["key"] == snap["example"]), None)
         if ex:
             with st.container(border=True):
                 st.markdown(f"**Example: {ex['label']}** · shows {ex['feature'].lower()}")
-                st.markdown(ex["description"])
+                st.markdown(tidy(ex["description"]))
                 st.caption("How the card sets it up:")
                 for _, text in ex["setup"]:
-                    st.markdown(f"- {text}")
+                    st.markdown(f"- {tidy(text)}")
                 st.caption("Press Run to see it. Change anything on the card first to see what difference it makes.")
         _sync("f-title", card.get("title") or "")
         st.text_input("Title", key="f-title", placeholder="optional", on_change=_edit, args=(sess, "title"))
@@ -319,12 +352,12 @@ def input_page() -> None:
     with right:
         _reactants_box(sess, snap, card, col, running)
         _surfaces_box(sess, card)
-        _options_box(sess, card)
+    _options_box(sess, card)
 
     for p in snap["card_problems"] + list(st.session_state.pop("problems", []) or []):
-        st.error(p)
+        st.error(tidy(p))
     for a in snap["advisories"] or []:
-        st.warning(a)
+        st.warning(tidy(a))
     run_bar(sess, input_page=True)
     for extra in INPUT_EXTRAS:
         extra(sess)
@@ -347,7 +380,7 @@ def _fluid_box(sess, snap, card, col) -> None:
                    [(k, labels[k]) for k in keys if k != "custom"], label="Column first filled with")
         f = next((x for x in fluids if x["key"] == card["fluid"]), None)
         if f and card["fluid"] != "custom":
-            st.caption(f["description"] + " Editing it below starts a custom fluid from it.")
+            st.caption(tidy(f["description"]) + " Editing it below starts a custom fluid from it.")
         _sync("f-analysis", read.get("analysis") or "")
         st.text_area("Analysis (one solute per line: name, amount, unit if not the default)", key="f-analysis",
                      height=150, placeholder="Na 10768\nCa2+ 10.3 mmol/kg\nSiO2 12", on_change=_edit,
@@ -364,24 +397,26 @@ def _fluid_box(sess, snap, card, col) -> None:
         choice(sess, rd, "charge_balance", a, label="Charge balance",
                options=[("auto", "Auto"), ("none", "None (use as given)")] + [(i, f"On {i}") for i in ions])
         choice(sess, rd, "redox", b, label="Redox state",
-               options=[("auto", "Auto (from the analysis)"), ("none", "Not tracked"), ("air", "Air (O2 0.21 bar)"),
-                        ("log_fo2", "log fO2"), ("eh", "Eh (V)"), ("pe", "pe")]
+               options=[("auto", "Auto (from the analysis)"), ("none", "Not tracked"), ("air", "Air (O₂ 0.21 bar)"),
+                        ("log_fo2", "log fO₂"), ("eh", "Eh (V)"), ("pe", "pe")]
                + [(s, REDOX_LABEL.get(s, s)) for s in read.get("redox_species", [])])
         if read["redox"] in ("log_fo2", "eh", "pe"):
             num(sess, rd, "redox_value", a)
         st.caption("Per kg means per kg of solution; mg/L is read at 1 kg/L. Auto balance adjusts the main ion of the "
-                   "side that is short. Redox: Fe(III), sulfide, H2 or O2 in the analysis set it; otherwise choose air, "
-                   "a log fO2, Eh or pe.")
+                   "side that is short. Redox: Fe(III), sulfide, H₂ or O₂ in the analysis set it; otherwise choose air, "
+                   "a log fO₂, Eh or pe.")
         n = len(read.get("lines", []))
+        tds = read.get("tds_mg_per_kg") or 0
+        tds_text = f"{tds:,.0f}" if tds >= 100 else f"{tds:.3g}"
         summary = (f"As read: {n} solute{'s' if n != 1 else ''}, pH {read['ph'] if read['ph'] is not None else 'not given'} "
-                   f"at {read['measured_t_c']} °C, {read.get('tds_mg_per_kg', 0):.4g} mg/kg dissolved solids"
+                   f"at {read['measured_t_c']:g} °C, {tds_text} mg/kg dissolved solids"
                    if n else "Nothing read yet")
         with st.expander(summary):
             st.dataframe([{"As written": ln["written"], "Value": f"{ln['value']} {ln['unit']}",
                            "mol/kg water": "" if ln["molal"] is None else f"{ln['molal']:.4g}"}
                           for ln in read.get("lines", [])], hide_index=True, width="stretch")
             for t in read.get("notes", []):
-                st.caption(t)
+                st.caption(tidy(t))
         a, b = st.columns(2)
         choice(sess, card, "activity_model", a)
         num(sess, card, "evaporate", b)
@@ -443,7 +478,7 @@ def _reactants_box(sess, snap, card, col, running) -> None:
         st.markdown(f"Reactants <span style='color:#6f777a;font-size:0.85rem'>{hint}</span>", unsafe_allow_html=True)
         rocks = snap["rock_cards"]
         st.session_state.setdefault("rock-g", 100.0)
-        st.number_input("Rock, g per kg of water (for the rock buttons below)", key="rock-g", min_value=0.0, step=10.0,
+        st.number_input("Rock, g per kg of water (for the rock buttons below)", key="rock-g", min_value=0.0, step=10.0, format="%g",
                         help="Each rock button puts that rock on the card as the reactant, in place of what is there")
         for i in range(0, len(rocks), 3):
             for c, r in zip(st.columns(3), rocks[i:i + 3]):
@@ -455,7 +490,7 @@ def _reactants_box(sess, snap, card, col, running) -> None:
                 c.button(f"✕ {_reactant_text(r)}", key=f"drop-r-{i}", on_click=_drop_reactant, args=(sess, i),
                          help=f"Remove {r['name']}")
         else:
-            st.caption("none: only temperature and pressure change")
+            st.caption("None: only temperature and pressure change")
         st.text_input("Add a reactant", key="add-reactant", placeholder="e.g. 10 g albite or 0.05 mol HCl, press Enter",
                       on_change=_add_reactant, args=(sess,), label_visibility="collapsed")
         a, b = st.columns(2)
@@ -473,7 +508,7 @@ def _reactants_box(sess, snap, card, col, running) -> None:
                 cols[i % len(cols)].button(f"✕ {m}", key=f"drop-b-{m}", help=f"Allow {m}", on_click=_set,
                                            args=(sess, "blocked_minerals", [x for x in blocked if x != m]))
         else:
-            st.caption("none: every mineral in the database may form")
+            st.caption("None: every mineral in the database may form")
         st.text_input("Add a blocked mineral", key="add-blocked", placeholder="add a mineral name, press Enter",
                       on_change=_add_blocked, args=(sess,), label_visibility="collapsed")
 
@@ -499,11 +534,11 @@ def _surfaces_box(sess, card) -> None:
 def _options_box(sess, card) -> None:
     with st.container(border=True):
         st.markdown("**Options**")
-        a, b = st.columns(2)
+        cols = st.columns(4)
         for i, f in enumerate(("solid_solutions", "follow_phase", "isotopes", "gas_phase", "methane_sulfate",
                                "redox_apart", "minerals_form", "energy")):
-            choice(sess, card, f, a if i % 2 == 0 else b)
-        num(sess, card, "uncertainty_runs")
+            choice(sess, card, f, cols[i % 4])
+        num(sess, card, "uncertainty_runs", cols[0])
 
 
 def run_bar(sess: Session, input_page: bool) -> None:
@@ -534,7 +569,7 @@ def _history(sess: Session, snap: dict) -> None:
         if not runs:
             st.caption("No runs yet.")
         for r in runs:
-            label = (f"**{r['title']}:** " if r["title"] else "") + f"{r['summary']} · {r['created'].replace('T', ' ')[:16]}"
+            label = (f"**{r['title']}:** " if r["title"] else "") + f"{tidy(r['summary'])} · {r['created'].replace('T', ' ')[:16]}"
             st.button(label, key=f"hist-{r['id']}", on_click=sess.set_current, args=(r["id"],),
                       type="primary" if r["id"] == snap["current"] else "tertiary")
 
@@ -545,12 +580,12 @@ MODE_LABEL = {"static": "Static", "flow_through": "Flow-through", "outlet": "At 
 UNIT_SCALE = {"mol": 1, "mmol": 1e3, "umol": 1e6, "mg": 1e3, "ug": 1e6}
 UNIT_TEXT = {"mol": "mol", "mmol": "mmol", "umol": "µmol", "mg": "mg", "ug": "µg"}
 TABS = [("species", "Species"), ("elements", "Elements"), ("minerals", "Mineral amounts"), ("gas", "Gas phase"),
-        ("kinetic", "Rates"), ("energy", "Energy"), ("composition", "Solid solutions"), ("phases", "Brine and vapour"),
+        ("kinetic", "Rates"), ("energy", "Energy"), ("composition", "Solid solutions"), ("phases", "Brine and vapor"),
         ("isotopes", "Isotopes"), ("sorbed", "Sorbed"), ("partition", "Partition coefficients"),
         ("saturation", "Saturation index"), ("property", "Properties")]
 PROPS = {"pH": "pH", "ionic_strength": "Ionic strength", "water_kg": "Solvent mass", "log_aw": "log water activity",
-         "log_fO2": "log fO2", "Eh": "Eh (V)", "surface_potential_mV": "Surface potential (mV)",
-         "net_acidity": "Net acidity (mg/kg as CaCO3)"}
+         "log_fO2": "log fO₂", "Eh": "Eh (V)", "surface_potential_mV": "Surface potential (mV)",
+         "net_acidity": "Net acidity (mg/kg as CaCO₃)"}
 AMOUNT_GROUPS = ("species", "elements", "minerals", "gas", "sorbed")
 
 
@@ -633,7 +668,7 @@ def y_label(items: list, view: dict, res: dict) -> str:
         c = (res["catalog"].get("isotopes") or {}).get(k, {})
         return "87Sr/86Sr" if k.startswith("87") else f"{k.split(':')[0].replace('d', 'δ')} ({c.get('unit', '‰')})"
     if g == "phases":
-        return "% of the fluid's mass in the vapour" if k == "vapour_share" else "wt% NaCl (equivalent)"
+        return "% of the fluid's mass in the vapor" if k == "vapour_share" else "wt% NaCl (equivalent)"
     if g == "energy":
         if k.startswith("dG:"):
             return "ΔG, kJ per mole of reaction (below 0: energy released)"
@@ -729,10 +764,10 @@ def results_page() -> None:
         return
     view = sess.view
     st.subheader(res.get("title") or res["scenario"].get("title") or "Run")
-    st.caption(f"{res['summary']} · {res['created'].replace('T', ' ')} · {res['elapsed_s']} s · {res['database']}")
+    st.caption(f"{tidy(res['summary'])} · {res['created'].replace('T', ' ')} · {res['elapsed_s']} s")
 
     runs = snap["runs"]
-    names = {r["id"]: f"{r['created'][5:16].replace('T', ' ')} · {r['summary']}" for r in runs}
+    names = {r["id"]: f"{r['created'][5:16].replace('T', ' ')} · {tidy(r['summary'])}" for r in runs}
     a, b = st.columns(2)
     st.session_state["pick-run"] = res["id"]
     a.selectbox("Run shown", list(names), key="pick-run", format_func=names.get, on_change=_pick_run,
@@ -746,12 +781,12 @@ def results_page() -> None:
     with st.container(border=True):
         st.markdown("**What we found**")
         for p in res.get("story") or []:
-            st.markdown(p)
+            st.markdown(tidy(p))
     _plot_panel(sess, res, other, view)
     _end_lists(res.get("end") or [])
     st.markdown("**Diagrams**")
     cols = st.columns(4)
-    for c, (kind, lab) in zip(cols, [("eh_ph", "Eh-pH diagram"), ("fo2_ph", "log fO2-pH diagram"),
+    for c, (kind, lab) in zip(cols, [("eh_ph", "Eh-pH diagram"), ("fo2_ph", "log fO₂-pH diagram"),
                                       ("activity", "Activity diagram")]):
         c.button(lab, key=f"dia-open-{kind}", on_click=sess.set_diagram, args=({"kind": kind},),
                  width="stretch")
@@ -759,7 +794,9 @@ def results_page() -> None:
         _diagram(sess, snap, res["id"])
     with st.expander("Assumptions and limits"):
         for n in res.get("notes") or []:
-            st.markdown(f"- {n}")
+            st.markdown(f"- {tidy(n)}")
+        if res.get("database"):
+            st.markdown(f"- Thermodynamic data: {res['database']}.")
     footer(wid)
 
 
@@ -814,7 +851,7 @@ def _plot_panel(sess, res, other, view) -> None:
                 fig.add_vrect(x0=x0, x1=x1, fillcolor=colors[lv], line_width=0, layer="below")
     fig.update_layout(height=500, margin=dict(l=10, r=10, t=30, b=10), hovermode="x unified",
                       legend=dict(orientation="h", y=-0.18), paper_bgcolor=PLOT_BG, plot_bgcolor=PLOT_BG,
-                      font=dict(color="#2B3134"), title=dict(text=res["summary"], font=dict(size=13)),
+                      font=dict(color="#2B3134"), title=dict(text=tidy(res["summary"]), font=dict(size=13)),
                       xaxis_title=f"{xax['label']} ({xax['unit']})", yaxis_title=y_label(items, view, res))
     fig.update_xaxes(gridcolor=GRID)
     fig.update_yaxes(gridcolor=GRID, type="log" if use_log else "linear", exponentformat="power")
@@ -870,10 +907,11 @@ def _plot_panel(sess, res, other, view) -> None:
     w = csv.writer(buf)
     w.writerow(head)
     w.writerows(rows)
-    a, b = st.columns([1, 4])
-    a.download_button("Download plotted data (CSV)", buf.getvalue(), file_name=f"{res['id']}.csv", mime="text/csv")
+    a, b, _ = st.columns([1, 1, 2])
+    a.download_button("Download plotted data (CSV)", buf.getvalue(), file_name=f"{res['id']}.csv", mime="text/csv",
+                      width="stretch")
     b.download_button("Download the whole run (JSON)", json.dumps(sess.result(res["id"])), file_name=f"{res['id']}.json",
-                      mime="application/json")
+                      mime="application/json", width="stretch")
 
 
 def _end_lists(ends: list) -> None:
@@ -881,11 +919,15 @@ def _end_lists(ends: list) -> None:
         with st.container(border=True):
             st.markdown(f"**{e['title']}**")
             a, b, c = st.columns(3)
-            a.caption("Solids")
-            a.dataframe([dict(zip(["Mineral", "mmol per kg starting water", "g per kg starting water"], r))
-                         for r in (e["solids"] or [["None", "", ""]])], hide_index=True, width="stretch")
+            if e["solids"]:
+                a.caption("Solids, per kg of starting water")
+                a.dataframe([dict(zip(["Mineral", "mmol", "g"], r)) for r in e["solids"]], hide_index=True,
+                            width="stretch")
+            else:
+                a.caption("Solids")
+                a.markdown("No minerals are left at this point.")
             b.caption("Fluid")
-            b.dataframe([dict(zip(["Property", "Value"], r)) for r in e["fluid"]], hide_index=True,
+            b.dataframe([{"Property": tidy(r[0]), "Value": tidy(r[1])} for r in e["fluid"]], hide_index=True,
                         width="stretch")
             c.caption("Dissolved")
             c.dataframe([dict(zip(["Element", "mmol/kg", "mg/kg"], r)) for r in e["dissolved"]], hide_index=True,
@@ -902,7 +944,7 @@ def _diagram(sess: Session, snap: dict, run_id: str | None) -> None:
     with st.container(border=True):
         top = st.columns([5, 1])
         data = sess.diagram_data(run_id)
-        top[0].markdown(f"**{(data or {}).get('title') or 'Diagram'}**")
+        top[0].markdown(f"**{tidy((data or {}).get('title') or 'Diagram')}**")
         top[1].button("Close", key="dia-close", on_click=sess.set_diagram, args=({"close": True},),
                       width="stretch")
         act = spec["kind"] == "activity"
@@ -914,18 +956,20 @@ def _diagram(sess: Session, snap: dict, run_id: str | None) -> None:
             st.session_state["dia-el"] = spec.get("element") or ""
             c[0].text_input("Element", key="dia-el", on_change=_dia_edit, args=(sess, "dia-el", "element"))
             st.session_state["dia-a"] = float(spec.get("log_a", -6.0))
-            c[3].number_input("log activity", key="dia-a", step=1.0, on_change=_dia_edit, args=(sess, "dia-a", "log_a"))
-        st.session_state["dia-t"] = None if spec.get("t_c") is None else float(spec["t_c"])
-        c[1].number_input("Temperature (°C)", key="dia-t", step=10.0, on_change=_dia_edit, args=(sess, "dia-t", "t_c"))
-        st.session_state["dia-p"] = None if spec.get("p_bar") is None else float(spec["p_bar"])
-        c[2].number_input("Pressure (bar)", key="dia-p", step=10.0, on_change=_dia_edit, args=(sess, "dia-p", "p_bar"))
+            c[3].number_input("log activity", key="dia-a", step=1.0, format="%g", on_change=_dia_edit, args=(sess, "dia-a", "log_a"))
+        t_c = spec.get("t_c") if spec.get("t_c") is not None else (data or {}).get("t_c")
+        p_bar = spec.get("p_bar") if spec.get("p_bar") is not None else (data or {}).get("p_bar")
+        st.session_state["dia-t"] = None if t_c is None else float(t_c)
+        c[1].number_input("Temperature (°C)", key="dia-t", step=10.0, format="%g", on_change=_dia_edit, args=(sess, "dia-t", "t_c"))
+        st.session_state["dia-p"] = None if p_bar is None else float(p_bar)
+        c[2].number_input("Pressure (bar)", key="dia-p", step=10.0, format="%g", on_change=_dia_edit, args=(sess, "dia-p", "p_bar"))
         st.session_state["dia-with"] = " ".join(spec.get("with") or [])
         c[4].text_input("With", key="dia-with", help="Other elements to include, e.g. S C",
                         on_change=_dia_edit, args=(sess, "dia-with", "with"))
         if not data or data.get("none"):
             return
         if data.get("error"):
-            st.error(data["error"])
+            st.error(tidy(data["error"]))
             return
         _draw_diagram(data)
         rel = data["reliability"]
@@ -934,7 +978,7 @@ def _diagram(sess: Session, snap: dict, run_id: str | None) -> None:
                    f"ionization {level} at this temperature and pressure). Dashed: water stability limits. Black: the "
                    "run's path from the open square (start) to the red dot (end).")
         for n in data.get("notes") or []:
-            st.caption(f"- {n}")
+            st.caption(f"- {sentence(n)}")
 
 
 def _draw_diagram(d: dict) -> None:
