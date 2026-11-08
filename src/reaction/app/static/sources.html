@@ -34,11 +34,11 @@
   <section class="panel">
     <h2>Where the data and models come from</h2>
     <p>Every number Reaction reports is computed from the published data and equations below. Links go to the
-      publisher (DOI) or to the official download where one exists. The thermodynamic databases are not part of
-      the app: they are read from your data folder, where <code>scripts/fetch_references.ps1</code> puts them.</p>
+      publisher (DOI) or to the official download where one exists. The thermodynamic databases are free downloads
+      from the official sources listed here, and Reaction reads them as published.</p>
     <nav class="small">
       <a href="#databases">Databases</a><a href="#eos">Equations of state</a><a href="#activity">Activity models</a>
-      <a href="#kinetics">Kinetics</a><a href="#energy">Catabolic energy</a><a href="#isotopes">Isotopes</a><a href="#phases">Brine and vapour</a>
+      <a href="#kinetics">Kinetics</a><a href="#energy">Catabolic energy</a><a href="#isotopes">Isotopes</a><a href="#phases">Brine and vapor</a>
       <a href="#sorption">Sorption</a><a href="#fluids">Starting fluids and rocks</a><a href="#checks">Checks</a>
     </nav>
   </section>
@@ -122,7 +122,7 @@
         IAPWS Industrial Formulation 1997 for the thermodynamic properties of water and steam. Journal of Engineering
         for Gas Turbines and Power 122, 150–184; release text at
         <a href="https://www.iapws.org/" target="_blank" rel="noopener">iapws.org</a>.
-        <span class="use">Region 4: the vapour pressure of water.</span></li>
+        <span class="use">Region 4: the vapor pressure of water.</span></li>
       <li>Johnson, J.W. and Norton, D. (1991) Critical phenomena in hydrothermal systems: state,
         thermodynamic, electrostatic, and transport properties of H2O in the critical region. American Journal of
         Science 291, 541–648. <a href="https://doi.org/10.2475/ajs.291.6.541" target="_blank" rel="noopener">doi:10.2475/ajs.291.6.541</a>
@@ -285,7 +285,7 @@
   </section>
 
   <section class="panel" id="phases">
-    <h2>Brine and vapour (NaCl-H2O phase separation)</h2>
+    <h2>Brine and vapor (NaCl-H<sub>2</sub>O phase separation)</h2>
     <ul>
       <li>Driesner, T. and Heinrich, C.A. (2007) The system H2O-NaCl. Part I: Correlation formulae for phase
         relations in temperature-pressure-composition space from 0 to 1000 °C, 0 to 5000 bar, and 0 to 1
@@ -297,7 +297,7 @@
       <li>Oguntola, M.B. (2026) Thermodynamic lookup tables for saltwater systems based on Driesner &amp; Heinrich
         (2007) correlations. Zenodo.
         <a href="https://doi.org/10.5281/zenodo.20394023" target="_blank" rel="noopener">doi:10.5281/zenodo.20394023</a> (CC BY 4.0)
-        <span class="use">The table of coexisting brine and vapour (computed with xThermal).</span></li>
+        <span class="use">The table of coexisting brine and vapor (computed with xThermal).</span></li>
       <li>Bischoff, J.L. and Rosenbauer, R.J. (1988) Liquid-vapor relations in the critical region of the system
         NaCl-H2O from 380 to 415 °C. Geochimica et Cosmochimica Acta 52, 2121–2126.
         <a href="https://doi.org/10.1016/0016-7037(88)90192-5" target="_blank" rel="noopener">doi:10.1016/0016-7037(88)90192-5</a>

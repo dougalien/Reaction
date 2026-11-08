@@ -76,7 +76,7 @@ def test_seawater_basalt_column(engine):
     assert any("TRANSPORT" in n for n in r["notes"])
     text = " ".join(story(r))
     assert "At the outlet the pH goes from" in text and "anhydrite (" in text
-    assert r["title"] == "Seawater column"
+    assert r["title"] == "Seawater flowing through a column"
 
 
 def test_card_and_chat():

@@ -277,7 +277,7 @@ class Scenario:
     def display_title(self) -> str:
         if self.title.strip():
             return self.title.strip()
-        return f"{fluid_label(self.fluid)} {'column' if self.transport else 'run'}"
+        return f"{fluid_label(self.fluid)} {'flowing through a column' if self.transport else 'along a reaction path'}"
 
     def fluid_spec(self) -> FluidPreset:
         """The starting fluid, preset or custom, in one shape."""

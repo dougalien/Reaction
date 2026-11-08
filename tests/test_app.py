@@ -507,7 +507,7 @@ def test_old_cards_with_a_single_pressure_still_load():
     card = Scenario.from_dict({"title": "Seawater heating", "kind": "heating", "pressure_bar": 300.0,
                                "t_end_c": 250})
     assert (card.p_start_bar, card.p_end_bar) == (300.0, 300.0)
-    assert card.kind == "path" and card.title == "" and card.display_title == "Seawater run"
+    assert card.kind == "path" and card.title == "" and card.display_title == "Seawater along a reaction path"
 
 
 def test_pressure_and_temperature_shorthands_set_both_ends():

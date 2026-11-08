@@ -310,7 +310,7 @@ class Engine:
             "scenario": sc.to_dict(),
             "title": sc.display_title,
             "summary": sc.describe(),
-            "database": f"{db.title}; ion sizes from EQ3/6 data0.cmp",
+            "database": f"{db.title}; ion sizes from the EQ3/6 database",
             "fluid": {"key": fluid.key, "label": fluid.label, "description": fluid.description,
                       "measured_t_c": fluid.measured_t_c, "source": fluid.source,
                       "analysis": [e.line() for e in sc.fluid_analysis().entries], "ph": fluid.ph,
@@ -465,7 +465,7 @@ class Engine:
             "scenario": sc.to_dict(),
             "title": sc.display_title,
             "summary": sc.describe(),
-            "database": f"{db.title}; ion sizes from EQ3/6 data0.cmp",
+            "database": f"{db.title}; ion sizes from the EQ3/6 database",
             "fluid": {"key": fluid.key, "label": fluid.label, "description": fluid.description,
                       "measured_t_c": fluid.measured_t_c, "source": fluid.source,
                       "analysis": [e.line() for e in sc.fluid_analysis().entries], "ph": fluid.ph,
@@ -730,7 +730,7 @@ class Engine:
                    "eh": "the Eh given", "pe": "the pe given"}.get(
                 kind, f"dissolved {analysis.SOLUTES_LABEL(arg) if kind == 'couple' else ''}")
             notes.append(f"Redox state from {how}: log fO2 {sp.log_fo2:.1f}, Eh {sp.eh_volts:+.2f} V "
-                         f"at {fluid.measured_t_c:g} C.")
+                         f"at {fluid.measured_t_c:g} °C, where the fluid was measured.")
         equivalents = sum(abs(analysis.SOLUTES[n][0]) * m for n, m in molal.items()) or 1.0
         off = sp.charge_imbalance / equivalents * 2.0         # relative to the mean of the two sides
         ion = fluid.charge_balance
