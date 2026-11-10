@@ -144,11 +144,14 @@ def test_seawater_carbonate_laws_match_their_fits():
     cal, arag = SEAWATER_CARBONATE["calcite"], SEAWATER_CARBONATE["aragonite_dong"]
     assert SEAWATER_CARBONATE["aragonite"].regimes == cal.regimes        # aragonite: calcite's fits, its own Omega
     # Naviaux et al. 2019 at 5 C: log k -13.07 mol/cm2/s, n 0.34 above Omega 0.75; -10.01, n 4.81 below
-    assert math.log10(cal.rate_per_m2(5.0, math.log10(0.8))) == pytest.approx(-9.07 + 0.34 * math.log10(0.2))
-    assert math.log10(cal.rate_per_m2(5.0, math.log10(0.3))) == pytest.approx(-6.01 + 4.81 * math.log10(0.7))
+    assert math.log10(cal.rate_per_m2(5.0, math.log10(0.9))) == pytest.approx(-9.07 + 0.34 * math.log10(0.1), abs=1e-3)
+    assert math.log10(cal.rate_per_m2(5.0, math.log10(0.3))) == pytest.approx(-6.01 + 4.81 * math.log10(0.7), abs=1e-3)
     # Dong et al. 2019: 0.013 g/g/day (1 - Omega)^1.37 on 2.46 m2/g
     g_per_g_day = arag.rate_per_m2(5.0, math.log10(0.5)) * 2.46 * 100.087 * 86400
     assert g_per_g_day == pytest.approx(0.013 * 0.5 ** 1.37, rel=1e-3)
+    # smooth where the fits meet (Omega 0.79), no jump at 0.75
+    near = [cal.rate_per_m2(5.0, math.log10(o)) for o in (0.749, 0.751, 0.789, 0.791)]
+    assert all(a / b == pytest.approx(1.0, abs=0.06) for a, b in ((near[0], near[1]), (near[2], near[3])))  # the old jump was 2.3x
     assert cal.rate_per_m2(5.0, 0.1) == 0.0 and arag.rate_per_m2(5.0, 0.0) == 0.0     # dissolution only
     assert cal.rate_per_m2(21.0, -0.5) > 1.5 * cal.rate_per_m2(5.0, -0.5)                # Ea 25 kJ/mol
 

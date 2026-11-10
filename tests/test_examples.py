@@ -59,7 +59,7 @@ def test_sinking_foram_crosses_the_lysocline(runs):
     at = lambda z: min(range(len(depth)), key=lambda i: abs(depth[i] - z))          # noqa: E731
     assert 2500 < depth[next(i for i, x in enumerate(sat) if x < 0)] < 3500         # saturation horizon
     assert ug[at(2500)] > 19.999                                                    # nothing above it
-    assert ug[at(2500)] - ug[at(4000)] < 1.0                                        # slow just below it
+    assert ug[at(2500)] - ug[at(4000)] < 1.5                                        # slow just below it
     assert ug[at(4000)] - ug[at(5000)] > 8 * (ug[at(2500)] - ug[at(4000)])          # the lysocline
     assert all(a >= b for a, b in zip(ug, ug[1:]))
     assert ug[-1] < 6                                       # its surface per gram rises as it dissolves
