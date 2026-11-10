@@ -140,6 +140,10 @@ class SeawaterCarbonateLaw:
     source: str
     affinity: bool = True
     per_unit: float = 1.0
+    # log Omega from (t_c, p_bar) to use instead of the database's saturation state (the marine
+    # carbonate system: see marine.py); None = the database's
+    omega: object = None
+    mineral: str = ""
 
     def k_factor(self, t_c: float) -> float:
         return math.exp(-self.e_kj / R_KJ * (1.0 / (t_c + 273.15) - 1.0 / 278.15))
@@ -168,6 +172,8 @@ class SeawaterCarbonateLaw:
     def rate(self, spec: Speciation, area_m2: float, saturation: float | None = None) -> float:
         if area_m2 <= 0.0:
             return 0.0
+        if self.omega is not None:
+            saturation = self.omega(spec.temperature_c, spec.pressure_bar or 1.01325)
         return area_m2 * self.rate_per_m2(spec.temperature_c, 0.0 if saturation is None else saturation) \
             * self.per_unit
 

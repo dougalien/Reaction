@@ -62,7 +62,7 @@ def test_sinking_foram_crosses_the_lysocline(runs):
     assert ug[at(2500)] - ug[at(4000)] < 1.5                                        # slow just below it
     assert ug[at(4000)] - ug[at(5000)] > 8 * (ug[at(2500)] - ug[at(4000)])          # the lysocline
     assert all(a >= b for a, b in zip(ug, ug[1:]))
-    assert 8 < ug[-1] < 16                                  # about 6 days at the Takahashi and Be speed
+    assert 8 < ug[-1] < 17                                  # about 6 days at the Takahashi and Be speed
     days = run["axes"]["time"]["values"]
     assert 5 < days[-1] < 7 and card.sinking
     ca = run["elements"]["Ca"]

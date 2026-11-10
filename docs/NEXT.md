@@ -506,3 +506,9 @@ effect is ~0.09 log too strong at 400 bar. Fix pending Douglas's choice (seawate
 Calcite seawater regimes joined by a smooth maximum (s = 10; they cross at Omega 0.79). Card `sinking`: progress is
 depth, each step lasts dz / w(W) with Takahashi and Be (1984) w = 10^2.06 W^0.64 m/day (Reactant.speed); the foram
 falls 1-5.5 km in ~6 days and keeps ~60%. Not yet: flush with a depth profile of DIC/TA (needs the Omega decision).
+Marine carbonate system (Douglas, 2026-11-10: "if we are in a carbonate, marine environment and PyCO2SYS is well
+demonstrated, then obviously that should be used"): src/reaction/marine.py (Lueker K1/K2, Dickson KB, Millero Kw
+and pressure terms, Mucci Ksp, Uppstrom boron), within 0.1% of PyCO2SYS 1.8 (tests/test_marine.py). With seawater
+rates the calcite/aragonite rate laws and the reported saturation use it; TA/DIC/S from the card (alkalinity_umol_kg,
+dic_umol_kg, salinity) or from the water (engine.marine_water). Next: a measured depth profile of TA/DIC/T/S
+(GLODAP or BATS; those hosts are blocked from the container) and flush through it.

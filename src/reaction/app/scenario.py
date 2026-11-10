@@ -168,6 +168,11 @@ class Scenario:
     # depth fallen is the reaction progress and each step takes depth / speed, the speed from the
     # particle's mass (Takahashi and Bé 1984) as it dissolves, so ``duration`` is not used
     sinking: bool = False
+    # the marine carbonate system that the seawater rates use (see marine.py): salinity and, in umol per kg
+    # of seawater, total alkalinity and DIC; None = from the card's water (salinity from its chloride)
+    salinity: float | None = None
+    alkalinity_umol_kg: float | None = None
+    dic_umol_kg: float | None = None
     # uncertainty bands: this many extra runs, each with every log K shifted by its own random draw
     # (one standard deviation from the reliability check, see thermo.validity.logk_sigma); 0 = none
     uncertainty_runs: int = 0
@@ -726,7 +731,7 @@ def _coerce(key: str, value: Any) -> Any:
         if low not in TIME_UNITS:
             raise ValueError(f"'{value}' is not a time unit (use {', '.join(TIME_UNITS)})")
         return low
-    if key in ("mix_t_c", "fluid_p_bar"):
+    if key in ("mix_t_c", "fluid_p_bar", "salinity", "alkalinity_umol_kg", "dic_umol_kg"):
         if value is None or (isinstance(value, str) and not value.strip()):
             return None
         return float(value)
@@ -1133,13 +1138,14 @@ EXAMPLES: dict[str, Example] = {e.key: e for e in (
             "One foraminifer test (20 µg of calcite) sinks from 1 to 5.5 km at the speed its mass gives (Takahashi "
             "and Bé 1984: about 780 m a day at 20 µg, slowing as it dissolves), so the fall takes about 6 days, "
             "through water cooling from 4 to 1.5 C and compressed with depth (101 to 559 bar). The x axis "
-            "is depth. The water is saturated with calcite near 2.7 km; below that it is ever more corrosive, but the "
+            "is depth. Saturation comes from the marine carbonate system (the constants of PyCO2SYS: Lueker et al. 2000, "
+            "Mucci 1983, Millero 1995), not the HKF database. The water is saturated with calcite near 2.9 km; below that it is ever more corrosive, but the "
             "near-equilibrium rate in seawater is slow (Naviaux et al. 2019) until the saturation state falls below "
             "about 0.8, near 4 km, where etch pits open and the rate rises steeply: the lysocline. The rate is per m2 "
             "of BET surface, and a test's pores and chambers give it about 2 m2/g, some 200 times the surface of a "
-            "solid grain of its size. The foram keeps its mass to 3 km, loses a little to 4 km and about 40% by "
-            "5.5 km; the plot shows its mass in µg. The water is tuned to put the lysocline there: the model's "
-            "saturation states differ from PyCO2SYS's (scripts/seawater_omega_benchmark.py). A few seconds.",
+            "solid grain of its size. The foram keeps its mass to 3 km, loses a little to 4 km and about 30% by "
+            "5.5 km; the plot shows its mass in µg. The water's alkalinity and DIC (2307 and 2219 umol/kg) are "
+            "held the same at every depth; a measured profile would change them. A few seconds.",
             {**FORAM_COLUMN, "blocked_minerals": DEFAULT_BLOCKED + ["aragonite"]},
             (("blocked_minerals", "Blocked: aragonite as well, which the shallower water is supersaturated with "
                                   "but which does not precipitate from seawater."),
@@ -1168,11 +1174,11 @@ EXAMPLES: dict[str, Example] = {e.key: e for e in (
             "soluble polymorph, so the water turns corrosive to it some 800 m shallower and the pteropod starts "
             "losing mass first, near 2 km. Both dissolve by the same mechanisms in seawater (Dong et al. 2019), so "
             "both follow the calcite rate law of Naviaux et al. (2019), each on its own saturation state: the "
-            "pteropod is half gone near 5 km and gone by 5.5 km, while the foram keeps about 60% of its mass. (Dong et al.'s "
+            "pteropod, in water undersaturated with aragonite from 1 km, is half gone near 3.6 km and gone by 4.5 km, "
+            "while the foram keeps about 70% of its mass. (Dong et al.'s "
             "own aragonite law, the 'seawater_dong' carbonate rates, is far slower and leaves the pteropod almost "
-            "whole.) The model's aragonite is only 0.07 log units more soluble than its calcite at 2 C, against "
-            "about 0.18 measured in seawater, so in the ocean the gap between the two is wider. The plot shows "
-            "both shells' mass in µg. A few seconds.",
+            "whole.) Aragonite is 1.5 times as soluble as calcite here (Mucci 1983). The plot shows both shells' "
+            "mass in µg. A few seconds.",
             {**FORAM_COLUMN, "title": "A foram and a pteropod sinking through the water column",
              "reactants": [{"name": "forams", "amount": 2e-5, "unit": "g"},
                            {"name": "pteropods", "amount": 2e-5, "unit": "g"}]},
@@ -1337,6 +1343,9 @@ FIELD_HELP = {
     "shell_area_exponent": "with seawater carbonate rates, how a foram's or pteropod's whole surface follows "
                            "its mass, A = A0 (mass left / mass)^p: 0 (default) keeps it, so the surface per gram "
                            "rises as the shell dissolves; 0.667 is a shrinking solid grain",
+    "salinity": "marine carbonate system (with seawater rates): salinity; empty = from the water's chloride",
+    "alkalinity_umol_kg": "marine carbonate system: total alkalinity, umol/kg of seawater; empty = from the water",
+    "dic_umol_kg": "marine carbonate system: DIC, umol/kg of seawater; empty = the water's total carbonate",
     "sinking": "true (with kinetics): the reactant is a particle sinking through the water column from the start "
                "to the end pressure, at the speed its mass gives (Takahashi and Bé 1984), recomputed as it "
                "dissolves; the duration is then not used",
