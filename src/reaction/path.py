@@ -49,7 +49,10 @@ class Reactant:
 
     With a ``rate_law`` the reactant is kinetic instead: ``amount`` is how much of it there is at the
     start, ``area`` its reactive surface in m2 then, and the surface shrinks or grows with the amount
-    left as (left / amount)^(2/3), as for a population of grains of one size.
+    left as (left / amount)^p.  p = 2/3 (the default) is a population of solid grains of one size, whose
+    surface per gram rises only as the grains get smaller; p = 0 keeps the whole surface as it is while the
+    mass goes, so the surface per gram rises as 1 / (left / amount), as for a porous shell whose walls thin
+    and whose pores widen as it dissolves.
     """
     name: str
     composition: dict[str, float]
@@ -58,6 +61,7 @@ class Reactant:
     mineral: str | None = None                # phase name if this reactant is a pure mineral
     rate_law: RateLaw | None = None
     area: float = 0.0
+    area_exponent: float = 2.0 / 3.0
 
     @property
     def kinetic(self) -> bool:
@@ -65,7 +69,7 @@ class Reactant:
 
     def surface(self, reacted: float) -> float:
         left = self.amount - reacted
-        return self.area * (left / self.amount) ** (2.0 / 3.0) if left > 0 and self.amount > 0 else 0.0
+        return self.area * (left / self.amount) ** self.area_exponent if left > 0 and self.amount > 0 else 0.0
 
     def reacted(self, xi: float) -> float:
         r1, r2, r3 = self.rates
@@ -133,9 +137,9 @@ def _composition_row(system: System, name: str) -> dict[str, float]:
 
 def mineral_reactant(system: System, name: str, amount: float, *,
                      rates=(1.0, 0.0, 0.0), rate_law: RateLaw | None = None,
-                     area: float = 0.0) -> Reactant:
+                     area: float = 0.0, area_exponent: float = 2.0 / 3.0) -> Reactant:
     """A pure mineral (or gas, or aqueous species) as a reactant, from its formation reaction."""
-    return Reactant(name, _composition_row(system, name), amount, rates, name, rate_law, area)
+    return Reactant(name, _composition_row(system, name), amount, rates, name, rate_law, area, area_exponent)
 
 
 class ReactionPath:

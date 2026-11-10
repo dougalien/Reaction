@@ -62,6 +62,7 @@ def test_sinking_foram_crosses_the_lysocline(runs):
     assert ug[at(2500)] - ug[at(4000)] < 1.0                                        # slow just below it
     assert ug[at(4000)] - ug[at(5000)] > 8 * (ug[at(2500)] - ug[at(4000)])          # the lysocline
     assert all(a >= b for a, b in zip(ug, ug[1:]))
+    assert ug[-1] < 6                                       # its surface per gram rises as it dissolves
     ca = run["elements"]["Ca"]
     assert abs(ca[-1] - ca[0]) < 1e-4 * ca[0]                                       # the water hardly notices
 

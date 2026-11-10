@@ -166,7 +166,8 @@ class Column:
                 left = self.left[i][r.name]
                 if left > 1e-12 * r.amount:
                     reactants.append(Reactant(r.name, r.composition, left, mineral=r.mineral,
-                                              rate_law=r.rate_law, area=r.surface(r.amount - left)))
+                                              rate_law=r.rate_law, area=r.surface(r.amount - left),
+                                              area_exponent=r.area_exponent))
             if not reactants:
                 self.rates[i] = {r.name: 0.0 for r in self.kinetic}
                 self._react_one(s, i, failures)

@@ -43,7 +43,7 @@ from .. import catabolic, isotopes
 from . import analysis, config, rocks
 from .fluids import AIR_LOG_FO2, PRESETS, preset
 from .names import pretty_mineral, pretty_species
-from .scenario import ALWAYS_EXCLUDED, MODE_LABELS, Scenario, reactant_ssa_m2_g
+from .scenario import ALWAYS_EXCLUDED, MODE_LABELS, Scenario, is_shell, reactant_ssa_m2_g
 
 Progress = Callable[[float, str], None]
 
@@ -657,18 +657,23 @@ class Engine:
             if sc.kinetics and self.db.species[name].kind == Kind.MINERAL:
                 law = (sc.carbonate_rates == "seawater" and seawater_rate_law(name)) or rate_law(name)
             ssa = reactant_ssa_m2_g(r, shells=sc.carbonate_rates == "seawater")
+            shell = law is not None and is_shell(r) and sc.carbonate_rates == "seawater"
             if law is not None and notes is not None and (ssa or isinstance(law, SeawaterCarbonateLaw)):
                 label = r["name"] if r["name"].lower() == name.lower() else f"{r['name']} ({pretty_mineral(name)})"
                 note = (f"{label[0].upper()}{label[1:]}: reactive surface "
                         + (f"{ssa:g} m2 per g (BET, about {ssa * 1e4 / max(sc.surface_area_cm2_per_g, 1e-9):,.0f} "
                            f"times the card's {sc.surface_area_cm2_per_g:g} cm2 per g)" if ssa else
                            f"{sc.surface_area_cm2_per_g:g} cm2 per g")
+                        + (f" at the start, rising as the shell dissolves (its pores widen and its walls thin: the "
+                           f"whole surface goes as (mass left / mass)^{sc.shell_area_exponent:.3g})"
+                           if shell else "")
                         + f"; rate law {law.source}.")
                 notes.append(note)
             if sc.kinetics and law is None:
                 steady.append(pretty_mineral(name) if self.db.species[name].kind == Kind.MINERAL else name)
             out.append(mineral_reactant(system, name, moles, rates=(moles / span, 0.0, 0.0),
-                                        rate_law=law, area=(ssa if ssa else area) * moles * mw))
+                                        rate_law=law, area=(ssa if ssa else area) * moles * mw,
+                                        area_exponent=sc.shell_area_exponent if shell else 2.0 / 3.0))
         if steady and notes is not None:
             notes.append(f"No measured rate for {', '.join(steady)}: "
                          + ("brought to equilibrium in every cell instead." if column
