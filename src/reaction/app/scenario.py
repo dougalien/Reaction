@@ -58,6 +58,10 @@ SHELL_SSA_M2_G = {"foram": 2.0, "forams": 2.0, "foraminifera": 2.0, "foram calci
                   "pteropod": 2.0, "pteropods": 2.0, "pteropod aragonite": 2.0, "pteropod shells": 2.0}
 
 
+def is_shell(r: dict) -> bool:
+    return str(r["name"]).strip().lower() in SHELL_SSA_M2_G
+
+
 def reactant_ssa_m2_g(r: dict, shells: bool = True) -> float | None:
     """The reactant's own BET surface (m2/g), or (with ``shells``) its shell default, or None (the card's
     surface area).  The shell defaults go with the seawater carbonate rates, which are per m2 of BET
@@ -156,6 +160,10 @@ class Scenario:
     # read the pressure as depth in seawater (about 10 m per bar) and plot the kinetic run against it, for
     # a shell sinking through the water column
     depth_axis: bool = False
+    # how a shell's (foram's, pteropod's) whole surface follows its mass with the seawater carbonate rates:
+    # A = A0 (mass left / mass)^p.  0 (default) keeps the whole surface, so the surface per gram rises as the
+    # walls thin and the pores widen; 2/3 is a solid grain shrinking (other reactants always use 2/3)
+    shell_area_exponent: float = 0.0
     # uncertainty bands: this many extra runs, each with every log K shifted by its own random draw
     # (one standard deviation from the reliability check, see thermo.validity.logk_sigma); 0 = none
     uncertainty_runs: int = 0
@@ -392,6 +400,8 @@ class Scenario:
                 out.append("the duration must be at most a million years")
             if self.duration_unit not in TIME_UNITS:
                 out.append(f"the duration unit must be one of {', '.join(TIME_UNITS)}")
+            if not (-1.0 <= self.shell_area_exponent <= 1.0):
+                out.append("the shell surface exponent must be between -1 and 1")
             if not (0.0 < self.surface_area_cm2_per_g <= 1e7):
                 out.append("the surface area must be above 0 and at most 10,000,000 cm2 per g")
         if not (1.0 <= self.evaporate <= 10000.0):
@@ -696,7 +706,7 @@ def _coerce(key: str, value: Any) -> Any:
             return None
         return float(value)
     if key in ("t_start_c", "t_end_c", "p_start_bar", "p_end_bar", "fluid_t_c", "mix_ratio", "duration",
-               "surface_area_cm2_per_g", "evaporate", "exchange_meq", "hfo_g", "kaolinite_g", "illite_g",
+               "surface_area_cm2_per_g", "shell_area_exponent", "evaporate", "exchange_meq", "hfo_g", "kaolinite_g", "illite_g",
                "montmorillonite_g", "kd_solid_g", "column_m", "dispersivity_m",
                "pore_volumes"):
         return float(value)
@@ -1130,6 +1140,9 @@ EXAMPLES: dict[str, Example] = {e.key: e for e in (
                       "leaves behind whatever it gives off. (One foram barely changes 1 kg of water.)"),
              ("reactants", "Reactant: one foram, 20 µg of calcite, in 1 kg of the water around it, with a BET "
                            "surface of 2 m2/g (type '20 ug forams at 3 m2/g' to change it)."),
+             ("shell_area_exponent", "Shell surface exponent 0: the test keeps its whole surface as it dissolves "
+                                     "(its walls thin and its pores widen), so its surface per gram doubles by the "
+                                     "time half is gone; 0.667 would treat it as a shrinking solid grain."),
              ("kinetics", "How they react: At measured rates."),
              ("carbonate_rates", "Carbonate rates: measured in seawater near saturation (Naviaux et al. 2019), on "
                                  "the BET surface, instead of the far-from-equilibrium laboratory law."),
@@ -1304,6 +1317,9 @@ FIELD_HELP = {
     "surface_area_cm2_per_g": "reactive surface of the reactants, cm2 per gram (default 100, about "
                               "0.1 mm grains); a reactant can carry its own, e.g. '20 ug forams at 2 m2/g', "
                               "and with the seawater carbonate rates forams and pteropods default to 2 m2/g (BET, porous shells)",
+    "shell_area_exponent": "with seawater carbonate rates, how a foram's or pteropod's whole surface follows "
+                           "its mass, A = A0 (mass left / mass)^p: 0 (default) keeps it, so the surface per gram "
+                           "rises as the shell dissolves; 0.667 is a shrinking solid grain",
     "depth_axis": "true: read the pressure as depth in seawater (about 10 m per bar) and plot a kinetic run "
                   "against depth, for a shell sinking through the water column",
     "carbonate_rates": "rate laws for calcite and aragonite: lab (default; Palandri and Kharaka 2004, far from "

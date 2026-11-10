@@ -161,3 +161,12 @@ def test_reactant_surface_area_from_text():
     assert reactant_ssa_m2_g(r[2], shells=False) is None
     assert parse_reactants("1 g calcite @ 500 cm2/g")[0]["ssa_m2_g"] == pytest.approx(0.05)
     assert parse_reactants([{"name": "calcite", "amount": 1, "unit": "g", "ssa_m2_g": 2}])[0]["ssa_m2_g"] == 2.0
+
+
+def test_surface_follows_the_mass_left():
+    from reaction.path import Reactant
+    grain = Reactant("g", {}, 1.0, area=1.0)
+    shell = Reactant("s", {}, 1.0, area=1.0, area_exponent=0.0)
+    assert grain.surface(0.5) / 0.5 == pytest.approx(2 ** (1 / 3))        # per gram, a shrinking grain
+    assert shell.surface(0.5) / 0.5 == pytest.approx(2.0)                 # a shell keeps its whole surface
+    assert shell.surface(1.0) == 0.0

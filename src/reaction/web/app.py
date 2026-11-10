@@ -167,6 +167,9 @@ NUM_FIELDS = {  # field: (label, min, max, step, help)
                   "Water is taken away until the fluid is this many times more concentrated; 1 means no evaporation"),
     "mix_ratio": ("Up to (kg per kg)", 0.0, 1000.0, 0.1, None),
     "mix_t_c": ("Its temperature (°C)", 0.0, 600.0, 1.0, "Empty: the temperature follows the path"),
+    "shell_area_exponent": ("Shell surface exponent", -1.0, 1.0, 0.1, "Forams and pteropods with seawater rates: "
+                            "whole surface = start surface x (mass left / mass)^p. 0 keeps it, so the surface "
+                            "per gram rises as the shell dissolves; 0.667 is a shrinking solid grain"),
     "surface_area_cm2_per_g": ("Surface area (cm²/g)", 0.0, None, 10.0, "Reactive surface per gram of each reactant; 100 cm²/g is roughly 0.1 mm grains. A reactant can carry its own: 20 ug forams at 2 m2/g (with seawater carbonate rates, forams and pteropods default to 2 m²/g, BET)"),
     "duration": ("Run for", 0.0, None, 1.0, "In a column, the pore volumes pass in this time"),
     "exchange_meq": ("Exchange sites (meq per kg water)", 0.0, None, 1.0,
@@ -506,6 +509,8 @@ def _reactants_box(sess, snap, card, col, running) -> None:
             choice(sess, card, "duration_unit", b)
             choice(sess, card, "carbonate_rates", a)
             choice(sess, card, "depth_axis", b)
+            if card.get("carbonate_rates") == "seawater":
+                num(sess, card, "shell_area_exponent", a)
         st.markdown("Blocked minerals <span style='color:#6f777a;font-size:0.85rem'>(supersaturated but too slow to "
                     "form)</span>", unsafe_allow_html=True)
         blocked = card.get("blocked_minerals") or []
