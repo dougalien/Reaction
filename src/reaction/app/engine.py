@@ -54,6 +54,13 @@ AMOUNT_GROUPS = ("species", "elements", "minerals", "gas", "sorbed")      # a mi
 AXES = {"temperature_c": ("Temperature", "°C"), "pressure_bar": ("Pressure", "bar")}
 
 
+def sinking_speed(ug: float) -> float:
+    """Settling speed of a planktonic foram test, m/s, from its mass in µg: Takahashi and Bé (1984),
+    w = 10^2.06 W^0.64 m/day (about 500 m/day at 10 µg).  Spines and cytoplasm change it; the measured
+    spread is wide (G. glutinata, 3 µg: about 330 m/day; G. menardii, 27 µg: about 1100 m/day)."""
+    return 10.0 ** 2.06 * max(ug, 0.01) ** 0.64 / 86400.0
+
+
 def depth_m(p_bar: float) -> float:
     """Depth in the ocean at this pressure: about 10 m per bar below the 1 atm at the surface (a column of
     seawater of mean density 1.033 g/cm3; within about 1% of the UNESCO pressure-depth relation to 6 km)."""
@@ -298,6 +305,11 @@ class Engine:
             last = max(len(points) - 1, 1)
             axes["time"] = {"key": "time", "label": "Time", "unit": sc.duration_unit,
                             "values": [_sig(sc.duration * i / last) for i in range(len(points))]}
+            sink = next(iter(runs.values())).get("sink_days") if sc.sinking else None
+            if sink:
+                days = next(iter(sink.values()))
+                axes["time"] = {"key": "time", "label": "Time sinking", "unit": "days",
+                                "values": [_sig(d) for d in days]}
             varies = ["time"] + varies
             if sc.depth_axis:                    # a shell sinking: pressure read as depth in seawater
                 axes["depth"] = {"key": "depth", "label": "Depth", "unit": "m",
@@ -672,9 +684,13 @@ class Engine:
                 notes.append(note)
             if sc.kinetics and law is None:
                 steady.append(pretty_mineral(name) if self.db.species[name].kind == Kind.MINERAL else name)
+            speed = None
+            if sc.sinking and law is not None:           # progress is depth: the rate per metre fallen
+                speed = (lambda done, moles=moles, mw=mw: sinking_speed((moles - done) * mw * 1e6))
             out.append(mineral_reactant(system, name, moles, rates=(moles / span, 0.0, 0.0),
                                         rate_law=law, area=(ssa if ssa else area) * moles * mw,
-                                        area_exponent=sc.shell_area_exponent if shell else 2.0 / 3.0))
+                                        area_exponent=sc.shell_area_exponent if shell else 2.0 / 3.0,
+                                        speed=speed))
         if steady and notes is not None:
             notes.append(f"No measured rate for {', '.join(steady)}: "
                          + ("brought to equilibrium in every cell instead." if column
@@ -791,6 +807,8 @@ class Engine:
         n = len(points)
         last = max(n - 1, 1)
         step = sc.duration_s / last if sc.kinetics else 1.0      # reaction progress per step
+        if sc.sinking:                                           # progress is the depth fallen, m
+            step = (depth_m(sc.p_end_bar) - depth_m(sc.p_start_bar)) / last
         blocked = {b.lower() for b in sc.blocked_minerals} | set(ALWAYS_EXCLUDED)
         suppress = [name for name, kind in zip(system.net.phase_names, system.net.phase_kind)
                     if kind == Kind.MINERAL and (name.lower() in blocked or not sc.minerals_form)]
@@ -821,12 +839,31 @@ class Engine:
         solved = path.run(xis, on_failure=failed, progress=tick, guess=sp0)
         kinetic = [r for r in reactants if r.kinetic]
         run = _pack([None if pt is None else self._record(db, pt, kinetic, sc.energy) for pt in solved])
+        if sc.sinking and kinetic:
+            run["sink_days"] = self._sink_days(kinetic, run, step)
         add_partition(run, sc)
         if separate is not None:
             run["split"] = [split.get(round(x, 9)) for x in xis]
         if sc.isotopes:
             run["isotopes"] = self._isotopes(sc, bulk0, reactants, solved, points, notes)
         return run
+
+    @staticmethod
+    def _sink_days(kinetic: list, run: dict, step: float) -> dict[str, list]:
+        """Days since the start for each sinking reactant at each depth: the sum of step / speed, with the
+        speed from its mass at both ends of the step."""
+        out = {}
+        for r in kinetic:
+            left = run.get("kinetic", {}).get(f"left:{r.name}") or []
+            days, t = [], 0.0
+            for i, pct in enumerate(left):
+                if i:
+                    prev = left[i - 1]
+                    ws = [r.speed(r.amount * (1.0 - (x or 0.0) / 100.0)) for x in (prev, pct)]
+                    t += step * 0.5 * (1.0 / ws[0] + 1.0 / ws[1]) / 86400.0
+                days.append(t)
+            out[r.name] = days
+        return out
 
     def _isotopes(self, sc: Scenario, bulk0: dict, reactants: list, solved: list, points: list,
                   notes: list[str]) -> dict[str, list]:

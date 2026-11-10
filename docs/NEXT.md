@@ -500,3 +500,9 @@ fit at Omega 0.5. Default `seawater` now applies Naviaux's fits to aragonite on 
 same mechanisms, Omega_crit 0.9 vs 0.87, and similar dissolution relative to abundance); Dong's law is
 `seawater_dong`. Shells example: pteropod starts near 2 km, half gone 4.4 km, gone by 5 km; foram half gone ~5 km.
 Still open: database aragonite/calcite solubility gap 0.07 log at 2 C vs ~0.18 in seawater (Mucci 1983).
+Douglas's sinking-test review (2026-11-10): benchmark script scripts/seawater_omega_benchmark.py (PyCO2SYS);
+Reaction's Omega_calcite is 0.06-0.16 log low and its calcite/aragonite ratio 1.2 vs Mucci's 1.5; the pressure
+effect is ~0.09 log too strong at 400 bar. Fix pending Douglas's choice (seawater constants vs HKF refit).
+Calcite seawater regimes joined by a smooth maximum (s = 10; they cross at Omega 0.79). Card `sinking`: progress is
+depth, each step lasts dz / w(W) with Takahashi and Be (1984) w = 10^2.06 W^0.64 m/day (Reactant.speed); the foram
+falls 1-5.5 km in ~6 days and keeps ~60%. Not yet: flush with a depth profile of DIC/TA (needs the Omega decision).

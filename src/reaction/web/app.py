@@ -204,6 +204,9 @@ CHOICES = {  # field: (label, [(value, text)], help)
                         "Laboratory: Palandri and Kharaka (2004). Seawater: measured near saturation on the BET "
                         "surface, Naviaux et al. (2019) for calcite and for aragonite on its own saturation state; or aragonite "
                         "after Dong et al. (2019)"),
+    "sinking": ("Duration from", [(False, "The run time"), (True, "Sinking speed (Takahashi & Bé)")],
+                "Sinking: the reactant falls from the start to the end pressure at the speed its mass gives, "
+                "10^2.06 W^0.64 m/day for W µg, recomputed as it dissolves"),
     "depth_axis": ("Plot against", [(False, "Time"), (True, "Depth (sinking shell)")],
                    "Depth reads the pressure as depth in seawater, about 10 m per bar"),
     "duration_unit": ("Time unit", [(u, u) for u in ("seconds", "minutes", "hours", "days", "years")], None),
@@ -511,6 +514,7 @@ def _reactants_box(sess, snap, card, col, running) -> None:
             choice(sess, card, "duration_unit", b)
             choice(sess, card, "carbonate_rates", a)
             choice(sess, card, "depth_axis", b)
+            choice(sess, card, "sinking", b)
             if str(card.get("carbonate_rates", "")).startswith("seawater"):
                 num(sess, card, "shell_area_exponent", a)
         st.markdown("Blocked minerals <span style='color:#6f777a;font-size:0.85rem'>(supersaturated but too slow to "

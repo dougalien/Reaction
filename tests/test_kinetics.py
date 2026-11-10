@@ -174,3 +174,9 @@ def test_surface_follows_the_mass_left():
     assert grain.surface(0.5) / 0.5 == pytest.approx(2 ** (1 / 3))        # per gram, a shrinking grain
     assert shell.surface(0.5) / 0.5 == pytest.approx(2.0)                 # a shell keeps its whole surface
     assert shell.surface(1.0) == 0.0
+
+
+def test_takahashi_be_sinking_speed():
+    from reaction.app.engine import sinking_speed
+    assert sinking_speed(10.0) * 86400 == pytest.approx(10 ** 2.06 * 10 ** 0.64)       # about 500 m/day
+    assert 450 < sinking_speed(10.0) * 86400 < 550

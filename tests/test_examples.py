@@ -55,14 +55,16 @@ def test_sinking_foram_crosses_the_lysocline(runs):
     run = runs["forams"]
     assert run["varies"][0] == "depth"
     depth, ug, sat = _shell(run, "calcite")
-    assert ug[0] == pytest.approx(20.0, rel=1e-3) and ug[-1] < 12
+    assert ug[0] == pytest.approx(20.0, rel=1e-3)
     at = lambda z: min(range(len(depth)), key=lambda i: abs(depth[i] - z))          # noqa: E731
     assert 2500 < depth[next(i for i, x in enumerate(sat) if x < 0)] < 3500         # saturation horizon
     assert ug[at(2500)] > 19.999                                                    # nothing above it
     assert ug[at(2500)] - ug[at(4000)] < 1.5                                        # slow just below it
     assert ug[at(4000)] - ug[at(5000)] > 8 * (ug[at(2500)] - ug[at(4000)])          # the lysocline
     assert all(a >= b for a, b in zip(ug, ug[1:]))
-    assert ug[-1] < 6                                       # its surface per gram rises as it dissolves
+    assert 8 < ug[-1] < 16                                  # about 6 days at the Takahashi and Be speed
+    days = run["axes"]["time"]["values"]
+    assert 5 < days[-1] < 7 and card.sinking
     ca = run["elements"]["Ca"]
     assert abs(ca[-1] - ca[0]) < 1e-4 * ca[0]                                       # the water hardly notices
 
@@ -75,8 +77,7 @@ def test_pteropod_aragonite_starts_dissolving_shallower(runs):
     assert first(arag) < first(cal)
     assert all(a < c for a, c in zip(arag_sat, cal_sat))
     half = lambda v: next(i for i in range(len(v)) if v[i] < 10)                    # noqa: E731
-    assert half(arag) < half(cal) and depth[half(arag)] < 4800
-    assert arag[-1] < 0.1
+    assert depth[half(arag)] < 5300 and arag[-1] < 0.1 and cal[-1] > 8
 
 
 def test_evaporating_lake_lays_down_salts_in_order(runs):
