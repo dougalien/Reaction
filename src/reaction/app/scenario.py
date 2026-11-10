@@ -178,14 +178,14 @@ class Scenario:
     uncertainty_runs: int = 0
     # solid solutions (plagioclase, carbonate, chlorite, olivine ...; see solidsolution.py) may form
     # instead of their pure endmembers; a name in blocked_minerals leaves that one out
-    solid_solutions: bool = False
+    solid_solutions: bool = True
     # phase separation (NaCl-H2O): "whole" follows the whole fluid; "brine" lets the vapour leave where the
     # fluid splits (boiling off), "vapour" lets the brine stay behind (the vapour rises on)
     follow_phase: str = "whole"
     # isotopes (see isotopes.py): d18O, d13C, d34S and 87Sr/86Sr along the run; ``isotope_inputs`` sets the
     # starting values of "fluid", "mix" (the second fluid) or a reactant by its card name:
     # {"fluid": {"d18O": -5.0}, "basalt glass": {"Sr": 120.0, "87Sr/86Sr": 0.7030}}; the rest are defaults
-    isotopes: bool = False
+    isotopes: bool = True
     isotope_inputs: dict = field(default_factory=dict)
     # sorption (see sorption.py), per kg of the starting water: cation exchange sites (meq, Gaines-Thomas) that
     # start in equilibrium with the fluid, and hydrous ferric oxide (g) with Dzombak and Morel surface sites
@@ -497,7 +497,7 @@ class Scenario:
                            f"{MAX_COLUMN_SOLVES:,} allowed: use fewer cells or pore volumes, or a smaller dispersivity")
         for flag, what in ((self.evaporating, "evaporation"),
                            (self.mixing, "mixing in a second fluid"), (self.follow_phase != "whole", "following the brine or vapour"),
-                           (self.isotopes, "isotopes"), (self.uncertainty_runs > 0, "uncertainty bands"),
+                           (self.uncertainty_runs > 0, "uncertainty bands"),
                            (self.redox_apart, "holding redox apart"), (not self.minerals_form, "keeping minerals from forming"),
                            (self.energy, "catabolic energy")):
             if flag:
@@ -1314,14 +1314,14 @@ FIELD_HELP = {
                  "default), suspended (suspended matter in a stream) or soil",
     "kd_solid_g": "grams of solid per kg of water holding metals by their partition coefficient Kd (0 = none); "
                   "with clays or exchange sites it holds only the metals they cannot hold (As and Cr with clay edge sites)",
-    "isotopes": "false (default); true: d18O, dD, d13C, d34S and 87Sr/86Sr of the fluid and minerals, "
+    "isotopes": "true (default; left out of a column run); false: off. d18O, dD, d13C, d34S and 87Sr/86Sr of the fluid and minerals, "
                 "along the run",
     "isotope_inputs": "starting isotope values, e.g. {\"fluid\": {\"d18O\": -5}, \"basalt glass\": {\"Sr\": 120, "
                       "\"87Sr/86Sr\": 0.703}}; d values in permil (VSMOW, VPDB, VCDT), Sr in mg/kg of fluid or ppm "
                       "of a solid",
-    "solid_solutions": "false (default): minerals are pure; true: ideal solid solutions (plagioclase, alkali "
+    "solid_solutions": "true (default): ideal solid solutions (plagioclase, alkali "
                        "feldspar, carbonate, chlorite, epidote, garnet, olivine, pyroxenes, biotite, actinolite) "
-                       "form in place of their endmembers",
+                       "form in place of their endmembers; false: minerals are pure",
     "uncertainty_runs": "0 (default) for a single run; otherwise how many extra runs (5 to 200, 20 is a good "
                         "start) with every log K shifted at random by its uncertainty, giving a shaded range "
                         "on the plots",

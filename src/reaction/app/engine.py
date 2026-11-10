@@ -410,6 +410,9 @@ class Engine:
         sp0, fluid_notes, added, inflow, system, bulk0 = self._prepare(sc, progress)
         inflow = inflow or sp0
         notes: list[str] = list(fluid_notes)
+        self._marine = None                      # the marine carbonate system is for paths only, for now
+        if sc.isotopes:
+            notes.append("Isotopes are not tracked in a column yet; this run leaves them out.")
         cells = sc.cell_points()
         n = len(cells)
         # the rock in each cell, per kg of pore water, brought to equilibrium with the pore fluid first;

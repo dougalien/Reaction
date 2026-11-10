@@ -512,3 +512,6 @@ and pressure terms, Mucci Ksp, Uppstrom boron), within 0.1% of PyCO2SYS 1.8 (tes
 rates the calcite/aragonite rate laws and the reported saturation use it; TA/DIC/S from the card (alkalinity_umol_kg,
 dic_umol_kg, salinity) or from the water (engine.marine_water). Next: a measured depth profile of TA/DIC/T/S
 (GLODAP or BATS; those hosts are blocked from the container) and flush through it.
+Defaults (Douglas, 2026-11-10: "the default should be as close to reality as possible"): solid_solutions and
+isotopes on. A column run leaves isotopes out with a note instead of refusing. Tests that named pure endmembers
+(clinochlore, tremolite, chrysotile) accept the solid solutions too.

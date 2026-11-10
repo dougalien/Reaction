@@ -86,7 +86,9 @@ def test_card_and_chat():
     assert not problems and sc.transport and sc.shifts == 90 and sc.mixing_fraction == pytest.approx(1.5)
     assert sc.cell_points()[0] == (sc.t_start_c, 500.0) and sc.cell_points()[-1] == (sc.t_end_c, 500.0)
     assert "flowing through a 2 m column of 30 cells" in sc.describe()
-    sc2, _ = sc.changed({"isotopes": True})
+    sc2, _ = sc.changed({"isotopes": True})                       # on by default: left out of a column, no error
+    assert not sc2.problems()
+    sc2, _ = sc.changed({"energy": True})
     assert any("not available in a column" in p for p in sc2.problems())
     sc2, _ = sc.changed({"kinetics": True, "reactants": "1 g calcite", "cells": 10, "pore_volumes": 2})
     assert not sc2.problems() and "reacting at measured rates over 1 years" in sc2.describe()

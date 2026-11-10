@@ -319,8 +319,9 @@ def test_seawater_altering_basalt_glass_at_350_c(engine):
     assert res["axes"]["water_rock"]["values"][-1] == pytest.approx(1.0)
     for mode in ("static", "flow_through"):
         end = {k: v[-1] for k, v in res["modes"][mode]["minerals"].items()}
-        for mineral in ("albite", "clinochlore", "epidote", "tremolite"):
-            assert end.get(mineral, 0.0) > 0.01, (mode, mineral)
+        for names in (("albite",), ("clinochlore", "chlorite"), ("epidote", "epidote-clinozoisite"),
+                      ("tremolite", "actinolite")):            # pure, or the solid solution (the default)
+            assert max(end.get(m, 0.0) for m in names) > 0.01, (mode, names)
     fo2 = res["modes"]["static"]["properties"]["log_fO2"]
     assert fo2[0] > -2 and fo2[-1] < -30                       # the rock reduces the seawater
     st = res["modes"]["static"]["minerals"]

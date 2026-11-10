@@ -81,4 +81,4 @@ def test_seawater_serpentinizes_fo88_on_the_real_engine():
     run = Engine().run(card)["modes"]["static"]
     formed = {k for k, v in run["minerals"].items() if v[-1] > 0}
     assert {"brucite", "magnetite"} <= formed
-    assert any(k in formed for k in ("antigorite", "chrysotile", "lizardite"))
+    assert any(k in formed for k in ("antigorite", "chrysotile", "lizardite", "serpentine"))

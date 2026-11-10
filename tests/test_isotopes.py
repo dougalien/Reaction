@@ -63,7 +63,7 @@ def test_seawater_basalt_at_350_c(engine):
                 total += n
                 inventory += n * iso[key][-1]
     for name, line in run["minerals"].items():
-        s = db.species[name].elements.get("S", 0.0)
+        s = db.species[name].elements.get("S", 0.0) if name in db.species else 0.0      # solid solutions: no S
         if s and line[-1]:
             total += line[-1] * s
             inventory += line[-1] * s * iso[f"d34S:{name}"][-1]
