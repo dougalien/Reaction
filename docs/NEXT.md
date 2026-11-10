@@ -494,3 +494,9 @@ database puts aragonite only ~0.07 log units above calcite in solubility at 2 C 
 Shell surface evolves (Douglas, same day): `Reactant.area_exponent` (A = A0 (m/m0)^p; 2/3 for grains as before);
 card `shell_area_exponent` (default 0) for forams and pteropods with seawater rates, so their surface per gram goes as
 m0/m. The foram example ends at 4.4 µg instead of 8.2 µg.
+Aragonite rates (Douglas, same day: "very little of the aragonite dissolved while all of the calcite did; that
+does not seem correct"): with Dong's 0.013 g/g/day law aragonite is ~150x slower per m2 than Naviaux's calcite
+fit at Omega 0.5. Default `seawater` now applies Naviaux's fits to aragonite on its own Omega (Dong et al. find the
+same mechanisms, Omega_crit 0.9 vs 0.87, and similar dissolution relative to abundance); Dong's law is
+`seawater_dong`. Shells example: pteropod starts near 2 km, half gone 4.4 km, gone by 5 km; foram half gone ~5 km.
+Still open: database aragonite/calcite solubility gap 0.07 log at 2 C vs ~0.18 in seawater (Mucci 1983).

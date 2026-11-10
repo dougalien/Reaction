@@ -165,12 +165,24 @@ class SeawaterCarbonateLaw:
 # retreat and defect-assisted pits) and -10.01, n = 4.81 below (homogeneous etch pits); activation energy
 # 25 kJ/mol (their Section 4).  Dong et al. 2019: 0.013 g g-1 day-1 (1 - Omega)^1.37 at 5 C for aragonite
 # of 2.46 m2/g, i.e. 6.1e-10 mol m-2 s-1; about twice as fast at 21 C, i.e. about 30 kJ/mol.
+# By default aragonite takes the calcite fits on its own saturation state: Dong et al. find the same
+# mechanisms and nearly the same critical saturation state (0.9 against calcite's 0.87) and that
+# "calcite and aragonite dissolve at similar ratios relative to their abundance" in the water column, so
+# what sets them apart is aragonite's higher solubility.  Their own 0.013 g/g/day law ("seawater_dong")
+# is far slower per m2 than Naviaux's calcite fits away from equilibrium, which would make a pteropod
+# outlast a foram in water more corrosive to it; it is kept as an option.
+NAVIAUX_FITS = ((-9.07, 0.34, 1.0), (-6.01, 4.81, 0.75))
 SEAWATER_CARBONATE = {
-    "calcite": SeawaterCarbonateLaw(((-9.07, 0.34, 1.0), (-6.01, 4.81, 0.75)), 25.0, NAVIAUX_SOURCE),
-    "aragonite": SeawaterCarbonateLaw(((math.log10(0.013 / 2.46 / 100.087 / 86400.0), 1.37, 1.0),),
-                                      30.0, DONG_SOURCE),
+    "calcite": SeawaterCarbonateLaw(NAVIAUX_FITS, 25.0, NAVIAUX_SOURCE),
+    "aragonite": SeawaterCarbonateLaw(NAVIAUX_FITS, 25.0,
+                                      "Naviaux et al. (2019) calcite fits on aragonite's own saturation state "
+                                      "(same mechanisms in seawater: Dong et al. 2019, Earth Planet. Sci. Lett. 515, 1-12)"),
+    "aragonite_dong": SeawaterCarbonateLaw(((math.log10(0.013 / 2.46 / 100.087 / 86400.0), 1.37, 1.0),),
+                                           30.0, DONG_SOURCE),
 }
 
 
-def seawater_rate_law(mineral: str) -> SeawaterCarbonateLaw | None:
+def seawater_rate_law(mineral: str, dong_aragonite: bool = False) -> SeawaterCarbonateLaw | None:
+    if mineral == "aragonite" and dong_aragonite:
+        return SEAWATER_CARBONATE["aragonite_dong"]
     return SEAWATER_CARBONATE.get(mineral)

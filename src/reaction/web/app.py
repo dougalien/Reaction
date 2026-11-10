@@ -199,9 +199,11 @@ CHOICES = {  # field: (label, [(value, text)], help)
                  "Minerals and basalt glass dissolve or grow at measured rates (Palandri and Kharaka 2004; "
                  "Gislason and Oelkers 2003) instead of all at once"),
     "carbonate_rates": ("Calcite and aragonite rates", [("lab", "Laboratory (far from equilibrium)"),
-                                                        ("seawater", "Seawater, near saturation")],
+                                                        ("seawater", "Seawater, near saturation"),
+                                                        ("seawater_dong", "Seawater, aragonite after Dong et al.")],
                         "Laboratory: Palandri and Kharaka (2004). Seawater: measured near saturation on the BET "
-                        "surface, Naviaux et al. (2019) for calcite and Dong et al. (2019) for aragonite"),
+                        "surface, Naviaux et al. (2019) for calcite and for aragonite on its own saturation state; or aragonite "
+                        "after Dong et al. (2019)"),
     "depth_axis": ("Plot against", [(False, "Time"), (True, "Depth (sinking shell)")],
                    "Depth reads the pressure as depth in seawater, about 10 m per bar"),
     "duration_unit": ("Time unit", [(u, u) for u in ("seconds", "minutes", "hours", "days", "years")], None),
@@ -509,7 +511,7 @@ def _reactants_box(sess, snap, card, col, running) -> None:
             choice(sess, card, "duration_unit", b)
             choice(sess, card, "carbonate_rates", a)
             choice(sess, card, "depth_axis", b)
-            if card.get("carbonate_rates") == "seawater":
+            if str(card.get("carbonate_rates", "")).startswith("seawater"):
                 num(sess, card, "shell_area_exponent", a)
         st.markdown("Blocked minerals <span style='color:#6f777a;font-size:0.85rem'>(supersaturated but too slow to "
                     "form)</span>", unsafe_allow_html=True)

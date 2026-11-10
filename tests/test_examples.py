@@ -74,7 +74,9 @@ def test_pteropod_aragonite_starts_dissolving_shallower(runs):
     first = lambda v: next(i for i in range(1, len(v)) if v[i] < v[0] - 1e-4)       # noqa: E731
     assert first(arag) < first(cal)
     assert all(a < c for a, c in zip(arag_sat, cal_sat))
-    assert 19 < arag[-1] < 20 and cal[-1] < 12
+    half = lambda v: next(i for i in range(len(v)) if v[i] < 10)                    # noqa: E731
+    assert half(arag) < half(cal) and depth[half(arag)] < 4800
+    assert arag[-1] < 0.1
 
 
 def test_evaporating_lake_lays_down_salts_in_order(runs):
