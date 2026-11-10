@@ -258,6 +258,10 @@ class Scenario:
 
     # ---- the path -------------------------------------------------------------------------
     @property
+    def seawater_rates(self) -> bool:
+        return self.carbonate_rates.startswith("seawater")
+
+    @property
     def varies(self) -> list[str]:
         out = []
         t_end = self.tp(1.0)[0]
@@ -788,8 +792,9 @@ def _coerce(key: str, value: Any) -> Any:
         low = str(value).strip().lower()
         low = {"": "lab", "palandri": "lab", "pk": "lab", "laboratory": "lab", "sea": "seawater",
                "sea water": "seawater", "marine": "seawater", "ocean": "seawater"}.get(low, low)
-        if low not in ("lab", "seawater"):
-            raise ValueError(f"'{value}' is not lab or seawater")
+        low = {"dong": "seawater_dong", "seawater dong": "seawater_dong"}.get(low, low)
+        if low not in ("lab", "seawater", "seawater_dong"):
+            raise ValueError(f"'{value}' is not lab, seawater or seawater_dong")
         return low
     if key == "mix_spacing":
         low = str(value).strip().lower()
@@ -1153,17 +1158,20 @@ EXAMPLES: dict[str, Example] = {e.key: e for e in (
             "A foram test (20 µg of calcite) and a pteropod shell (20 µg of aragonite), both porous at about 2 m2/g, "
             "sink together through the same water column as the foram example, 1 to 5.5 km. Aragonite is the more "
             "soluble polymorph, so the water turns corrosive to it some 800 m shallower and the pteropod starts "
-            "losing mass first. Its measured rate law (Dong et al. 2019) climbs gently with undersaturation, "
-            "while calcite's (Naviaux et al. 2019) steepens sharply below a saturation state of 0.75; the two laws "
-            "come from different studies, so the comparison is only as good as each. The plot shows both shells' "
-            "mass in µg. A few seconds.",
+            "losing mass first, near 2 km. Both dissolve by the same mechanisms in seawater (Dong et al. 2019), so "
+            "both follow the calcite rate law of Naviaux et al. (2019), each on its own saturation state: the "
+            "pteropod is half gone by about 4.4 km and gone by 5 km, the foram half gone near 5 km. (Dong et al.'s "
+            "own aragonite law, the 'seawater_dong' carbonate rates, is far slower and leaves the pteropod almost "
+            "whole.) The model's aragonite is only 0.07 log units more soluble than its calcite at 2 C, against "
+            "about 0.18 measured in seawater, so in the ocean the gap between the two is wider. The plot shows "
+            "both shells' mass in µg. A few seconds.",
             {**FORAM_COLUMN, "title": "A foram and a pteropod sinking through the water column",
              "reactants": [{"name": "forams", "amount": 2e-5, "unit": "g"},
                            {"name": "pteropods", "amount": 2e-5, "unit": "g"}]},
             (("reactants", "Reactants: one foram (20 µg of calcite) and one pteropod (20 µg of aragonite), each "
                            "with a BET surface of 2 m2/g, in 1 kg of the water around them."),
-             ("carbonate_rates", "Carbonate rates: measured in seawater near saturation: Naviaux et al. (2019) for "
-                                 "calcite, Dong et al. (2019) for aragonite."),
+             ("carbonate_rates", "Carbonate rates: measured in seawater near saturation (Naviaux et al. 2019), for "
+                                 "aragonite on its own saturation state."),
              ("p_start_bar", "The same water column as the foram example: 1 to 5.5 km, 4 to 1.5 C, 22.5 days."),
              ("depth_axis", "Plotted against depth.")),
             ("calcite", "aragonite"), False, "ug"),
@@ -1324,5 +1332,6 @@ FIELD_HELP = {
                   "against depth, for a shell sinking through the water column",
     "carbonate_rates": "rate laws for calcite and aragonite: lab (default; Palandri and Kharaka 2004, far from "
                        "equilibrium) or seawater (measured in seawater near saturation on the BET surface: "
-                       "Naviaux et al. 2019 for calcite, Dong et al. 2019 for aragonite)",
+                       "Naviaux et al. 2019 for calcite, and for aragonite on its own saturation state) or seawater_dong (aragonite "
+                       "after Dong et al. 2019 instead)",
 }

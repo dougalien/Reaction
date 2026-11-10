@@ -655,9 +655,10 @@ class Engine:
             moles = r["amount"] / mw if r["unit"] == "g" else r["amount"]
             law = None
             if sc.kinetics and self.db.species[name].kind == Kind.MINERAL:
-                law = (sc.carbonate_rates == "seawater" and seawater_rate_law(name)) or rate_law(name)
-            ssa = reactant_ssa_m2_g(r, shells=sc.carbonate_rates == "seawater")
-            shell = law is not None and is_shell(r) and sc.carbonate_rates == "seawater"
+                law = (sc.seawater_rates and seawater_rate_law(name, sc.carbonate_rates == "seawater_dong")) \
+                    or rate_law(name)
+            ssa = reactant_ssa_m2_g(r, shells=sc.seawater_rates)
+            shell = law is not None and is_shell(r) and sc.seawater_rates
             if law is not None and notes is not None and (ssa or isinstance(law, SeawaterCarbonateLaw)):
                 label = r["name"] if r["name"].lower() == name.lower() else f"{r['name']} ({pretty_mineral(name)})"
                 note = (f"{label[0].upper()}{label[1:]}: reactive surface "

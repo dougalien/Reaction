@@ -141,7 +141,8 @@ def test_card_and_chat():
 
 def test_seawater_carbonate_laws_match_their_fits():
     from reaction.kinetics import SEAWATER_CARBONATE
-    cal, arag = SEAWATER_CARBONATE["calcite"], SEAWATER_CARBONATE["aragonite"]
+    cal, arag = SEAWATER_CARBONATE["calcite"], SEAWATER_CARBONATE["aragonite_dong"]
+    assert SEAWATER_CARBONATE["aragonite"].regimes == cal.regimes        # aragonite: calcite's fits, its own Omega
     # Naviaux et al. 2019 at 5 C: log k -13.07 mol/cm2/s, n 0.34 above Omega 0.75; -10.01, n 4.81 below
     assert math.log10(cal.rate_per_m2(5.0, math.log10(0.8))) == pytest.approx(-9.07 + 0.34 * math.log10(0.2))
     assert math.log10(cal.rate_per_m2(5.0, math.log10(0.3))) == pytest.approx(-6.01 + 4.81 * math.log10(0.7))
