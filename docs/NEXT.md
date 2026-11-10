@@ -477,3 +477,17 @@ reactant; the crystalline rocks (`rocks.MINERAL_ROCKS`: crystalline basalt, gran
 Shergotty, sandstone, calcitic/dolomitic/aragonitic limestone) are modes that `scenario.parse_reactants` expands into
 their minerals, so typing or saying "100 g granite" does the same. Fe-Ti oxides, sulfides and phosphate are left out
 (no redox dependence for a rock card). MAX_REACTANTS raised to 12. New fluids: groundwater (granitic), karst spring.
+
+Foram kinetics on a porous surface (Douglas, 2026-11-10). A card can now use seawater carbonate rates
+(`carbonate_rates: seawater`): calcite after Naviaux et al. (2019, GCA 246, 363-384; the 5 C BET-normalized fits
+either side of Omega 0.75, Ea 25 kJ/mol) and aragonite after Dong et al. (2019, EPSL 515, 1-12; 0.013 g/g/day
+(1 - Omega)^1.37 at 5 C on 2.46 m2/g, about 30 kJ/mol). These dissolve only (zero above saturation). A reactant can
+carry its own BET surface ("20 ug forams at 3 m2/g", `ssa_m2_g`); with the seawater rates forams and pteropods
+default to 2 m2/g (pteropods 1.6-2.2 m2/g in Dong et al. Table 2; the foram value is a placeholder until a
+measured one is found, e.g. in Subhas et al. 2018, Mar. Chem. 205). `depth_axis` plots a kinetic run against
+depth (about 10 m per bar). The foram example now falls 1 to 5.5 km in 22.5 days through water tuned (pH 7.98
+at 25 C) so calcite saturates near 2.7 km and the Omega 0.75 kink, the lysocline, sits near 4 km; aragonite is
+blocked there (the shallow water is supersaturated with it). New example "shells" sinks a foram and a pteropod
+together. With these two laws the pteropod starts dissolving ~700 m shallower but loses far less by 5.5 km,
+because Naviaux's far-from-equilibrium calcite fit is much faster per m2 than Dong's aragonite law; the
+database puts aragonite only ~0.07 log units above calcite in solubility at 2 C (seawater is nearer 0.18).

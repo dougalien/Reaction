@@ -13,8 +13,12 @@ def runs():
     if not (config.external_dir() / "OBIGT" / "inorganic_aq.csv").exists():
         pytest.skip("thermodynamic data not found; set REACTION_DATA_DIR")
     engine = Engine()
-    return {k: next(iter(engine.run(example_card(k))["modes"].values())) for k, e in EXAMPLES.items()
-            if e.changes.get("kind") != "transport"}
+    out = {}
+    for k, e in EXAMPLES.items():
+        if e.changes.get("kind") != "transport":
+            res = engine.run(example_card(k))
+            out[k] = {"axes": res["axes"], "varies": res["varies"]} | next(iter(res["modes"].values()))
+    return out
 
 
 def _formed(run):
@@ -39,16 +43,37 @@ def test_calcite_dissolves_ever_more_slowly(runs):
     assert left[0] - left[5] > 10 * (left[-6] - left[-1])            # fast at first, then near saturation
 
 
-def test_sinking_foram_loses_mass(runs):
-    assert example_card("forams").mode == "flow_through"
+def _shell(run, mineral):
+    depth = run["axes"]["depth"]["values"]
+    ug = [v * 100.087e6 for v in run["minerals"][mineral]]
+    return depth, ug, run["saturation"][mineral]
+
+
+def test_sinking_foram_crosses_the_lysocline(runs):
+    card = example_card("forams")
+    assert card.mode == "flow_through" and card.carbonate_rates == "seawater"
     run = runs["forams"]
-    ug = [v * 100.0869e6 for v in run["minerals"]["calcite"]]                 # the foram's calcite, µg
-    assert ug[0] == pytest.approx(20.0, rel=1e-3) and 14 < ug[-1] < 18
-    sat = run["saturation"]["calcite"]
-    assert sat[0] < -0.3 and sat[-1] < sat[0]                                # more corrosive with depth
-    assert all(a > b for a, b in zip(ug, ug[1:]))
+    assert run["varies"][0] == "depth"
+    depth, ug, sat = _shell(run, "calcite")
+    assert ug[0] == pytest.approx(20.0, rel=1e-3) and ug[-1] < 12
+    at = lambda z: min(range(len(depth)), key=lambda i: abs(depth[i] - z))          # noqa: E731
+    assert 2500 < depth[next(i for i, x in enumerate(sat) if x < 0)] < 3500         # saturation horizon
+    assert ug[at(2500)] > 19.999                                                    # nothing above it
+    assert ug[at(2500)] - ug[at(4000)] < 1.0                                        # slow just below it
+    assert ug[at(4000)] - ug[at(5000)] > 8 * (ug[at(2500)] - ug[at(4000)])          # the lysocline
+    assert all(a >= b for a, b in zip(ug, ug[1:]))
     ca = run["elements"]["Ca"]
-    assert abs(ca[-1] - ca[0]) < 1e-4 * ca[0]                                # the water hardly notices
+    assert abs(ca[-1] - ca[0]) < 1e-4 * ca[0]                                       # the water hardly notices
+
+
+def test_pteropod_aragonite_starts_dissolving_shallower(runs):
+    run = runs["shells"]
+    depth, cal, cal_sat = _shell(run, "calcite")
+    _, arag, arag_sat = _shell(run, "aragonite")
+    first = lambda v: next(i for i in range(1, len(v)) if v[i] < v[0] - 1e-4)       # noqa: E731
+    assert first(arag) < first(cal)
+    assert all(a < c for a, c in zip(arag_sat, cal_sat))
+    assert 19 < arag[-1] < 20 and cal[-1] < 12
 
 
 def test_evaporating_lake_lays_down_salts_in_order(runs):

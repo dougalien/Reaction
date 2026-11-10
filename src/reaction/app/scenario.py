@@ -41,7 +41,30 @@ def reactant_text(r: dict) -> str:
     amount, unit = r["amount"], r["unit"]
     if unit == "g" and 0 < amount < 1e-3:
         amount, unit = amount * 1e6, "µg"
-    return f"{float(f'{amount:.6g}'):g} {unit} {r['name']}"
+    text = f"{float(f'{amount:.6g}'):g} {unit} {r['name']}"
+    if r.get("ssa_m2_g"):
+        ssa = float(f"{r['ssa_m2_g']:.4g}")
+        text += f" at {ssa:g} m2/g"
+    return text
+
+
+# shells whose name says what they are: their mineral (engine.MINERAL_ALIASES) and a BET specific surface
+# area in m2 per g, used for that reactant with the seawater carbonate rates unless its own is given ("20 ug forams at 3 m2/g").  Porous
+# tests have tens of times the surface of a solid grain of the same size.  Pteropods: 1.6 to 2.2 m2/g
+# (Honjo and Erez 1978; Morse et al. 1979; Keir 1980; in Dong et al. 2019, Table 2).  Forams: taken the
+# same, as a placeholder of the right order; give the measured value for a species where it is known.
+SHELL_SSA_M2_G = {"foram": 2.0, "forams": 2.0, "foraminifera": 2.0, "foram calcite": 2.0,
+                  "foraminiferal ooze": 2.0, "coccoliths": 2.0,
+                  "pteropod": 2.0, "pteropods": 2.0, "pteropod aragonite": 2.0, "pteropod shells": 2.0}
+
+
+def reactant_ssa_m2_g(r: dict, shells: bool = True) -> float | None:
+    """The reactant's own BET surface (m2/g), or (with ``shells``) its shell default, or None (the card's
+    surface area).  The shell defaults go with the seawater carbonate rates, which are per m2 of BET
+    surface; the laboratory constants are used with the card's surface area as before."""
+    if r.get("ssa_m2_g"):
+        return float(r["ssa_m2_g"])
+    return SHELL_SSA_M2_G.get(str(r["name"]).strip().lower()) if shells else None
 MAX_UNCERTAINTY_RUNS = 200
 FOLLOW_PHASES = ("whole", "brine", "vapour")
 ISOTOPE_KEYS = {"d18o": "d18O", "18o": "d18O", "o18": "d18O", "d13c": "d13C", "13c": "d13C", "c13": "d13C",
@@ -126,6 +149,13 @@ class Scenario:
     duration: float = 1.0
     duration_unit: str = "years"
     surface_area_cm2_per_g: float = 100.0
+    # rate laws for calcite and aragonite: "lab" (Palandri and Kharaka 2004, far from equilibrium, linear
+    # in 1 - Omega) or "seawater" (measured in seawater near equilibrium on the BET surface: Naviaux et al.
+    # 2019 for calcite, Dong et al. 2019 for aragonite); see kinetics.SEAWATER_CARBONATE
+    carbonate_rates: str = "lab"
+    # read the pressure as depth in seawater (about 10 m per bar) and plot the kinetic run against it, for
+    # a shell sinking through the water column
+    depth_axis: bool = False
     # uncertainty bands: this many extra runs, each with every log K shifted by its own random draw
     # (one standard deviation from the reliability check, see thermo.validity.logk_sigma); 0 = none
     uncertainty_runs: int = 0
@@ -744,6 +774,13 @@ def _coerce(key: str, value: Any) -> Any:
                     raise ValueError("Sr cannot be negative")
             out[str(source).strip().lower()] = here
         return out
+    if key == "carbonate_rates":
+        low = str(value).strip().lower()
+        low = {"": "lab", "palandri": "lab", "pk": "lab", "laboratory": "lab", "sea": "seawater",
+               "sea water": "seawater", "marine": "seawater", "ocean": "seawater"}.get(low, low)
+        if low not in ("lab", "seawater"):
+            raise ValueError(f"'{value}' is not lab or seawater")
+        return low
     if key == "mix_spacing":
         low = str(value).strip().lower()
         low = {"even": "ratio", "mixing ratio": "ratio", "mass": "ratio", "t": "temperature",
@@ -752,7 +789,7 @@ def _coerce(key: str, value: Any) -> Any:
             raise ValueError(f"'{value}' is not ratio or temperature")
         return low
     if key in ("gas_phase", "kinetics", "solid_solutions", "isotopes", "clay_edges", "redox_apart", "minerals_form",
-               "energy"):
+               "energy", "depth_axis"):
         if isinstance(value, str):
             low = value.strip().lower()
             if low in ("true", "yes", "on", "1", "allowed", "allow"):
@@ -800,11 +837,18 @@ def parse_reactants(value: Any) -> list[dict]:
             part = part.strip()
             if not part:
                 continue
+            ssa = None
+            sm = re.search(r"\s+(?:at|@|with)\s+(\d*\.?\d+(?:e-?\d+)?)\s*(m2|m²|cm2|cm²)\s*(?:/|per\s+)\s*g$",
+                           part, re.I)
+            if sm:
+                ssa = float(sm[1]) * (1.0 if sm[2].lower().startswith("m") else 1e-4)
+                part = part[:sm.start()].strip()
             m = (re.fullmatch(r"(?P<amount>\d*\.?\d+(?:e-?\d+)?)\s*(?P<unit>[a-zµ]+)\s+(?:of\s+)?(?P<name>.+)", part, re.I)
                  or re.fullmatch(r"(?P<name>.+?)\s+(?P<amount>\d*\.?\d+(?:e-?\d+)?)\s*(?P<unit>[a-zµ]+)", part, re.I))
             if not m:
                 raise ValueError(f"read '{part}' as an amount, a unit and a name, such as 10 g albite")
-            items.append({"name": m["name"], "amount": m["amount"], "unit": m["unit"]})
+            items.append({"name": m["name"], "amount": m["amount"], "unit": m["unit"]}
+                         | ({"ssa_m2_g": ssa} if ssa else {}))
         value = items
     if not isinstance(value, (list, tuple)):
         raise TypeError("expected a list of reactants")
@@ -823,7 +867,13 @@ def parse_reactants(value: Any) -> list[dict]:
                 raise ValueError(f"give {rock.label.lower()} in grams")
             out.extend(rocks.mineral_reactants(rock, amount))
             continue
-        out.append({"name": name, "amount": amount, "unit": unit})
+        entry = {"name": name, "amount": amount, "unit": unit}
+        if item.get("ssa_m2_g") not in (None, "", 0):
+            ssa = float(item["ssa_m2_g"])
+            if not 0.0 < ssa <= 1000.0:
+                raise ValueError(f"the surface area of {name} must be between 0 and 1000 m2/g")
+            entry["ssa_m2_g"] = ssa
+        out.append(entry)
     return out
 
 
@@ -905,6 +955,16 @@ class Example:
     plot: tuple[str, ...] = ()        # what the results window shows first, in words (view.resolve_item)
     log: bool = True
     unit: str = ""                    # and in which unit (view.UNITS), when not the default
+
+
+# deep water for a shell sinking from 1 to 5.5 km (the foram examples)
+FORAM_COLUMN = {"title": "A foram sinking through the lysocline", "fluid": "custom",
+                "analysis": "Na+ 10768\nK+ 399.1\nCa+2 412.3\nMg+2 1291.8\nCl- 19353\nSO4-2 2712\nHCO3- 2.3 mmolal",
+                "units": "mg/kg", "ph": 7.98, "fluid_t_c": 25.0, "charge_balance": "none", "redox": "air",
+                "t_start_c": 4.0, "t_end_c": 1.5, "p_start_bar": 101.0, "p_end_bar": 559.0, "steps": 46,
+                "kinetics": True, "duration": 22.5, "duration_unit": "days", "carbonate_rates": "seawater",
+                "depth_axis": True, "mode": "flow_through",
+                "reactants": [{"name": "forams", "amount": 2e-5, "unit": "g"}]}
 
 
 # minerals that a low-temperature example blocks: silica other than amorphous silica forms too slowly, and the
@@ -1048,33 +1108,52 @@ EXAMPLES: dict[str, Example] = {e.key: e for e in (
                                         "proportional to it."),
              ("reactants", "Reactant: 1 g calcite per kg of water.")),
             ("calcite left",), False),
-    Example("forams", "A foram sinking below the CCD", "Kinetics along a fall",
-            "One foraminifer test (20 µg of calcite) sinks from 4.5 to 5.5 km, below the calcite compensation depth, "
-            "at about 200 m a day, so the fall takes 5 days. The run follows the foram: it sees the water it falls "
-            "through, held at 1.5 C and compressed with depth (455 to 556 bar), so ever more corrosive to calcite. Its calcite dissolves at the measured rate (Palandri and Kharaka 2004). "
-            "So little dissolves that the water around it hardly changes, as for a grain in the open ocean. The "
-            "plot shows the foram's mass in µg; it loses about a fifth on the way down. The model puts this water "
-            "further from saturation than measurements do and the rate law is linear in (1 - Omega), so this is "
-            "an upper bound. A few seconds.",
-            {"title": "A foram sinking below the CCD", "fluid": "custom",
-             "analysis": "Na+ 10768\nK+ 399.1\nCa+2 412.3\nMg+2 1291.8\nCl- 19353\nSO4-2 2712\nHCO3- 2.3 mmolal",
-             "units": "mg/kg", "ph": 7.75, "fluid_t_c": 25.0, "charge_balance": "none", "redox": "air",
-             "t_start_c": 1.5, "t_end_c": 1.5, "p_start_bar": 455.0, "p_end_bar": 556.0, "steps": 26,
-             "kinetics": True, "duration": 5.0, "duration_unit": "days", "surface_area_cm2_per_g": 100.0,
-             "mode": "flow_through", "reactants": [{"name": "forams", "amount": 2e-5, "unit": "g"}]},
-            (("analysis", "The water: deep seawater with the extra CO2 of old bottom water (2.3 mmol/kg carbonate, "
-                          "pH 7.75 measured at 25 C)."),
-             ("p_start_bar", "Pressure 455 to 556 bar: the foram's depth, 4.5 to 5.5 km (about 10 m per bar), at "
-                             "1.5 C."),
+    Example("forams", "A foram sinking through the lysocline", "Kinetics on the surface of a porous shell",
+            "One foraminifer test (20 µg of calcite) sinks from 1 to 5.5 km at about 200 m a day, so the fall takes "
+            "22.5 days, through water cooling from 4 to 1.5 C and compressed with depth (101 to 559 bar). The x axis "
+            "is depth. The water is saturated with calcite near 3 km; below that it is ever more corrosive, but the "
+            "near-equilibrium rate in seawater is slow (Naviaux et al. 2019) until the saturation state falls below "
+            "0.75, at about 4 km, where etch pits open and the rate rises steeply: the lysocline. The rate is per m2 "
+            "of BET surface, and a test's pores and chambers give it about 2 m2/g, some 200 times the surface of a "
+            "solid grain of its size. The foram keeps its mass to 3 km, loses a little to 4 km and most of it below; "
+            "the plot shows its mass in µg. A few seconds.",
+            {**FORAM_COLUMN, "blocked_minerals": DEFAULT_BLOCKED + ["aragonite"]},
+            (("blocked_minerals", "Blocked: aragonite as well, which the shallower water is supersaturated with "
+                                  "but which does not precipitate from seawater."),
+             ("analysis", "The water: deep seawater with the CO2 of old bottom water (2.3 mmol/kg carbonate, pH 7.98 "
+                          "measured at 25 C), chosen to put the calcite saturation horizon near 3 km and the "
+                          "lysocline near 4 km, as in the North Pacific."),
+             ("p_start_bar", "Pressure 101 to 559 bar: the foram's depth, 1 to 5.5 km (about 10 m per bar); the "
+                             "temperature falls from 4 to 1.5 C on the way."),
+             ("depth_axis", "Plotted against depth."),
              ("mode", "Flow-through: the foram falls through the water, so it keeps meeting new water and "
-                      "leaves behind whatever it gives off. (One foram barely changes 1 kg of water, so static "
-                      "gives the same numbers.)"),
-             ("reactants", "Reactant: one foram, 20 µg of calcite, in 1 kg of the water around it."),
+                      "leaves behind whatever it gives off. (One foram barely changes 1 kg of water.)"),
+             ("reactants", "Reactant: one foram, 20 µg of calcite, in 1 kg of the water around it, with a BET "
+                           "surface of 2 m2/g (type '20 ug forams at 3 m2/g' to change it)."),
              ("kinetics", "How they react: At measured rates."),
-             ("duration", "Run for 5 days: 1 km at about 200 m a day, a typical sinking speed for a test of a few "
-                          "hundred µm."),
-             ("surface_area_cm2_per_g", "Surface area 100 cm2 per g, about that of grains of 0.1 mm.")),
+             ("carbonate_rates", "Carbonate rates: measured in seawater near saturation (Naviaux et al. 2019), on "
+                                 "the BET surface, instead of the far-from-equilibrium laboratory law."),
+             ("duration", "Run for 22.5 days: 4.5 km at about 200 m a day, a typical sinking speed for a test of a "
+                          "few hundred µm.")),
             ("calcite",), False, "ug"),
+    Example("shells", "Foram and pteropod: calcite vs aragonite", "Two polymorphs side by side",
+            "A foram test (20 µg of calcite) and a pteropod shell (20 µg of aragonite), both porous at about 2 m2/g, "
+            "sink together through the same water column as the foram example, 1 to 5.5 km. Aragonite is the more "
+            "soluble polymorph, so the water turns corrosive to it some 800 m shallower and the pteropod starts "
+            "losing mass first. Its measured rate law (Dong et al. 2019) climbs gently with undersaturation, "
+            "while calcite's (Naviaux et al. 2019) steepens sharply below a saturation state of 0.75; the two laws "
+            "come from different studies, so the comparison is only as good as each. The plot shows both shells' "
+            "mass in µg. A few seconds.",
+            {**FORAM_COLUMN, "title": "A foram and a pteropod sinking through the water column",
+             "reactants": [{"name": "forams", "amount": 2e-5, "unit": "g"},
+                           {"name": "pteropods", "amount": 2e-5, "unit": "g"}]},
+            (("reactants", "Reactants: one foram (20 µg of calcite) and one pteropod (20 µg of aragonite), each "
+                           "with a BET surface of 2 m2/g, in 1 kg of the water around them."),
+             ("carbonate_rates", "Carbonate rates: measured in seawater near saturation: Naviaux et al. (2019) for "
+                                 "calcite, Dong et al. (2019) for aragonite."),
+             ("p_start_bar", "The same water column as the foram example: 1 to 5.5 km, 4 to 1.5 C, 22.5 days."),
+             ("depth_axis", "Plotted against depth.")),
+            ("calcite", "aragonite"), False, "ug"),
     Example("amd", "Acid mine drainage", "Acid from pyrite, and the acid stored in iron",
             "Oxygenated groundwater oxidizes 10 mmol of pyrite per kg at 25 C, with the 3.5 O2 per pyrite that turns "
             "its sulfur to sulfate: FeS2 + 7/2 O2 + H2O = Fe+2 + 2 SO4-2 + 2 H+. The pH falls from 6.7 to about 2, "
@@ -1223,5 +1302,11 @@ FIELD_HELP = {
                 "(the pore volumes pass in that time)",
     "duration_unit": "seconds, minutes, hours, days or years",
     "surface_area_cm2_per_g": "reactive surface of the reactants, cm2 per gram (default 100, about "
-                              "0.1 mm grains)",
+                              "0.1 mm grains); a reactant can carry its own, e.g. '20 ug forams at 2 m2/g', "
+                              "and with the seawater carbonate rates forams and pteropods default to 2 m2/g (BET, porous shells)",
+    "depth_axis": "true: read the pressure as depth in seawater (about 10 m per bar) and plot a kinetic run "
+                  "against depth, for a shell sinking through the water column",
+    "carbonate_rates": "rate laws for calcite and aragonite: lab (default; Palandri and Kharaka 2004, far from "
+                       "equilibrium) or seawater (measured in seawater near saturation on the BET surface: "
+                       "Naviaux et al. 2019 for calcite, Dong et al. 2019 for aragonite)",
 }

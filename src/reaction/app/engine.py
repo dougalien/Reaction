@@ -28,7 +28,7 @@ from ..constants import WATER_MOLES_PER_KG
 from ..database import load_data0
 from ..database.model import Kind
 from ..equilibrium import REDOX_APART, System, redox_intermediates
-from ..kinetics import basalt_glass, rate_law
+from ..kinetics import SeawaterCarbonateLaw, basalt_glass, rate_law, seawater_rate_law
 from ..network import ORGANIC_LIGANDS, PROTON, WATER, organic_held_apart
 from ..path import PathPoint, ReactionPath, Reactant, _composition_row, bulk_over, mineral_reactant
 from ..phasesep import phase_state, salinity_from_chloride
@@ -43,7 +43,7 @@ from .. import catabolic, isotopes
 from . import analysis, config, rocks
 from .fluids import AIR_LOG_FO2, PRESETS, preset
 from .names import pretty_mineral, pretty_species
-from .scenario import ALWAYS_EXCLUDED, MODE_LABELS, Scenario
+from .scenario import ALWAYS_EXCLUDED, MODE_LABELS, Scenario, reactant_ssa_m2_g
 
 Progress = Callable[[float, str], None]
 
@@ -52,6 +52,12 @@ BAND_PERCENTILES = (5.0, 95.0)            # the shaded range: the middle 90% of 
 BAND_SEED = 20261025                      # fixed, so the same card gives the same range
 AMOUNT_GROUPS = ("species", "elements", "minerals", "gas", "sorbed")      # a missing key there means none
 AXES = {"temperature_c": ("Temperature", "°C"), "pressure_bar": ("Pressure", "bar")}
+
+
+def depth_m(p_bar: float) -> float:
+    """Depth in the ocean at this pressure: about 10 m per bar below the 1 atm at the surface (a column of
+    seawater of mean density 1.033 g/cm3; within about 1% of the UNESCO pressure-depth relation to 6 km)."""
+    return max(p_bar - 1.01325, 0.0) * 1e5 / (1033.0 * 9.81)
 
 
 class _Evaporation(Reactant):
@@ -139,7 +145,10 @@ MINERAL_ALIASES = {"serpentine": "chrysotile", "lizardite": "chrysotile", "ortho
                    "plagioclase an0": "albite", "enstatite fs0": "enstatite",
                    # shells and tests of low-magnesium calcite
                    "foram": "calcite", "forams": "calcite", "foraminifera": "calcite", "foram calcite": "calcite",
-                   "foraminiferal ooze": "calcite", "coccoliths": "calcite", "chalk": "calcite"}
+                   "foraminiferal ooze": "calcite", "coccoliths": "calcite", "chalk": "calcite",
+                   # and of aragonite
+                   "pteropod": "aragonite", "pteropods": "aragonite", "pteropod aragonite": "aragonite",
+                   "pteropod shells": "aragonite"}
 # group names that have no single formula: the endmembers to choose from
 GROUP_NAMES = {"plagioclase": "albite, anorthite", "pyroxene": "enstatite, ferrosilite, diopside, hedenbergite",
                "clinopyroxene": "diopside, hedenbergite", "orthopyroxene": "enstatite, ferrosilite",
@@ -290,6 +299,10 @@ class Engine:
             axes["time"] = {"key": "time", "label": "Time", "unit": sc.duration_unit,
                             "values": [_sig(sc.duration * i / last) for i in range(len(points))]}
             varies = ["time"] + varies
+            if sc.depth_axis:                    # a shell sinking: pressure read as depth in seawater
+                axes["depth"] = {"key": "depth", "label": "Depth", "unit": "m",
+                                 "values": [_sig(depth_m(pt[1])) for pt in points]}
+                varies = ["depth"] + varies
         elif sc.reactants:
             extra = self._reaction_axes(sc, added, len(points))
             axes.update(extra)
@@ -640,11 +653,22 @@ class Engine:
                                  f"fluid, which is not tracked; set the redox state on the card")
             mw = self.db.molecular_weight(name)
             moles = r["amount"] / mw if r["unit"] == "g" else r["amount"]
-            law = rate_law(name) if sc.kinetics and self.db.species[name].kind == Kind.MINERAL else None
+            law = None
+            if sc.kinetics and self.db.species[name].kind == Kind.MINERAL:
+                law = (sc.carbonate_rates == "seawater" and seawater_rate_law(name)) or rate_law(name)
+            ssa = reactant_ssa_m2_g(r, shells=sc.carbonate_rates == "seawater")
+            if law is not None and notes is not None and (ssa or isinstance(law, SeawaterCarbonateLaw)):
+                label = r["name"] if r["name"].lower() == name.lower() else f"{r['name']} ({pretty_mineral(name)})"
+                note = (f"{label[0].upper()}{label[1:]}: reactive surface "
+                        + (f"{ssa:g} m2 per g (BET, about {ssa * 1e4 / max(sc.surface_area_cm2_per_g, 1e-9):,.0f} "
+                           f"times the card's {sc.surface_area_cm2_per_g:g} cm2 per g)" if ssa else
+                           f"{sc.surface_area_cm2_per_g:g} cm2 per g")
+                        + f"; rate law {law.source}.")
+                notes.append(note)
             if sc.kinetics and law is None:
                 steady.append(pretty_mineral(name) if self.db.species[name].kind == Kind.MINERAL else name)
             out.append(mineral_reactant(system, name, moles, rates=(moles / span, 0.0, 0.0),
-                                        rate_law=law, area=area * moles * mw))
+                                        rate_law=law, area=(ssa if ssa else area) * moles * mw))
         if steady and notes is not None:
             notes.append(f"No measured rate for {', '.join(steady)}: "
                          + ("brought to equilibrium in every cell instead." if column
