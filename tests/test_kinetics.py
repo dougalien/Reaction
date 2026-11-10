@@ -137,3 +137,27 @@ def test_card_and_chat():
     assert ch["duration"] == pytest.approx(0.5) and ch["duration_unit"] == "years"
     ch = interpret_rules("set the surface area to 0.5 m2/g", Scenario()).scenario_changes
     assert ch["surface_area_cm2_per_g"] == 5000
+
+
+def test_seawater_carbonate_laws_match_their_fits():
+    from reaction.kinetics import SEAWATER_CARBONATE
+    cal, arag = SEAWATER_CARBONATE["calcite"], SEAWATER_CARBONATE["aragonite"]
+    # Naviaux et al. 2019 at 5 C: log k -13.07 mol/cm2/s, n 0.34 above Omega 0.75; -10.01, n 4.81 below
+    assert math.log10(cal.rate_per_m2(5.0, math.log10(0.8))) == pytest.approx(-9.07 + 0.34 * math.log10(0.2))
+    assert math.log10(cal.rate_per_m2(5.0, math.log10(0.3))) == pytest.approx(-6.01 + 4.81 * math.log10(0.7))
+    # Dong et al. 2019: 0.013 g/g/day (1 - Omega)^1.37 on 2.46 m2/g
+    g_per_g_day = arag.rate_per_m2(5.0, math.log10(0.5)) * 2.46 * 100.087 * 86400
+    assert g_per_g_day == pytest.approx(0.013 * 0.5 ** 1.37, rel=1e-3)
+    assert cal.rate_per_m2(5.0, 0.1) == 0.0 and arag.rate_per_m2(5.0, 0.0) == 0.0     # dissolution only
+    assert cal.rate_per_m2(21.0, -0.5) > 1.5 * cal.rate_per_m2(5.0, -0.5)                # Ea 25 kJ/mol
+
+
+def test_reactant_surface_area_from_text():
+    from reaction.app.scenario import parse_reactants, reactant_ssa_m2_g, reactant_text
+    r = parse_reactants("20 ug forams at 3 m2/g; 10 g calcite; 5 ug pteropods")
+    assert r[0] == {"name": "forams", "amount": 2e-5, "unit": "g", "ssa_m2_g": 3.0}
+    assert reactant_text(r[0]) == "20 µg forams at 3 m2/g"
+    assert [reactant_ssa_m2_g(x) for x in r] == [3.0, None, 2.0]
+    assert reactant_ssa_m2_g(r[2], shells=False) is None
+    assert parse_reactants("1 g calcite @ 500 cm2/g")[0]["ssa_m2_g"] == pytest.approx(0.05)
+    assert parse_reactants([{"name": "calcite", "amount": 1, "unit": "g", "ssa_m2_g": 2}])[0]["ssa_m2_g"] == 2.0

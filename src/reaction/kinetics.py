@@ -115,3 +115,62 @@ def basalt_glass(si_moles_per_unit: float) -> RateLaw:
     return RateLaw((Mechanism("glass", log_k25, 25.5, ((PROTON, 1.0), ("Al+3", -1.0 / 3.0))),),
                    source="Gislason and Oelkers (2003), Geochim. Cosmochim. Acta 67, 3817-3832",
                    affinity=False, per_unit=1.0 / si_moles_per_unit)
+
+
+# Calcite and aragonite in seawater, near equilibrium.  Laboratory constants such as Palandri and
+# Kharaka's are for pure water far from equilibrium and linear in (1 - Omega); in seawater the rate falls
+# much faster as Omega approaches 1, and the measured rates are normalized to the BET (gas-adsorption)
+# surface, which for a porous foram or pteropod shell is tens of times the outer surface of a grain.
+# r = A * k(T) * (1 - Omega)^n, A the BET surface (m2), k in mol m-2 s-1.  Each regime is a pair
+# (log k at 5 C, n, Omega where it starts to apply); the fastest regime that applies sets the rate,
+# which keeps the rate continuous where the fits meet.
+NAVIAUX_SOURCE = ("Naviaux et al. (2019), Geochim. Cosmochim. Acta 246, 363-384 "
+                  "(calcite in seawater, BET-normalized, 5 C fits)")
+DONG_SOURCE = ("Dong et al. (2019), Earth Planet. Sci. Lett. 515, 1-12 "
+               "(aragonite in seawater, 0.013 g/g/day (1 - Omega)^1.37 at 5 C on 2.46 m2/g)")
+
+
+@dataclass(frozen=True)
+class SeawaterCarbonateLaw:
+    regimes: tuple[tuple[float, float, float], ...]      # (log k at 5 C in mol m-2 s-1, n, Omega below which it applies)
+    e_kj: float
+    source: str
+    affinity: bool = True
+    per_unit: float = 1.0
+
+    def k_factor(self, t_c: float) -> float:
+        return math.exp(-self.e_kj / R_KJ * (1.0 / (t_c + 273.15) - 1.0 / 278.15))
+
+    def far_from_equilibrium(self, spec: Speciation) -> float:
+        """The rate per m2 at Omega = 0, mol m-2 s-1."""
+        return max(10.0 ** lk * self.k_factor(spec.temperature_c) for lk, _n, _o in self.regimes)
+
+    def rate_per_m2(self, t_c: float, log_omega: float) -> float:
+        """mol m-2 s-1, positive dissolves.  The fits measure dissolution only, so a supersaturated
+        fluid neither dissolves nor grows the shell."""
+        omega = 10.0 ** min(log_omega, 30.0)
+        if omega >= 1.0:
+            return 0.0
+        f = self.k_factor(t_c)
+        return max(10.0 ** lk * f * (1.0 - omega) ** n for lk, n, below in self.regimes if omega < below)
+
+    def rate(self, spec: Speciation, area_m2: float, saturation: float | None = None) -> float:
+        if area_m2 <= 0.0:
+            return 0.0
+        return area_m2 * self.rate_per_m2(spec.temperature_c, 0.0 if saturation is None else saturation) \
+            * self.per_unit
+
+
+# Naviaux et al. 2019, Table 2 at 5 C: log k = -13.07 mol cm-2 s-1, n = 0.34 for Omega > 0.75 (step
+# retreat and defect-assisted pits) and -10.01, n = 4.81 below (homogeneous etch pits); activation energy
+# 25 kJ/mol (their Section 4).  Dong et al. 2019: 0.013 g g-1 day-1 (1 - Omega)^1.37 at 5 C for aragonite
+# of 2.46 m2/g, i.e. 6.1e-10 mol m-2 s-1; about twice as fast at 21 C, i.e. about 30 kJ/mol.
+SEAWATER_CARBONATE = {
+    "calcite": SeawaterCarbonateLaw(((-9.07, 0.34, 1.0), (-6.01, 4.81, 0.75)), 25.0, NAVIAUX_SOURCE),
+    "aragonite": SeawaterCarbonateLaw(((math.log10(0.013 / 2.46 / 100.087 / 86400.0), 1.37, 1.0),),
+                                      30.0, DONG_SOURCE),
+}
+
+
+def seawater_rate_law(mineral: str) -> SeawaterCarbonateLaw | None:
+    return SEAWATER_CARBONATE.get(mineral)
