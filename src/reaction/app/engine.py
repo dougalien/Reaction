@@ -9,6 +9,7 @@ the fluid goes on; the run reports everything left behind so far.
 """
 from __future__ import annotations
 
+import dataclasses
 import datetime as _dt
 import json
 import math
@@ -19,6 +20,7 @@ import threading
 import time
 import uuid
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from functools import lru_cache
 from pathlib import Path
 from typing import Callable
 
@@ -39,7 +41,7 @@ from ..speciation import PH, Couple, Eh, LogFO2, Molal, Pe, Speciation, speciate
 from ..thermo import validity
 from ..transport import Column
 from ..thermo.eosdb import DEFAULT_MASTERS, load_eos_database
-from .. import catabolic, isotopes
+from .. import catabolic, isotopes, marine
 from . import analysis, config, rocks
 from .fluids import AIR_LOG_FO2, PRESETS, preset
 from .names import pretty_mineral, pretty_species
@@ -52,6 +54,57 @@ BAND_PERCENTILES = (5.0, 95.0)            # the shaded range: the middle 90% of 
 BAND_SEED = 20261025                      # fixed, so the same card gives the same range
 AMOUNT_GROUPS = ("species", "elements", "minerals", "gas", "sorbed")      # a missing key there means none
 AXES = {"temperature_c": ("Temperature", "°C"), "pressure_bar": ("Pressure", "bar")}
+
+
+def alkalinity(db, spec) -> float:
+    """Total alkalinity of a speciation, eq per kg of water: each species counts the protons it can take
+    up relative to CO2, B(OH)3, H2O and SO4-2 (HCO3- 1, CO3-2 2, B(OH)4- 1, OH- 1, H+ -1, HSO4- -1, ...)."""
+    a = 0.0
+    for name, st in spec.species.items():
+        if name == "HCO3-":
+            a += st.molality
+        elif name == PROTON:
+            a -= st.molality
+        else:
+            rx = db.species[name].reaction
+            if rx:
+                a += st.molality * (rx.get("HCO3-", 0.0) - rx.get(PROTON, 0.0))
+    return a
+
+
+def marine_water(db, sc: Scenario, spec) -> tuple[float, float, float] | None:
+    """Salinity and total alkalinity and DIC (mol per kg of seawater) of the card's water: the card's own
+    values where given, otherwise from the speciation (salinity 1.80655 x chlorinity)."""
+    dic_molal = spec.totals.get("HCO3-", 0.0)
+    if not dic_molal and sc.dic_umol_kg is None:
+        return None
+    solutes = sum(st.molality * (db.molecular_weight(n) or 0.0) for n, st in spec.species.items()) / 1000.0
+    per_kg_sw = 1.0 / (1.0 + solutes)                    # kg of water per kg of seawater
+    s = sc.salinity if sc.salinity is not None else \
+        1.80655 * spec.totals.get("Cl-", 0.0) * 35.453 * per_kg_sw
+    ta = sc.alkalinity_umol_kg * 1e-6 if sc.alkalinity_umol_kg is not None else alkalinity(db, spec) * per_kg_sw
+    dic = sc.dic_umol_kg * 1e-6 if sc.dic_umol_kg is not None else dic_molal * per_kg_sw
+    return s, ta, dic
+
+
+def marine_log_omega(water: tuple[float, float, float], mineral: str):
+    """log Omega of calcite or aragonite at (t_c, p_bar) in this marine water, or None outside the
+    constants' range (the rate law then uses the database's saturation)."""
+    s, ta, dic = water
+
+    @lru_cache(maxsize=4096)
+    def at(t_c: float, p_bar: float):
+        if not marine.in_range(s, t_c, p_bar):
+            return None
+        return math.log10(getattr(marine.solve(s, t_c, p_bar, ta, dic), f"omega_{mineral}"))
+    return lambda t_c, p_bar: at(round(t_c, 4), round(p_bar, 3))
+
+
+def sinking_speed(ug: float) -> float:
+    """Settling speed of a planktonic foram test, m/s, from its mass in µg: Takahashi and Bé (1984),
+    w = 10^2.06 W^0.64 m/day (about 500 m/day at 10 µg).  Spines and cytoplasm change it; the measured
+    spread is wide (G. glutinata, 3 µg: about 330 m/day; G. menardii, 27 µg: about 1100 m/day)."""
+    return 10.0 ** 2.06 * max(ug, 0.01) ** 0.64 / 86400.0
 
 
 def depth_m(p_bar: float) -> float:
@@ -160,6 +213,7 @@ GROUP_NAMES = {"plagioclase": "albite, anorthite", "pyroxene": "enstatite, ferro
 
 class Engine:
     def __init__(self, data_dir: str | Path | None = None):
+        self._marine = None
         self.data_dir = Path(data_dir) if data_dir else config.external_dir()
         self._db = None
         self._load_lock = threading.Lock()
@@ -298,6 +352,11 @@ class Engine:
             last = max(len(points) - 1, 1)
             axes["time"] = {"key": "time", "label": "Time", "unit": sc.duration_unit,
                             "values": [_sig(sc.duration * i / last) for i in range(len(points))]}
+            sink = next(iter(runs.values())).get("sink_days") if sc.sinking else None
+            if sink:
+                days = next(iter(sink.values()))
+                axes["time"] = {"key": "time", "label": "Time sinking", "unit": "days",
+                                "values": [_sig(d) for d in days]}
             varies = ["time"] + varies
             if sc.depth_axis:                    # a shell sinking: pressure read as depth in seawater
                 axes["depth"] = {"key": "depth", "label": "Depth", "unit": "m",
@@ -351,6 +410,9 @@ class Engine:
         sp0, fluid_notes, added, inflow, system, bulk0 = self._prepare(sc, progress)
         inflow = inflow or sp0
         notes: list[str] = list(fluid_notes)
+        self._marine = None                      # the marine carbonate system is for paths only, for now
+        if sc.isotopes:
+            notes.append("Isotopes are not tracked in a column yet; this run leaves them out.")
         cells = sc.cell_points()
         n = len(cells)
         # the rock in each cell, per kg of pore water, brought to equilibrium with the pore fluid first;
@@ -657,6 +719,8 @@ class Engine:
             if sc.kinetics and self.db.species[name].kind == Kind.MINERAL:
                 law = (sc.seawater_rates and seawater_rate_law(name, sc.carbonate_rates == "seawater_dong")) \
                     or rate_law(name)
+                if isinstance(law, SeawaterCarbonateLaw) and self._marine is not None:
+                    law = dataclasses.replace(law, omega=marine_log_omega(self._marine, name), mineral=name)
             ssa = reactant_ssa_m2_g(r, shells=sc.seawater_rates)
             shell = law is not None and is_shell(r) and sc.seawater_rates
             if law is not None and notes is not None and (ssa or isinstance(law, SeawaterCarbonateLaw)):
@@ -672,9 +736,13 @@ class Engine:
                 notes.append(note)
             if sc.kinetics and law is None:
                 steady.append(pretty_mineral(name) if self.db.species[name].kind == Kind.MINERAL else name)
+            speed = None
+            if sc.sinking and law is not None:           # progress is depth: the rate per metre fallen
+                speed = (lambda done, moles=moles, mw=mw: sinking_speed((moles - done) * mw * 1e6))
             out.append(mineral_reactant(system, name, moles, rates=(moles / span, 0.0, 0.0),
                                         rate_law=law, area=(ssa if ssa else area) * moles * mw,
-                                        area_exponent=sc.shell_area_exponent if shell else 2.0 / 3.0))
+                                        area_exponent=sc.shell_area_exponent if shell else 2.0 / 3.0,
+                                        speed=speed))
         if steady and notes is not None:
             notes.append(f"No measured rate for {', '.join(steady)}: "
                          + ("brought to equilibrium in every cell instead." if column
@@ -791,9 +859,19 @@ class Engine:
         n = len(points)
         last = max(n - 1, 1)
         step = sc.duration_s / last if sc.kinetics else 1.0      # reaction progress per step
+        if sc.sinking:                                           # progress is the depth fallen, m
+            step = (depth_m(sc.p_end_bar) - depth_m(sc.p_start_bar)) / last
         blocked = {b.lower() for b in sc.blocked_minerals} | set(ALWAYS_EXCLUDED)
         suppress = [name for name, kind in zip(system.net.phase_names, system.net.phase_kind)
                     if kind == Kind.MINERAL and (name.lower() in blocked or not sc.minerals_form)]
+        self._marine = marine_water(db, sc, sp0) if sc.seawater_rates and sp0 is not None else None
+        if self._marine is not None:
+            s, ta, dic = self._marine
+            note = (f"Calcite and aragonite saturation from the marine carbonate system (Lueker et al. 2000 K1 and "
+                    f"K2, Mucci 1983 solubility, Millero 1995 pressure terms, as PyCO2SYS): salinity {s:.2f}, "
+                    f"alkalinity {ta * 1e6:.0f} and DIC {dic * 1e6:.0f} umol/kg, and the rates use it.")
+            if note not in notes:
+                notes.append(note)
         reactants = self._reactants(system, sc, self._reactant_names(sc), n, notes)
         if mix is not None:          # the second fluid, per kg of its water, as one more reactant
             totals = bulk_over(system, mix) if sc.redox_apart else mix.component_totals
@@ -821,12 +899,39 @@ class Engine:
         solved = path.run(xis, on_failure=failed, progress=tick, guess=sp0)
         kinetic = [r for r in reactants if r.kinetic]
         run = _pack([None if pt is None else self._record(db, pt, kinetic, sc.energy) for pt in solved])
+        if sc.sinking and kinetic:
+            run["sink_days"] = self._sink_days(kinetic, run, step)
+        if self._marine is not None:                 # the saturation the rates see, at each point
+            s, ta, dic = self._marine
+            for mineral in ("calcite", "aragonite"):
+                if mineral in run.get("saturation", {}):
+                    run["saturation"][mineral] = [
+                        _sig(math.log10(getattr(marine.solve(s, t, p, ta, dic), f"omega_{mineral}")))
+                        if marine.in_range(s, t, p) else v
+                        for (t, p), v in zip(points, run["saturation"][mineral])]
         add_partition(run, sc)
         if separate is not None:
             run["split"] = [split.get(round(x, 9)) for x in xis]
         if sc.isotopes:
             run["isotopes"] = self._isotopes(sc, bulk0, reactants, solved, points, notes)
         return run
+
+    @staticmethod
+    def _sink_days(kinetic: list, run: dict, step: float) -> dict[str, list]:
+        """Days since the start for each sinking reactant at each depth: the sum of step / speed, with the
+        speed from its mass at both ends of the step."""
+        out = {}
+        for r in kinetic:
+            left = run.get("kinetic", {}).get(f"left:{r.name}") or []
+            days, t = [], 0.0
+            for i, pct in enumerate(left):
+                if i:
+                    prev = left[i - 1]
+                    ws = [r.speed(r.amount * (1.0 - (x or 0.0) / 100.0)) for x in (prev, pct)]
+                    t += step * 0.5 * (1.0 / ws[0] + 1.0 / ws[1]) / 86400.0
+                days.append(t)
+            out[r.name] = days
+        return out
 
     def _isotopes(self, sc: Scenario, bulk0: dict, reactants: list, solved: list, points: list,
                   notes: list[str]) -> dict[str, list]:

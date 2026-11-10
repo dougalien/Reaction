@@ -122,21 +122,28 @@ def basalt_glass(si_moles_per_unit: float) -> RateLaw:
 # much faster as Omega approaches 1, and the measured rates are normalized to the BET (gas-adsorption)
 # surface, which for a porous foram or pteropod shell is tens of times the outer surface of a grain.
 # r = A * k(T) * (1 - Omega)^n, A the BET surface (m2), k in mol m-2 s-1.  Each regime is a pair
-# (log k at 5 C, n, Omega where it starts to apply); the fastest regime that applies sets the rate,
-# which keeps the rate continuous where the fits meet.
+# (log k at 5 C, n, Omega below which it was fitted); the faster regime sets the rate, through a smooth
+# maximum, so the rate and its slope are continuous where the fits meet.
 NAVIAUX_SOURCE = ("Naviaux et al. (2019), Geochim. Cosmochim. Acta 246, 363-384 "
                   "(calcite in seawater, BET-normalized, 5 C fits)")
 DONG_SOURCE = ("Dong et al. (2019), Earth Planet. Sci. Lett. 515, 1-12 "
                "(aragonite in seawater, 0.013 g/g/day (1 - Omega)^1.37 at 5 C on 2.46 m2/g)")
 
 
+SMOOTHNESS = 10.0                       # s in the smooth maximum of the rate regimes
+
+
 @dataclass(frozen=True)
 class SeawaterCarbonateLaw:
-    regimes: tuple[tuple[float, float, float], ...]      # (log k at 5 C in mol m-2 s-1, n, Omega below which it applies)
+    regimes: tuple[tuple[float, float, float], ...]      # (log k at 5 C in mol m-2 s-1, n, Omega below which it was fitted)
     e_kj: float
     source: str
     affinity: bool = True
     per_unit: float = 1.0
+    # log Omega from (t_c, p_bar) to use instead of the database's saturation state (the marine
+    # carbonate system: see marine.py); None = the database's
+    omega: object = None
+    mineral: str = ""
 
     def k_factor(self, t_c: float) -> float:
         return math.exp(-self.e_kj / R_KJ * (1.0 / (t_c + 273.15) - 1.0 / 278.15))
@@ -152,11 +159,21 @@ class SeawaterCarbonateLaw:
         if omega >= 1.0:
             return 0.0
         f = self.k_factor(t_c)
-        return max(10.0 ** lk * f * (1.0 - omega) ** n for lk, n, below in self.regimes if omega < below)
+        # a smooth maximum of the regimes, (sum r_i^s)^(1/s): each fit holds where it is the faster, the
+        # corner between them is rounded (a solver sees no kink), and at the crossover the rate is
+        # 2^(1/s) times either fit.  Naviaux et al.'s two calcite fits cross at Omega = 0.79, next to the
+        # 0.75 at which they split their data.  (Cala et al. 2024 round the same corner with an error
+        # function.)
+        log_r = [lk + n * math.log10(1.0 - omega) for lk, n, _below in self.regimes]
+        top = max(log_r)
+        s = SMOOTHNESS
+        return f * 10.0 ** (top + math.log10(sum(10.0 ** (s * (x - top)) for x in log_r)) / s)
 
     def rate(self, spec: Speciation, area_m2: float, saturation: float | None = None) -> float:
         if area_m2 <= 0.0:
             return 0.0
+        if self.omega is not None:
+            saturation = self.omega(spec.temperature_c, spec.pressure_bar or 1.01325)
         return area_m2 * self.rate_per_m2(spec.temperature_c, 0.0 if saturation is None else saturation) \
             * self.per_unit
 

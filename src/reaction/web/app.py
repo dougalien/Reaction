@@ -167,6 +167,9 @@ NUM_FIELDS = {  # field: (label, min, max, step, help)
                   "Water is taken away until the fluid is this many times more concentrated; 1 means no evaporation"),
     "mix_ratio": ("Up to (kg per kg)", 0.0, 1000.0, 0.1, None),
     "mix_t_c": ("Its temperature (°C)", 0.0, 600.0, 1.0, "Empty: the temperature follows the path"),
+    "salinity": ("Salinity", 0.0, 45.0, 0.1, "Empty: from the water's chloride"),
+    "alkalinity_umol_kg": ("Alkalinity (µmol/kg)", 0.0, 5000.0, 10.0, "Empty: from the water's speciation"),
+    "dic_umol_kg": ("DIC (µmol/kg)", 0.0, 5000.0, 10.0, "Empty: the water's total carbonate"),
     "shell_area_exponent": ("Shell surface exponent", -1.0, 1.0, 0.1, "Forams and pteropods with seawater rates: "
                             "whole surface = start surface x (mass left / mass)^p. 0 keeps it, so the surface "
                             "per gram rises as the shell dissolves; 0.667 is a shrinking solid grain"),
@@ -204,6 +207,9 @@ CHOICES = {  # field: (label, [(value, text)], help)
                         "Laboratory: Palandri and Kharaka (2004). Seawater: measured near saturation on the BET "
                         "surface, Naviaux et al. (2019) for calcite and for aragonite on its own saturation state; or aragonite "
                         "after Dong et al. (2019)"),
+    "sinking": ("Duration from", [(False, "The run time"), (True, "Sinking speed (Takahashi & Bé)")],
+                "Sinking: the reactant falls from the start to the end pressure at the speed its mass gives, "
+                "10^2.06 W^0.64 m/day for W µg, recomputed as it dissolves"),
     "depth_axis": ("Plot against", [(False, "Time"), (True, "Depth (sinking shell)")],
                    "Depth reads the pressure as depth in seawater, about 10 m per bar"),
     "duration_unit": ("Time unit", [(u, u) for u in ("seconds", "minutes", "hours", "days", "years")], None),
@@ -511,8 +517,12 @@ def _reactants_box(sess, snap, card, col, running) -> None:
             choice(sess, card, "duration_unit", b)
             choice(sess, card, "carbonate_rates", a)
             choice(sess, card, "depth_axis", b)
+            choice(sess, card, "sinking", b)
             if str(card.get("carbonate_rates", "")).startswith("seawater"):
                 num(sess, card, "shell_area_exponent", a)
+                num(sess, card, "salinity", b)
+                num(sess, card, "alkalinity_umol_kg", a)
+                num(sess, card, "dic_umol_kg", b)
         st.markdown("Blocked minerals <span style='color:#6f777a;font-size:0.85rem'>(supersaturated but too slow to "
                     "form)</span>", unsafe_allow_html=True)
         blocked = card.get("blocked_minerals") or []

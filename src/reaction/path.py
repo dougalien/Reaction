@@ -62,6 +62,9 @@ class Reactant:
     rate_law: RateLaw | None = None
     area: float = 0.0
     area_exponent: float = 2.0 / 3.0
+    # reaction progress per second, as a function of the moles reacted, when progress is not time: a
+    # sinking particle's speed (m/s), with progress the depth it has fallen; None = progress is time
+    speed: Callable[[float], float] | None = None
 
     @property
     def kinetic(self) -> bool:
@@ -137,9 +140,11 @@ def _composition_row(system: System, name: str) -> dict[str, float]:
 
 def mineral_reactant(system: System, name: str, amount: float, *,
                      rates=(1.0, 0.0, 0.0), rate_law: RateLaw | None = None,
-                     area: float = 0.0, area_exponent: float = 2.0 / 3.0) -> Reactant:
+                     area: float = 0.0, area_exponent: float = 2.0 / 3.0,
+                     speed: Callable[[float], float] | None = None) -> Reactant:
     """A pure mineral (or gas, or aqueous species) as a reactant, from its formation reaction."""
-    return Reactant(name, _composition_row(system, name), amount, rates, name, rate_law, area, area_exponent)
+    return Reactant(name, _composition_row(system, name), amount, rates, name, rate_law, area, area_exponent,
+                    speed)
 
 
 class ReactionPath:
@@ -236,9 +241,12 @@ class ReactionPath:
 
     def _kinetic_rates(self, state: EquilibriumState, reacted: dict[str, float]) -> dict[str, float]:
         sat = state.speciation.saturation
-        return {r.name: r.rate_law.rate(state.speciation, r.surface(reacted.get(r.name, 0.0)),
-                                        sat.get(r.mineral) if r.mineral else None)
-                for r in self.kinetic}
+        out = {}
+        for r in self.kinetic:
+            done = reacted.get(r.name, 0.0)
+            rate = r.rate_law.rate(state.speciation, r.surface(done), sat.get(r.mineral) if r.mineral else None)
+            out[r.name] = rate / r.speed(done) if r.speed is not None else rate
+        return out
 
     def _implicit(self, xi0: float, st0: EquilibriumState, n0: dict[str, float],
                   xi1: float) -> tuple[dict[str, float], EquilibriumState, dict[str, float]]:
