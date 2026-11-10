@@ -1140,6 +1140,9 @@ EXAMPLES: dict[str, Example] = {e.key: e for e in (
                       "leaves behind whatever it gives off. (One foram barely changes 1 kg of water.)"),
              ("reactants", "Reactant: one foram, 20 µg of calcite, in 1 kg of the water around it, with a BET "
                            "surface of 2 m2/g (type '20 ug forams at 3 m2/g' to change it)."),
+             ("shell_area_exponent", "Shell surface exponent 0: the test keeps its whole surface as it dissolves "
+                                     "(its walls thin and its pores widen), so its surface per gram doubles by the "
+                                     "time half is gone; 0.667 would treat it as a shrinking solid grain."),
              ("kinetics", "How they react: At measured rates."),
              ("carbonate_rates", "Carbonate rates: measured in seawater near saturation (Naviaux et al. 2019), on "
                                  "the BET surface, instead of the far-from-equilibrium laboratory law."),

@@ -491,3 +491,6 @@ blocked there (the shallow water is supersaturated with it). New example "shells
 together. With these two laws the pteropod starts dissolving ~700 m shallower but loses far less by 5.5 km,
 because Naviaux's far-from-equilibrium calcite fit is much faster per m2 than Dong's aragonite law; the
 database puts aragonite only ~0.07 log units above calcite in solubility at 2 C (seawater is nearer 0.18).
+Shell surface evolves (Douglas, same day): `Reactant.area_exponent` (A = A0 (m/m0)^p; 2/3 for grains as before);
+card `shell_area_exponent` (default 0) for forams and pteropods with seawater rates, so their surface per gram goes as
+m0/m. The foram example ends at 4.4 µg instead of 8.2 µg.
