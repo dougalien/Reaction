@@ -16,7 +16,7 @@ with units and automatic charge balance) taken along a straight line in temperat
 of water: water/rock and titration) and a second fluid mixed in (with the temperature following the mixing if
 its own temperature is given), static and flow-through, with minerals precipitating and dissolving. No fixed-pressure
 databases: logK is computed from Gibbs energies at every point. A reliability rating (water ionization
-against Marshall and Franck 1981) is shown before a run, in the narrative and as a strip under the plot.
+against IAPWS R11-24, 2024; Marshall and Franck 1981 until 2026-11-11) is shown before a run, in the narrative and as a strip under the plot.
 
 Commits in the Reaction repo (remote: github.com/dougalien/Reaction, private): M1 `8d77c10`, M1.5 `8d9cd4a`, M2 `e90e9d9`,
 M3 solver and EQ6 harness `3af9559`, the app `a3076e0`, pressure paths `3f37964`.
@@ -427,6 +427,13 @@ design; the interface is question first (chat, then card, then run, then plots t
 fly); two synced windows for a two-screen setup; everything local; the language model only fills the card and
 the plot request; numbers come only from the solver; the plot is our own SVG chart (no CDN); the card is a flat
 set of fields stored with every result; no fixed-pressure databases; ask before every commit.
+
+Activity models (2026-11-11, decided by Douglas): B-dot (Helgeson 1969) stays the default; b-gamma (Helgeson,
+Kirkham and Flowers 1981, Table 27 via CHNOSZ) is a card option and is suggested above 300 C or 1 kbar
+(b-gamma made seawater carbonate saturation worse than B-dot at 25 C, so it was not made the default). Pitzer
+uses pitzer.dat's own log K and molar volumes for the species and minerals it lists, checked against PHREEQC
+3.7.3; with them the brine card gives halite then gypsum (not anhydrite and epsomite as with HKF log K).
+Holland and Powell (2011) minerals were not taken up.
 
 ## Where the code is
 

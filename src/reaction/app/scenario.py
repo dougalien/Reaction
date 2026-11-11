@@ -26,7 +26,7 @@ KINDS = ("path", "transport")
 MAX_COLUMN_SOLVES = 40000             # cells x shifts x (1 + dispersion mixes) in one column run
 KINETIC_STEP_SOLVES = 15              # equilibrium calculations in a cell's kinetic step, typically
 MODE_LABELS = {"static": "Static", "flow_through": "Flow-through", "both": "Both"}
-ACTIVITY_MODELS = ("bdot", "davies", "pitzer")
+ACTIVITY_MODELS = ("bdot", "bgamma", "davies", "pitzer")
 FLUID_FIELDS = ("analysis", "units", "ph", "fluid_t_c", "fluid_p_bar", "charge_balance", "redox",
                 "redox_value")                                       # what a custom fluid is
 REACTANT_UNITS = {"g": ("g", 1.0), "gram": ("g", 1.0), "grams": ("g", 1.0), "mg": ("g", 1e-3),
@@ -936,7 +936,7 @@ STARTING_CARDS: dict[str, StartingCard] = {c.key: c for c in (
                  {"fluid": "freshwater", "t_start_c": 25.0, "t_end_c": 300.0, "steps": 28}),
     StartingCard("brine", "Brine",
                  "Great Salt Lake brine evaporated to a fifth of its water at 25 C and 1 bar, with Pitzer "
-                 "activities: halite, then anhydrite, then epsomite.",
+                 "activities: halite, then gypsum, with epsomite close to saturation by the end.",
                  {"fluid": "gsl_brine", "activity_model": "pitzer", "t_start_c": 25.0, "t_end_c": 25.0,
                   "p_start_bar": 1.0, "p_end_bar": 1.0, "evaporate": 5.0, "steps": 30}),
     StartingCard("hydrothermal", "Hydrothermal fluid",
@@ -1031,7 +1031,7 @@ EXAMPLES: dict[str, Example] = {e.key: e for e in (
              "isotopes": True},
             (("evaporate", "Evaporate to 10 times concentrated: water leaves as vapour, in steps even in the "
                            "logarithm of the concentration."),
-             ("activity_model", "Activity model: Pitzer, needed for brines (B-dot is good to about 1 mol/kg)."),
+             ("activity_model", "Activity model: Pitzer, needed for brines (the extended Debye-Hueckel models are good to about 1 mol/kg)."),
              ("isotopes", "Isotopes: On. The vapour carries the liquid-vapour fractionation of Horita and "
                           "Wesolowski (1994), so the lake water grows heavier."),
              ("fluid", "Fluid: Great Salt Lake brine (Drever 1997), already near halite saturation.")),
@@ -1273,8 +1273,10 @@ FIELD_HELP = {
     "mode": "static = minerals stay in contact with the fluid; flow_through = each step's minerals "
             "are removed and cannot redissolve; both = run the two for comparison",
     "blocked_minerals": "list of mineral names that may not precipitate (kinetically blocked)",
-    "activity_model": "bdot (default, to about seawater salinity), davies (dilute), or pitzer (brines and "
-                      "evaporites, to saturation with halite; parameters to about 200 C)",
+    "activity_model": "bdot (default: Helgeson 1969 B-dot as in EQ3/6, to about seawater salinity, tabulated "
+                      "to 300 C), bgamma (Helgeson, Kirkham and Flowers 1981, NaCl-dominated fluids, with "
+                      "temperature and pressure to 600 C and 5 kbar), davies (dilute), or pitzer (brines and "
+                      "evaporites, to saturation with halite; PHREEQC pitzer.dat, to about 200 C and 1 kbar)",
     "evaporate": "concentration factor to evaporate the fluid to (1 = no evaporation; 10 = a tenth of the "
                  "water left)",
     "mix_with": f"a second fluid mixed in steadily ({', '.join(PRESETS)}), or empty for none",

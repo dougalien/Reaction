@@ -1,10 +1,11 @@
 """Pitzer's ion-interaction model for activity coefficients and the activity of water in brines.
 
 The equations are those of Harvie, Moller and Weare (1984, GCA 48, 723), with unsymmetrical mixing
-(E-theta) from Pitzer's (1975) approximation of the J integral.  Parameters are PHREEQC's pitzer.dat
+(E-theta) from Harvie's Chebyshev approximation of the J integral, implemented as PHREEQC 3 does
+(pitzer.cpp: alphas, E-theta, and the pressure dependence of the Debye-Hueckel b).  Parameters are PHREEQC's pitzer.dat
 (public domain; see ``data/pitzer_phreeqc.tsv`` for its sources), with their temperature functions.
-They are fitted at the saturation pressure of water and are used here at the path's pressure without
-a pressure term: the pressure effect on the equilibrium constants themselves comes from HKF.
+The interaction parameters depend on temperature only.  Pressure enters, as in PHREEQC, through A-phi,
+the Debye-Hueckel b of the ions and the molar volumes of the species (``phreeqc_pitzer.py``).
 
 In this model ions are mostly free: NaCl(aq), CaSO4(aq), NaSO4- and the like are not separate species,
 their effect is in the interaction parameters.  ``keep_species`` says which dependent species of the
@@ -49,15 +50,53 @@ def at_temperature(a: tuple[float, ...], t_k: float) -> float:
             + a4 * (t_k * t_k - T_REF * T_REF) + a5 * (1.0 / (t_k * t_k) - 1.0 / (T_REF * T_REF)))
 
 
+# Chebyshev coefficients of Harvie (1981) for J(x), as in HMW (1984) and PHREEQC (pitzer.cpp,
+# ETHETA_PARAMS): the first 21 for x <= 1, the next 21 for x > 1
+_AK = np.array([
+    1.925154014814667e0, -.060076477753119e0, -.029779077456514e0, -.007299499690937e0,
+    0.000388260636404e0, 0.000636874599598e0, 0.000036583601823e0, -.000045036975204e0,
+    -.000004537895710e0, 0.000002937706971e0, 0.000000396566462e0, -.000000202099617e0,
+    -.000000025267769e0, 0.000000013522610e0, 0.000000001229405e0, -.000000000821969e0,
+    -.000000000050847e0, 0.000000000046333e0, 0.000000000001943e0, -.000000000002563e0,
+    -.000000000010991e0,
+    0.628023320520852e0, 0.462762985338493e0, 0.150044637187895e0, -.028796057604906e0,
+    -.036552745910311e0, -.001668087945272e0, 0.006519840398744e0, 0.001130378079086e0,
+    -.000887171310131e0, -.000242107641309e0, 0.000087294451594e0, 0.000034682122751e0,
+    -.000004583768938e0, -.000003548684306e0, -.000000250453880e0, 0.000000216991779e0,
+    0.000000080779570e0, 0.000000004558555e0, -.000000006944757e0, -.000000002849257e0,
+    0.000000000237816e0])
+
+
+def _j_scalar(x: float) -> tuple[float, float]:
+    """(J(x), x dJ/dx) by Harvie's Chebyshev approximation."""
+    if x <= 1.0:
+        p02 = x ** 0.2
+        z, dz, ak = 4.0 * p02 - 2.0, 0.8 * p02 / 2.0, _AK[:21]
+    else:
+        pm01 = x ** -0.1
+        z, dz, ak = (40.0 * pm01 - 22.0) / 9.0, -4.0 * pm01 / 18.0, _AK[21:]
+    bk = np.zeros(23)
+    dk = np.zeros(23)
+    bk[20] = ak[20]
+    bk[19] = z * ak[20] + ak[19]
+    dk[19] = ak[20]
+    for i in range(18, -1, -1):
+        bk[i] = z * bk[i + 1] - bk[i + 2] + ak[i]
+        dk[i] = bk[i + 1] + z * dk[i + 1] - dk[i + 2]
+    return x / 4.0 - 1.0 + 0.5 * (bk[0] - bk[2]), x * 0.25 + dz * (dk[0] - dk[2])
+
+
 def _j(x: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-    """Pitzer's (1975) approximation of J(x) and its derivative dJ/dx."""
-    c1, c2, c3, c4 = 4.581, 0.7237, 0.0120, 0.528
-    x = np.maximum(x, 1e-30)
-    e = np.exp(-c3 * x ** c4)
-    d = 4.0 + c1 * x ** (-c2) * e
-    j = x / d
-    dd = c1 * e * (-c2 * x ** (-c2 - 1.0) - c3 * c4 * x ** (c4 - c2 - 1.0))
-    return j, (d - x * dd) / (d * d)
+    """J(x) and dJ/dx elementwise (Harvie's Chebyshev approximation; it replaced Pitzer's 1975
+    closed-form approximation here so that E-theta matches PHREEQC, whose parameters these are)."""
+    x = np.maximum(np.asarray(x, dtype=float), 1e-30)
+    j, xjp = np.zeros_like(x), np.zeros_like(x)
+    cache: dict[float, tuple[float, float]] = {}
+    for idx, v in np.ndenumerate(x):
+        if v not in cache:
+            cache[v] = _j_scalar(float(v))
+        j[idx], xjp[idx] = cache[v]
+    return j, xjp / x
 
 
 def _g(x):
@@ -71,10 +110,20 @@ def _gp(x):
 class Pitzer:
     """Activity coefficients of ``names`` (charges ``z``) at one temperature."""
 
-    def __init__(self, names: list[str], z: np.ndarray, temperature_c: float, a_phi: float):
+    def __init__(self, names: list[str], z: np.ndarray, temperature_c: float, a_phi: float,
+                 pressure_atm: float | None = None):
         self.names, self.z = list(names), np.asarray(z, dtype=float)
         self.a_phi = a_phi
         t_k = temperature_c + 273.15
+        # PHREEQC (pitzer.cpp, function pitzer) lowers the Debye-Hueckel b of the ln gamma of univalent
+        # and of divalent ions with pressure above 1 atm, by at most 0.2; the osmotic term keeps 1.2
+        self.b_ion = {1: B_DH, 2: B_DH}
+        if pressure_atm is not None and pressure_atm > 1.0:
+            pap = (7e-5 + 1.93e-9 * (t_k - 250.0) ** 2) * pressure_atm
+            self.b_ion[1] = B_DH - min(pap, 0.2)
+            if t_k > 263.0:
+                pap = 9.65e-10 * (t_k - 263.0) ** 2.773 * pressure_atm ** 0.623
+            self.b_ion[2] = B_DH - min(pap, 0.2)
         idx = {n: i for i, n in enumerate(self.names)}
         n = len(self.names)
         self.cat = np.where(self.z > 0)[0]
@@ -107,9 +156,12 @@ class Pitzer:
                 for p in ((0, 1, 2), (0, 2, 1)):           # neutral first, the ion pair either way
                     zeta[ii[p[0]], ii[p[1]], ii[p[2]]] = v
         az = np.abs(self.z)
-        both2 = np.outer(az >= 2, az >= 2)
-        self.alpha1 = np.where(both2, 1.4, 2.0)
-        self.alpha2 = np.where(both2 & (np.outer(az, az) == 4), 12.0, 50.0)
+        # alphas as PHREEQC sets them (pitzer.cpp, pitzer_tidy): alpha1 = 1.4 for 2-2 pairs, else 2.0;
+        # alpha2 = 12 for 2-2 pairs and for any pair with a univalent ion, else 50
+        two_two = np.outer(az == 2, az == 2)
+        uni = np.outer(az == 1, np.ones_like(az, dtype=bool)) | np.outer(np.ones_like(az, dtype=bool), az == 1)
+        self.alpha1 = np.where(two_two, 1.4, 2.0)
+        self.alpha2 = np.where(two_two | uni, 12.0, 50.0)
         self.b0, self.b1, self.b2 = b0, b1, b2
         zz = np.sqrt(np.maximum(np.outer(az, az), 1e-30))
         self.c = cphi / (2.0 * zz)
@@ -157,9 +209,16 @@ class Pitzer:
         phiphi = self.theta + et + ionic * etp
 
         B_ca, Bp_ca, C_ca = bmx[np.ix_(cat, an)], bp[np.ix_(cat, an)], self.c[np.ix_(cat, an)]
-        f = -self.a_phi * (s / (1.0 + B_DH * s) + 2.0 / B_DH * math.log(1.0 + B_DH * s))
-        f += mc @ Bp_ca @ ma
-        f += 0.5 * mc @ phip[np.ix_(cat, cat)] @ mc + 0.5 * ma @ phip[np.ix_(an, an)] @ ma
+
+        def dh(b):
+            return -self.a_phi * (s / (1.0 + b * s) + 2.0 / b * math.log(1.0 + b * s))
+        rest = mc @ Bp_ca @ ma
+        rest += 0.5 * mc @ phip[np.ix_(cat, cat)] @ mc + 0.5 * ma @ phip[np.ix_(an, an)] @ ma
+        f_all = dh(B_DH) + rest
+        f = np.full(len(z), f_all)
+        for charge, b in self.b_ion.items():
+            if b != B_DH:
+                f[az == charge] = dh(b) + rest
         sum_mcmac = mc @ C_ca @ ma
         ln_g = z * z * f + az * sum_mcmac
         if len(cat) and len(an):

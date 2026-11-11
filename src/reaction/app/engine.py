@@ -136,6 +136,21 @@ ISOTOPE_ROCKS = {"basalt_glass": {"d18O": 5.7, "dD": -70.0, "d13C": -6.0, "d34S"
                                   "87Sr/86Sr": 0.7027}}
 
 
+
+def bdot_range_note(sc: Scenario) -> str | None:
+    """A suggestion to use b-gamma when a B-dot card goes above 300 C or 1 kbar, where Helgeson's (1969)
+    B-dot table ends (0-300 C along the saturation curve, with no pressure term)."""
+    if sc.activity_model != "bdot":
+        return None
+    t_top = max(sc.t_start_c, sc.t_end_c, sc.mix_t_c if sc.mix_with and sc.mix_t_c is not None else -1e9)
+    p_top = max(sc.p_start_bar, sc.p_end_bar)
+    if t_top <= 300.0 and p_top <= 1000.0:
+        return None
+    return ("This path goes above 300 C or 1 kbar. B-dot (Helgeson 1969) is tabulated from 0 to 300 C along the "
+            "saturation curve and has no pressure term, so it is held at its 300 C value here. b-gamma "
+            "(Helgeson, Kirkham and Flowers 1981) has a b that depends on temperature and pressure, tabulated "
+            "to 500 C and 5 kbar; choose it under Activity model on the card.")
+
 class EngineUnavailable(RuntimeError):
     """The thermodynamic data the engine needs could not be found."""
 
@@ -266,7 +281,8 @@ class Engine:
                 self._advice.clear()
             pts = [sc.tp(i / 40) for i in range(41)]
             self._advice[key] = reliability_notes(pts, self.reliability(pts), sc.varies)
-        return list(getattr(self.db, "data_notes", [])) + self._advice[key]
+        model = bdot_range_note(sc)
+        return list(getattr(self.db, "data_notes", [])) + self._advice[key] + ([model] if model else [])
 
     # ---- one run --------------------------------------------------------------------------------
     def run(self, sc: Scenario, progress: Progress | None = None) -> dict:
@@ -301,11 +317,17 @@ class Engine:
         if sc.activity_model == "pitzer":
             notes.append("Activity coefficients from Pitzer's equations (PHREEQC pitzer.dat parameters); the "
                          "complexes of Na, K, Ca, Mg, Cl, sulfate and carbonate are in those parameters. The "
-                         "equilibrium constants are still the database's (HKF), so a solubility can differ "
-                         "from a Pitzer-only database by its log K.")
+                         "equilibrium constants of the species and minerals pitzer.dat lists are pitzer.dat's own, "
+                         "with its molar volumes for pressure (Appelo and others 2014); the rest are the "
+                         "database's (HKF). pitzer.dat is fitted for about 0-200 C and 1-1000 atm.")
         elif top > 1.0:
-            notes.append(f"Ionic strength reaches {top:.1f} mol/kg. The {sc.activity_model.replace('bdot', 'B-dot')} "
+            label = {"bdot": "B-dot", "bgamma": "b-gamma", "davies": "Davies"}.get(sc.activity_model,
+                                                                                   sc.activity_model)
+            notes.append(f"Ionic strength reaches {top:.1f} mol/kg. The {label} "
                          f"equation is unreliable above about 1 mol/kg; choose Pitzer on the card for brines.")
+        model_note = bdot_range_note(sc)
+        if model_note:
+            notes.append(model_note)
         for mode, run in runs.items():
             _phase_split(run, points)
             notes.extend(phase_notes(run, points, MODE_LABELS[mode] if len(runs) > 1 else "",

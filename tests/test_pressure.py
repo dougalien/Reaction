@@ -41,7 +41,9 @@ def test_marshall_franck_reproduces_the_textbook_value_at_25c():
 @pytest.mark.parametrize("t_c, p_bar, limit", [
     (25.0, 1.0132, 0.002), (25.0, 500.0, 0.02), (25.0, 1000.0, 0.04), (100.0, 500.0, 0.02),
     (200.0, 500.0, 0.06), (250.0, 1000.0, 0.12), (300.0, 500.0, 0.06), (300.0, 1000.0, 0.15),
-    (350.0, 1000.0, 0.15), (400.0, 1000.0, 0.10), (500.0, 2000.0, 0.35),
+    (350.0, 1000.0, 0.15), (400.0, 1000.0, 0.15), (500.0, 2000.0, 0.35),
+    # limits are against IAPWS R11-24 (2024); against Marshall and Franck (1981) 400 C/1 kbar was 0.03,
+    # against IAPWS it is 0.12
 ])
 def test_water_ionization_agrees_with_the_measured_constant(db, t_c, p_bar, limit):
     rel = validity.water_ionization_check(db, t_c, p_bar)
@@ -50,8 +52,11 @@ def test_water_ionization_agrees_with_the_measured_constant(db, t_c, p_bar, limi
 
 def test_the_reliability_flag_marks_the_known_bad_regions(db):
     good = validity.water_ionization_check(db, 250.0, 500.0)
-    poor = validity.water_ionization_check(db, 400.0, 500.0)           # near-critical, density 0.58
-    assert good.level == "good" and poor.level == "poor"
+    assert good.level == "good"
+    # 400 C, 500 bar (density 0.58) was 'poor' against Marshall and Franck (1981), off by 0.53; against
+    # IAPWS R11-24 (2024) the database is within 0.07 there, so the flag no longer marks it
+    assert validity.water_ionization_check(db, 400.0, 500.0).level == "good"
+    assert validity.water_ionization_check(db, 500.0, 800.0).level == "caution"  # off by about 0.19
     assert validity.water_ionization_check(db, 500.0, 300.0).level == "poor"   # below 0.35 g/cm3
     assert validity.water_ionization_check(db, 25.0, 1.0132).level == "good"
 
@@ -144,9 +149,11 @@ def test_a_supercritical_path_is_flagged_not_hidden(engine):
     r = engine.run(Scenario(t_start_c=380.0, t_end_c=500.0, p_start_bar=800.0, p_end_bar=800.0,
                             steps=6, mode="static"))
     levels = r["reliability"]["levels"]
-    assert levels[0] == "good" and levels[-1] == "poor"
+    # against IAPWS R11-24 the end point (500 C, 800 bar) is off by about 0.19 log units: 'caution'
+    # (it was 'poor' against Marshall and Franck 1981)
+    assert levels[0] == "good" and levels[-1] == "caution"
     text = " ".join(r["notes"])
-    assert "qualitative only" in text
+    assert "approximate" in text
     assert any(math.isfinite(d) for d in r["reliability"]["deviation"] if d is not None)
 
 

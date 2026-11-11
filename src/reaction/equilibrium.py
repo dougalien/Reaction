@@ -458,7 +458,7 @@ class _Solve:
         iterations = 0
         sum_m = 0.0
         relax, last_delta, outer_tol = 1.0, math.inf, 1e-11
-        if m.pitzer is not None:          # coefficients that depend on every molality: solver noise is larger
+        if m.relaxed:          # coefficients that depend on every molality: solver noise is larger
             max_outer, outer_tol = max_outer * 8, 1e-9
         for outer in range(max_outer):
             self.ionic = ionic
@@ -485,7 +485,7 @@ class _Solve:
                         abs(log_aw_new - log_aw))
             for mx in mixes:
                 delta = max(delta, mx.update_phi(u_now))
-            if m.pitzer is not None:
+            if m.relaxed:
                 # Pitzer coefficients feed back strongly on concentrated brines: under-relax the update
                 # when it stops shrinking
                 if delta > 0.7 * last_delta:

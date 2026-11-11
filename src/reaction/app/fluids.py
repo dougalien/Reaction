@@ -143,12 +143,12 @@ PRESETS: dict[str, FluidPreset] = {
         "solids, in equilibrium with the atmosphere.",
         25.0,
         "Na+ 85600\nK+ 4070\nMg+2 7200\nCa+2 241\nCl- 140000\nSO4-2 16400\nHCO3- 251",
-        8.2,
+        8.25,
         "Great Salt Lake brine as tabulated by Drever (1997, The Geochemistry of Natural Waters, 3rd "
         "edition; mg/kg), a brine of about 25% salinity like the lake's concentrated stages and its "
         "north arm (Jones and others 2009, Aquatic Geochemistry 15, 123-195); silica (48 mg/kg) left "
         "out. The pH, not part of that analysis, puts the brine close to the atmosphere's CO2 "
-        "(10^-3.36 bar against 10^-3.38) at 25 C with Pitzer activities; oxygen from equilibrium with air",
+        "(10^-3.39 bar against 10^-3.38) at 25 C with Pitzer activities and pitzer.dat constants; oxygen from equilibrium with air",
         charge_balance="auto", redox="air",
         caveats=("At an ionic strength near 6.5 molal only the Pitzer activity model is meaningful; the "
                  "brine card uses it.",

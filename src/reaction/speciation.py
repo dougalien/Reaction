@@ -23,7 +23,7 @@ import numpy as np
 from . import activity
 from .constants import FARADAY, KELVIN, LN10, R, WATER_MOLES_PER_KG
 from .database.model import Kind, ThermoDatabase
-from .aqueous import AqueousModel
+from .aqueous import MODELS, AqueousModel
 from .network import ORGANIC_LIGANDS, OXYGEN, PROTON, WATER, Network, NetworkError, tie_family
 
 
@@ -291,8 +291,8 @@ def speciate(
     mg/L divided by the density first.  ``balance_on`` replaces that species'
     constraint by a charge-balance equation.
     """
-    if activity_model not in ("bdot", "davies", "ideal", "pitzer"):
-        raise ValueError("activity_model must be 'bdot', 'davies', 'pitzer' or 'ideal'")
+    if activity_model not in MODELS:
+        raise ValueError("activity_model must be one of " + ", ".join(repr(m) for m in MODELS))
     if ph_scale not in ("nbs", "internal", "mesmer"):
         raise ValueError("ph_scale must be 'nbs', 'internal' or 'mesmer'")
     switches = dict(switches or {})
@@ -515,7 +515,7 @@ def speciate(
     u = pre_newton(u, lg_b * LN10, lg_d * LN10, log_aw)
     total_inner, converged = 0, False
     relax, last_delta, outer_tol = 1.0, math.inf, 1e-11
-    if model.pitzer is not None:
+    if model.relaxed:
         max_outer, outer_tol = max_outer * 4, 1e-9
     for outer in range(max_outer):
         lg_b_ln, lg_d_ln = lg_b * LN10, lg_d * LN10
@@ -548,7 +548,7 @@ def speciate(
         delta = max(abs(ionic_new - ionic), np.max(np.abs(lg_b_new - lg_b)),
                     np.max(np.abs(lg_d_new - lg_d)) if len(lg_d) else 0.0,
                     abs(log_aw_new - log_aw))
-        if model.pitzer is not None:             # under-relaxed, as in equilibrium.py
+        if model.relaxed:             # under-relaxed, as in equilibrium.py
             if delta > 0.7 * last_delta:
                 relax = max(0.05, 0.5 * relax)
             elif delta < 0.3 * last_delta:

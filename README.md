@@ -2,7 +2,7 @@
 
 A Dougalien Systems app ([dougalien.com](https://dougalien.com)).  Open geochemical reaction-path modelling in Python: aqueous speciation,
 equilibrium with minerals and gases, reaction paths and kinetics.  Early
-stage: speciation (B-dot or Davies activity models) works to 400 C and 1 kbar
+stage: speciation (B-dot, b-gamma, Davies or Pitzer activity models) works to 400 C and 1 kbar
 and reproduces all 41 speciation cases of the EQ3/6 test library; reaction
 paths and kinetics are next (see [docs/DESIGN.md](docs/DESIGN.md)).
 
