@@ -164,7 +164,7 @@ def _point_values(result: dict | None, t_c: float) -> tuple[dict, int | None, st
     if not result:
         return {}, None, None
     temps = result["axes"]["temperature_c"]["values"]
-    for mode in ("static", "flow_through"):
+    for mode in ("static", "flow_through", "flush"):
         run = result["modes"].get(mode)
         if not run:
             continue

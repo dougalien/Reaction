@@ -21,11 +21,11 @@ from .analysis import DEFAULT_UNIT
 from ..sorption import KD_MEDIA
 from .fluids import CUSTOM, CUSTOM_LABEL, PRESETS, REDOX_CHOICES, FluidPreset, label as fluid_label
 
-MODES = ("static", "flow_through", "both")
+MODES = ("static", "flow_through", "flush", "both")
 KINDS = ("path", "transport")
 MAX_COLUMN_SOLVES = 40000             # cells x shifts x (1 + dispersion mixes) in one column run
 KINETIC_STEP_SOLVES = 15              # equilibrium calculations in a cell's kinetic step, typically
-MODE_LABELS = {"static": "Static", "flow_through": "Flow-through", "both": "Both"}
+MODE_LABELS = {"static": "Static", "flow_through": "Flow-through", "flush": "Flush", "both": "Both"}
 ACTIVITY_MODELS = ("bdot", "bgamma", "davies", "pitzer")
 FLUID_FIELDS = ("analysis", "units", "ph", "fluid_t_c", "fluid_p_bar", "charge_balance", "redox",
                 "redox_value")                                       # what a custom fluid is
@@ -105,6 +105,9 @@ class Scenario:
     p_end_bar: float = 500.0
     steps: int = 36
     mode: str = "static"
+    # flush mode (Bethke's flush model): the fraction of the fluid that fresh starting fluid displaces after
+    # each step; the solids stay.  1 = all of it, as around a particle sinking through the ocean
+    flush_fraction: float = 1.0
     blocked_minerals: list[str] = field(default_factory=lambda: list(DEFAULT_BLOCKED))
     activity_model: str = "bdot"
     # a custom fluid (fluid = "custom"): the analysis as typed, its default unit, the pH and the
@@ -442,6 +445,14 @@ class Scenario:
             out.append(f"follow_phase must be one of {', '.join(FOLLOW_PHASES)}")
         if self.mode not in MODES:
             out.append(f"mode must be one of {', '.join(MODES)}")
+        if not 0.0 < self.flush_fraction <= 1.0:
+            out.append("flush_fraction must be above 0 and at most 1")
+        if self.mode == "flush":
+            if self.transport:
+                out.append("flush mode is for a reaction path; a column run has its own flow")
+            if self.exchange_meq > 0 or self.hfo_g > 0 or any(self.clay_grams().values()):
+                out.append("flush mode does not yet keep sorbed species apart from the fluid that leaves: "
+                           "remove the exchange sites, ferric oxide and clays, or use static mode")
         if self.activity_model not in ACTIVITY_MODELS:
             out.append(f"activity_model must be one of {', '.join(ACTIVITY_MODELS)}")
         return out
@@ -632,7 +643,7 @@ class Scenario:
         return out
 
     def _how(self) -> str:
-        return {"static": "static", "flow_through": "flow-through",
+        return {"static": "static", "flow_through": "flow-through", "flush": "flush",
                 "both": "static and flow-through"}.get(self.mode, self.mode)
 
     def _describe_path(self) -> str:
@@ -641,7 +652,7 @@ class Scenario:
             p0, p1 = self.p_start_bar, self.p_end_bar
             where = f"{p0:g} bar" if p0 == p1 else f"{p0:g} to {p1:g} bar"
             return f"{label} at {self.t_start_c:g} °C and {where} ({self._how()}, {self.steps} steps)"
-        how = {"static": "static", "flow_through": "flow-through",
+        how = {"static": "static", "flow_through": "flow-through", "flush": "flush",
                "both": "static and flow-through"}.get(self.mode, self.mode)
         tail = f"({how}, {self.steps} steps)"
         t0, t1, p0, p1 = self.t_start_c, self.t_end_c, self.p_start_bar, self.p_end_bar
@@ -989,7 +1000,7 @@ FORAM_COLUMN = {"title": "A foram sinking through the lysocline", "fluid": "cust
                 "units": "mg/kg", "ph": 7.98, "fluid_t_c": 25.0, "charge_balance": "none", "redox": "air",
                 "t_start_c": 4.0, "t_end_c": 1.5, "p_start_bar": 101.0, "p_end_bar": 559.0, "steps": 46,
                 "kinetics": True, "duration": 22.5, "duration_unit": "days", "carbonate_rates": "seawater",
-                "depth_axis": True, "sinking": True, "mode": "flow_through",
+                "depth_axis": True, "sinking": True, "mode": "flush",
                 "reactants": [{"name": "forams", "amount": 2e-5, "unit": "g"}]}
 
 
@@ -1139,13 +1150,16 @@ EXAMPLES: dict[str, Example] = {e.key: e for e in (
             "and Bé 1984: about 780 m a day at 20 µg, slowing as it dissolves), so the fall takes about 6 days, "
             "through water cooling from 4 to 1.5 C and compressed with depth (101 to 559 bar). The x axis "
             "is depth. Saturation comes from the marine carbonate system (the constants of PyCO2SYS: Lueker et al. 2000, "
-            "Mucci 1983, Millero 1995), not the HKF database. The water is saturated with calcite near 2.9 km; below that it is ever more corrosive, but the "
+            "Mucci 1983, Millero 1995), not the HKF database. The water is saturated with calcite near 2.8 km; below that it is ever more corrosive, but the "
             "near-equilibrium rate in seawater is slow (Naviaux et al. 2019) until the saturation state falls below "
             "about 0.8, near 4 km, where etch pits open and the rate rises steeply: the lysocline. The rate is per m2 "
             "of BET surface, and a test's pores and chambers give it about 2 m2/g, some 200 times the surface of a "
-            "solid grain of its size. The foram keeps its mass to 3 km, loses a little to 4 km and about 30% by "
-            "5.5 km; the plot shows its mass in µg. The water's alkalinity and DIC (2307 and 2219 umol/kg) are "
-            "held the same at every depth; a measured profile would change them. A few seconds.",
+            "solid grain of its size. The foram keeps its mass to 2.8 km, loses about 1% to 4 km and about 27% by "
+            "5.5 km; the plot shows its mass in µg. Flush mode: the test stays and fresh water of the column "
+            "replaces the water around it at every 100 m step, so it always meets the ocean, never its own "
+            "products. The water's alkalinity and DIC (2307 and 2219 umol/kg) are held the same at every "
+            "depth, so its saturation changes only with temperature and pressure; a measured profile would "
+            "change them. About ten seconds.",
             {**FORAM_COLUMN, "blocked_minerals": DEFAULT_BLOCKED + ["aragonite"]},
             (("blocked_minerals", "Blocked: aragonite as well, which the shallower water is supersaturated with "
                                   "but which does not precipitate from seawater."),
@@ -1155,8 +1169,9 @@ EXAMPLES: dict[str, Example] = {e.key: e for e in (
              ("p_start_bar", "Pressure 101 to 559 bar: the foram's depth, 1 to 5.5 km (about 10 m per bar); the "
                              "temperature falls from 4 to 1.5 C on the way."),
              ("depth_axis", "Plotted against depth."),
-             ("mode", "Flow-through: the foram falls through the water, so it keeps meeting new water and "
-                      "leaves behind whatever it gives off. (One foram barely changes 1 kg of water.)"),
+             ("mode", "Flush: the foram falls through the water, so after each 100 m step fresh water of the column "
+                      "(the card's water, at the new depth's temperature and pressure) replaces the water around it, "
+                      "and what the test gave off is left behind (Bethke's flush model, as in GWB React)."),
              ("reactants", "Reactant: one foram, 20 µg of calcite, in 1 kg of the water around it, with a BET "
                            "surface of 2 m2/g (type '20 ug forams at 3 m2/g' to change it)."),
              ("shell_area_exponent", "Shell surface exponent 0: the test keeps its whole surface as it dissolves "
@@ -1171,14 +1186,15 @@ EXAMPLES: dict[str, Example] = {e.key: e for e in (
     Example("shells", "Foram and pteropod: calcite vs aragonite", "Two polymorphs side by side",
             "A foram test (20 µg of calcite) and a pteropod shell (20 µg of aragonite), both porous at about 2 m2/g, "
             "sink together through the same water column as the foram example, 1 to 5.5 km. Aragonite is the more "
-            "soluble polymorph, so the water turns corrosive to it some 800 m shallower and the pteropod starts "
-            "losing mass first, near 2 km. Both dissolve by the same mechanisms in seawater (Dong et al. 2019), so "
+            "soluble polymorph: this water is just undersaturated with aragonite already at 1 km, some 1.8 km "
+            "above the calcite saturation horizon (2.8 km), so the pteropod starts losing mass at once. Both dissolve by the same mechanisms in seawater (Dong et al. 2019), so "
             "both follow the calcite rate law of Naviaux et al. (2019), each on its own saturation state: the "
-            "pteropod, in water undersaturated with aragonite from 1 km, is half gone near 3.6 km and gone by 4.5 km, "
-            "while the foram keeps about 70% of its mass. (Dong et al.'s "
+            "pteropod is half gone near 3.9 km and gone by 4.2 km, while the foram keeps about 73% of its mass, "
+            "as when it sinks alone (to 0.01 µg): in flush mode each shell meets fresh water at every step, so neither "
+            "feels what the other gives off. (Dong et al.'s "
             "own aragonite law, the 'seawater_dong' carbonate rates, is far slower and leaves the pteropod almost "
             "whole.) Aragonite is 1.5 times as soluble as calcite here (Mucci 1983). The plot shows both shells' "
-            "mass in µg. A few seconds.",
+            "mass in µg. About twenty seconds.",
             {**FORAM_COLUMN, "title": "A foram and a pteropod sinking through the water column",
              "reactants": [{"name": "forams", "amount": 2e-5, "unit": "g"},
                            {"name": "pteropods", "amount": 2e-5, "unit": "g"}]},
@@ -1188,6 +1204,8 @@ EXAMPLES: dict[str, Example] = {e.key: e for e in (
                                  "aragonite on its own saturation state."),
              ("p_start_bar", "The same water column as the foram example: 1 to 5.5 km, 4 to 1.5 C, each shell at the speed "
                              "its mass gives (the time axis follows the foram)."),
+             ("mode", "Flush: after each 100 m step fresh water of the column replaces the water around the shells, "
+                      "so neither shell's dissolution changes the water the other meets."),
              ("depth_axis", "Plotted against depth.")),
             ("calcite", "aragonite"), False, "ug"),
     Example("amd", "Acid mine drainage", "Acid from pyrite, and the acid stored in iron",
@@ -1271,7 +1289,11 @@ FIELD_HELP = {
     "p_end_bar": "pressure the run ends at, bar; equal to the start means pressure is held fixed",
     "steps": "number of steps along the path (2 to 200)",
     "mode": "static = minerals stay in contact with the fluid; flow_through = each step's minerals "
-            "are removed and cannot redissolve; both = run the two for comparison",
+            "are removed and cannot redissolve; flush = the solids stay and fresh starting fluid displaces "
+            "the fluid after each step (Bethke's flush model; a shell sinking through the ocean); both = "
+            "static and flow-through for comparison",
+    "flush_fraction": "flush mode: the fraction of the fluid displaced by fresh starting fluid after each step "
+                      "(1 = all of it, default)",
     "blocked_minerals": "list of mineral names that may not precipitate (kinetically blocked)",
     "activity_model": "bdot (default: Helgeson 1969 B-dot as in EQ3/6, to about seawater salinity, tabulated "
                       "to 300 C), bgamma (Helgeson, Kirkham and Flowers 1981, NaCl-dominated fluids, with "

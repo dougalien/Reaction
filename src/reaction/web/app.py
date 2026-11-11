@@ -467,10 +467,10 @@ def _path_box(sess, card, col) -> None:
                        "for minerals reacting at measured rates.")
         else:
             _sync("f-mode", card.get("mode"))
-            st.segmented_control("Mode", ["static", "flow_through", "both"], key="f-mode", on_change=_edit,
+            st.segmented_control("Mode", ["static", "flow_through", "flush", "both"], key="f-mode", on_change=_edit,
                                  args=(sess, "mode"),
-                                 format_func=lambda m: {"static": "Static", "flow_through": "Flow-through", "both": "Both"}[m])
-            st.caption("Static: minerals stay and can redissolve. Flow-through: each step's minerals are left behind.")
+                                 format_func=lambda m: {"static": "Static", "flow_through": "Flow-through", "flush": "Flush", "both": "Both"}[m])
+            st.caption("Static: minerals stay and can redissolve. Flow-through: each step's minerals are left behind. Flush: the solids stay and fresh starting fluid replaces the fluid after each step.")
 
 
 def _reactants_box(sess, snap, card, col, running) -> None:
@@ -599,7 +599,7 @@ def _history(sess: Session, snap: dict) -> None:
 
 
 # ---- the Results window -------------------------------------------------------------------------------
-MODE_LABEL = {"static": "Static", "flow_through": "Flow-through", "outlet": "At the outlet",
+MODE_LABEL = {"static": "Static", "flow_through": "Flow-through", "flush": "Flush", "outlet": "At the outlet",
               "start": "Column at the start", "profile": "Column at the end"}
 UNIT_SCALE = {"mol": 1, "mmol": 1e3, "umol": 1e6, "mg": 1e3, "ug": 1e6}
 UNIT_TEXT = {"mol": "mol", "mmol": "mmol", "umol": "µmol", "mg": "mg", "ug": "µg"}
@@ -878,7 +878,9 @@ def _plot_panel(sess, res, other, view) -> None:
                       font=dict(color="#2B3134"), title=dict(text=tidy(res["summary"]), font=dict(size=13)),
                       xaxis_title=f"{xax['label']} ({xax['unit']})", yaxis_title=y_label(items, view, res))
     fig.update_xaxes(gridcolor=GRID)
-    fig.update_yaxes(gridcolor=GRID, type="log" if use_log else "linear", exponentformat="power")
+    fig.update_yaxes(gridcolor=GRID, type="log" if use_log else "linear", exponentformat="power",
+                     # an amount is drawn from zero, so a loss reads as the share of what there was
+                     rangemode="tozero" if g == "minerals" and not use_log else "normal")
     st.plotly_chart(fig, width="stretch")
     if any(lv != "good" for lv in rel):
         st.caption("Shaded columns: points where the thermodynamic data are less reliable (amber approximate, rust "

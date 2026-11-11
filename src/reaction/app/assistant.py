@@ -35,7 +35,7 @@ SCHEMA = {
                 "steps": {"type": "integer"},
                 "p_start_bar": {"type": "number"},
                 "p_end_bar": {"type": "number"},
-                "mode": {"type": "string", "enum": ["static", "flow_through", "both"]},
+                "mode": {"type": "string", "enum": ["static", "flow_through", "flush", "both"]},
                 "blocked_minerals": {"type": "array", "items": {"type": "string"}},
             },
             "additionalProperties": False,
@@ -525,6 +525,8 @@ def interpret_rules(text: str, card: Scenario) -> Interpretation:
         ch["steps"] = int(m.group(1))
     if re.search(r"flow[\s-]*through", low) and re.search(r"static", low) or re.search(r"\bboth\b|\bcompare\b", low):
         ch["mode"] = "both"
+    elif re.search(r"\bflush(?:ed|ing)?\b", low):
+        ch["mode"] = "flush"
     elif re.search(r"flow[\s-]*through", low):
         ch["mode"] = "flow_through"
     elif re.search(r"\bstatic\b|\bclosed\b|\bbatch\b", low):

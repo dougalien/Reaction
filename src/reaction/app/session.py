@@ -332,7 +332,7 @@ class Session:
             reply = (reply + " I can't run that yet: " + "; ".join(problems_now) + ".").strip()
             run_now = False
         elif run_now and not self.mode_confirmed and not self.card.transport:
-            got.question = "Static, flow-through, or both?"
+            got.question = "Static, flow-through, flush, or both?"
             run_now = False
             self.pending_run = True
         x_req = got.x_axis if got.x_axis in ("temperature_c", "pressure_bar") else None

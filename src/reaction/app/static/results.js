@@ -18,9 +18,9 @@ async function load(id) {
   }
   return cache.get(id);
 }
-const MODE_LABEL = { static: "Static", flow_through: "Flow-through", outlet: "At the outlet",
+const MODE_LABEL = { static: "Static", flow_through: "Flow-through", flush: "Flush", outlet: "At the outlet",
   start: "Column at the start", profile: "Column at the end" };
-const DASH = { static: "", flow_through: "7 5", outlet: "", start: "7 5", profile: "" };
+const DASH = { static: "", flow_through: "7 5", flush: "", outlet: "", start: "7 5", profile: "" };
 
 /* The first mode shown, and the axes it is drawn against: a column run's modes carry their own
    (pore volumes at the outlet, distance along the column), so only modes on the same axes overlay. */
@@ -267,6 +267,7 @@ function draw() {
     log: useLog, yLabel: yLabel(items, view), xLabel: `${xax.label} (${xax.unit})`,
     xName: xax.label, xUnit: " " + xax.unit,
     hoverFixed: g === "isotopes" ? (items[0].key.startsWith("87") ? 5 : 2) : 0, refLines: g === "saturation" || (g === "energy" && items[0].key.startsWith("dG:")) ? [0] : null,
+    zero: g === "minerals",
     title: result.summary, strip: anyRisk ? rel : null,
     sub: other ? (i) => `${other.label} ${fmtVal(other.values[i])} ${other.unit}` : null,
   });

@@ -128,6 +128,35 @@ def test_flow_through_leaves_calcite_behind_where_it_would_redissolve(engine):
     assert ft[-1] > 0
 
 
+def test_flush_replaces_the_fluid_and_keeps_the_solid(engine):
+    """Flush mode (Bethke's flush model): calcite dissolving at measured rates in fresh water.  In the static
+    run the water fills with calcium and the calcite slows toward saturation; in flush mode fresh water
+    replaces the fluid after each step, so the water at each point holds only that step's calcium and the
+    calcite goes on dissolving at the rate of the fresh water."""
+    from reaction.app.scenario import example_card
+    import dataclasses
+    card = example_card("kinetics")
+    st = engine.run(dataclasses.replace(card, mode="static"))["modes"]["static"]
+    fl = engine.run(dataclasses.replace(card, mode="flush"))["modes"]["flush"]
+    left_st, left_fl = st["kinetic"]["left:calcite"], fl["kinetic"]["left:calcite"]
+    ca_st, ca_fl = st["elements"]["Ca"], fl["elements"]["Ca"]
+    dissolved = [(left_fl[i - 1] - left_fl[i]) / 100.0 for i in range(1, len(left_fl))]
+    start = ca_fl[0]
+    for i in range(2, len(ca_fl)):          # one step's calcium over the starting water, not the total
+        moles = card.reactants[0]["amount"] / 100.087 if card.reactants[0]["unit"] == "g" else None
+        assert ca_fl[i] - start == pytest.approx(dissolved[i - 1] * moles, rel=0.05, abs=1e-12)
+    assert ca_st[-1] - ca_st[0] > 3 * (ca_fl[-1] - ca_fl[0])
+    assert left_fl[-1] < left_st[-1]                               # the fresh water keeps it dissolving
+    late = lambda left: left[-2] - left[-1]                        # noqa: E731
+    assert late(left_fl) > 3 * late(left_st)
+
+
+def test_flush_refuses_sorption_and_columns():
+    assert any("flush" in p for p in Scenario(mode="flush", exchange_meq=10.0).problems())
+    assert not Scenario(mode="flush").problems()
+    assert Scenario(mode="flush", flush_fraction=0.0).problems()
+
+
 @pytest.mark.parametrize("key", ["rainwater", "vent_fluid", "formation_brine"])
 def test_every_preset_fluid_runs(engine, key):
     card = Scenario(fluid=key, t_start_c=25.0, t_end_c=300.0, steps=6, p_start_bar=500.0,

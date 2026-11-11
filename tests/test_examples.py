@@ -51,7 +51,7 @@ def _shell(run, mineral):
 
 def test_sinking_foram_crosses_the_lysocline(runs):
     card = example_card("forams")
-    assert card.mode == "flow_through" and card.carbonate_rates == "seawater"
+    assert card.mode == "flush" and card.carbonate_rates == "seawater"
     run = runs["forams"]
     assert run["varies"][0] == "depth"
     depth, ug, sat = _shell(run, "calcite")
@@ -78,6 +78,8 @@ def test_pteropod_aragonite_starts_dissolving_shallower(runs):
     assert all(a < c for a, c in zip(arag_sat, cal_sat))
     half = lambda v: next(i for i in range(len(v)) if v[i] < 10)                    # noqa: E731
     assert depth[half(arag)] < 5300 and arag[-1] < 0.1 and cal[-1] > 8
+    alone = _shell(runs["forams"], "calcite")[1]                      # flush: fresh water at each step, so the
+    assert max(abs(a - b) for a, b in zip(cal, alone)) < 0.05          # pteropod cannot shelter the foram
 
 
 def test_evaporating_lake_lays_down_salts_in_order(runs):

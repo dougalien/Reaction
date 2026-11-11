@@ -524,7 +524,7 @@ def _column_story(result: dict) -> list[str]:
     return paras
 
 
-MODE_WORDS = {"static": "static", "flow_through": "flow-through"}
+MODE_WORDS = {"static": "static", "flow_through": "flow-through", "flush": "flush"}
 
 
 def story(result: dict) -> list[str]:
