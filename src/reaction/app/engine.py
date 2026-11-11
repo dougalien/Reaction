@@ -32,7 +32,8 @@ from ..constants import WATER_MOLES_PER_KG
 from ..database import load_data0
 from ..database.model import Kind
 from ..equilibrium import REDOX_APART, System, redox_intermediates
-from ..kinetics import SeawaterCarbonateLaw, basalt_glass, rate_law, seawater_rate_law
+from ..kinetics import (MALVOISIN_T_RANGE_C, SeawaterCarbonateLaw, basalt_glass, olivine_serpentinization,
+                        rate_law, seawater_rate_law)
 from ..network import ORGANIC_LIGANDS, PROTON, WATER, organic_held_apart
 from ..path import PathPoint, ReactionPath, Reactant, _composition_row, bulk_over, mineral_reactant
 from ..phasesep import phase_state, salinity_from_chloride
@@ -735,6 +736,19 @@ class Engine:
                 law = None
                 if sc.kinetics and rock.key == "basalt_glass":
                     law = basalt_glass(rocks.elements_per_gram(rock)[0]["Si"])
+                elif sc.kinetics and rock.key.startswith("olivine_fo"):
+                    law = olivine_serpentinization(float(rock.key[len("olivine_fo"):]) / 100.0,
+                                                   rocks.elements_per_gram(rock)[0]["Si"])
+                    if notes is not None:
+                        t_lo, t_hi = MALVOISIN_T_RANGE_C
+                        temps = [t for t, _p in sc.points()]
+                        note = (f"{rock.label}: rate law {law.source}; reactive surface "
+                                f"{sc.surface_area_cm2_per_g:g} cm2 per g, read as geometric surface (smooth "
+                                f"44 um grains have about 400 cm2 per g).")
+                        if min(temps) < t_lo or max(temps) > t_hi:
+                            note += (f" This run goes outside {t_lo:g}-{t_hi:g} C, where the rate is "
+                                     f"extrapolated.")
+                        notes.append(note)
                 elif sc.kinetics:
                     steady.append(rock.label)
                 out.append(Reactant(rock.label, comp, r["amount"], (r["amount"] / span, 0.0, 0.0),

@@ -599,3 +599,11 @@ biodiffusion_cm2_yr; output kinetic "mixed:<mineral>" (% left). Limits checked: 
 et al. 2008 (Aquat. Biol. 2, 207): global mean L 5.75 +- 5.67 cm, D_b decreases with water depth. Calcite left below
 the mixed layer (k 125%/day, n 4.5): Sta. A values 47/64/78% at 1/2/4 cm/kyr, Sta. G values 15/27/42%; no mixing
 33/57/76% and 0.5/7/26%. Aragonite 0% in every case. BURIAL_KINETIC_TOL 3e-3 (1.3% from exact).
+
+Olivine serpentinization rate (2026-11-11, decided by Douglas): kinetic olivine (FoXX rock reactants) now reacts at the
+measured serpentinization rate of Malvoisin et al. (2012, JGR 117, B04102; 500 bar, 250-350 C, geometric surface)
+times 1 - Omega of the olivine from this database (ideal two-site Fo-Fa mixing), instead of being added steadily.
+Constants from scripts/malvoisin_rate.py (E = 34.4 kJ/mol from 250-300 C; 350 C predicted within 11%, but that point
+sits at Teq, so it tests log K only loosely). Palandri and Kharaka forsterite extrapolated to 300 C is about 10^4-10^5
+times faster than this. Found: in air-equilibrated seawater Fo90 keeps reacting above Teq (iron oxidized to
+hematite); in reduced NaCl water it stops near 340 C at 500 bar. Forsterite as a pure mineral reactant keeps P&K.
