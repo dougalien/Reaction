@@ -82,6 +82,28 @@ def test_pteropod_aragonite_starts_dissolving_shallower(runs):
     assert max(abs(a - b) for a, b in zip(cal, alone)) < 0.05          # pteropod cannot shelter the foram
 
 
+def test_ceara_rise_profile_keeps_the_foram_to_the_saturation_horizon(runs):
+    """The measured Ceara Rise column (GLODAPv2.2023): calcite-saturated to about 4.3 km, so the foram keeps
+    its mass there and loses only a little by 4.6 km; the temperature follows the profile."""
+    run = runs["ceara"]
+    depth, ug, sat = _shell(run, "calcite")
+    horizon = depth[next(i for i, x in enumerate(sat) if x < 0)]
+    assert 4000 < horizon < 4500
+    assert all(u > 19.999 for z, u in zip(depth, ug) if z < horizon - 100)
+    assert 19.5 < ug[-1] < 20.0
+    card = example_card("ceara")
+    assert card.tp(0.0)[0] == pytest.approx(card.profile_at(987.0)[0], abs=0.05)
+
+
+def test_water_profile_interpolates_and_holds_its_ends():
+    from reaction.app.scenario import Scenario
+    card = Scenario(water_profile=[[0.0, 20.0, 35.0, 2300.0, 2000.0], [1000.0, 4.0, 34.0, 2320.0, 2200.0]])
+    assert card.profile_at(500.0) == pytest.approx((12.0, 34.5, 2310e-6, 2100e-6))
+    assert card.profile_at(3000.0) == pytest.approx((4.0, 34.0, 2320e-6, 2200e-6))
+    assert Scenario(water_profile=[[1000.0, 4, 34, 2320, 2200], [0.0, 20, 35, 2300, 2000]]).problems()
+    assert Scenario(water_profile=[[0.0, 20, 35, 2300]]).problems()
+
+
 def test_evaporating_lake_lays_down_salts_in_order(runs):
     run = runs["lake"]
     first = {m: next(i for i, x in enumerate(v) if x) for m, v in run["minerals"].items() if v and any(v)}

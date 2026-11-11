@@ -47,7 +47,7 @@ from .. import catabolic, isotopes, marine
 from . import analysis, config, rocks
 from .fluids import AIR_LOG_FO2, PRESETS, preset
 from .names import pretty_mineral, pretty_species
-from .scenario import ALWAYS_EXCLUDED, MODE_LABELS, Scenario, is_shell, reactant_ssa_m2_g
+from .scenario import ALWAYS_EXCLUDED, MODE_LABELS, Scenario, depth_m, is_shell, reactant_ssa_m2_g
 
 Progress = Callable[[float, str], None]
 
@@ -89,13 +89,13 @@ def marine_water(db, sc: Scenario, spec) -> tuple[float, float, float] | None:
     return s, ta, dic
 
 
-def marine_log_omega(water: tuple[float, float, float], mineral: str):
+def marine_log_omega(water, mineral: str):
     """log Omega of calcite or aragonite at (t_c, p_bar) in this marine water, or None outside the
-    constants' range (the rate law then uses the database's saturation)."""
-    s, ta, dic = water
-
+    constants' range (the rate law then uses the database's saturation).  ``water`` is (salinity, TA, DIC)
+    or a function of the pressure giving them (a water profile)."""
     @lru_cache(maxsize=4096)
     def at(t_c: float, p_bar: float):
+        s, ta, dic = water(p_bar) if callable(water) else water
         if not marine.in_range(s, t_c, p_bar):
             return None
         return math.log10(getattr(marine.solve(s, t_c, p_bar, ta, dic), f"omega_{mineral}"))
@@ -110,12 +110,6 @@ def sinking_speed(ug: float) -> float:
     w = 10^2.06 W^0.64 m/day (about 500 m/day at 10 µg).  Spines and cytoplasm change it; the measured
     spread is wide (G. glutinata, 3 µg: about 330 m/day; G. menardii, 27 µg: about 1100 m/day)."""
     return 10.0 ** 2.06 * max(ug, 0.01) ** 0.64 / 86400.0
-
-
-def depth_m(p_bar: float) -> float:
-    """Depth in the ocean at this pressure: about 10 m per bar below the 1 atm at the surface (a column of
-    seawater of mean density 1.033 g/cm3; within about 1% of the UNESCO pressure-depth relation to 6 km)."""
-    return max(p_bar - 1.01325, 0.0) * 1e5 / (1033.0 * 9.81)
 
 
 class _Evaporation(Reactant):
@@ -892,7 +886,16 @@ class Engine:
         suppress = [name for name, kind in zip(system.net.phase_names, system.net.phase_kind)
                     if kind == Kind.MINERAL and (name.lower() in blocked or not sc.minerals_form)]
         self._marine = marine_water(db, sc, sp0) if sc.seawater_rates and sp0 is not None else None
-        if self._marine is not None:
+        if self._marine is not None and sc.water_profile:
+            self._marine = lambda p_bar: sc.profile_at(depth_m(p_bar))[1:]
+            z = [row[0] for row in sc.water_profile]
+            note = (f"Calcite and aragonite saturation from the marine carbonate system (Lueker et al. 2000 K1 and "
+                    f"K2, Mucci 1983 solubility, Millero 1995 pressure terms, as PyCO2SYS), with the temperature, "
+                    f"salinity, alkalinity and DIC of the card's water profile ({len(z)} depths, {z[0]:g} to "
+                    f"{z[-1]:g} m, linear between them), and the rates use it.")
+            if note not in notes:
+                notes.append(note)
+        elif self._marine is not None:
             s, ta, dic = self._marine
             note = (f"Calcite and aragonite saturation from the marine carbonate system (Lueker et al. 2000 K1 and "
                     f"K2, Mucci 1983 solubility, Millero 1995 pressure terms, as PyCO2SYS): salinity {s:.2f}, "
@@ -934,12 +937,11 @@ class Engine:
         if sc.sinking and kinetic:
             run["sink_days"] = self._sink_days(kinetic, run, step)
         if self._marine is not None:                 # the saturation the rates see, at each point
-            s, ta, dic = self._marine
             for mineral in ("calcite", "aragonite"):
                 if mineral in run.get("saturation", {}):
+                    seen = marine_log_omega(self._marine, mineral)
                     run["saturation"][mineral] = [
-                        _sig(math.log10(getattr(marine.solve(s, t, p, ta, dic), f"omega_{mineral}")))
-                        if marine.in_range(s, t, p) else v
+                        v if (w := seen(t, p)) is None else _sig(w)
                         for (t, p), v in zip(points, run["saturation"][mineral])]
         add_partition(run, sc)
         if separate is not None:

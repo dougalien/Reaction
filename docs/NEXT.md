@@ -538,3 +538,15 @@ Sinking runs use kinetic_tol 3e-4 (engine.SINKING_KINETIC_TOL) instead of 0.03: 
 14.493 (3e-3), 14.532 (1e-3), 14.555 (3e-4), 14.567 ug (1e-4); the step error shrinks only about as tol^0.5, so a
 higher-order kinetic step would be the better fix. Still to do: a measured TA/DIC/T/S depth profile for the
 flushing water (GLODAP or BATS), which flush now makes possible.
+Water profile (Douglas, 2026-11-11: "Add the depth profile card"). Card `water_profile`: rows [depth m, T C,
+salinity, TA umol/kg, DIC umol/kg] by increasing depth, the pressure read as depth (scenario.depth_m, moved there
+from engine). With it the path temperature follows the profile (Scenario.tp) and the marine carbonate system the
+seawater rates and reported saturation use takes S, TA and DIC at each depth (engine.marine_log_omega takes a
+function of pressure). New example "ceara": GLODAPv2.2023 (Lauvset et al. 2024, ESSD 16, 2047) Atlantic file, cruise
+323019940104 station 198 (6.543 N, 42.994 W, March 1994), 31 good-flag samples; calcite horizon ~4.3 km, the foram
+keeps its mass to there and ends 19.96 ug at 4.6 km. Extracted files on Douglas's PC: workspace\ceara\. GLODAPv3.zip
+there not used yet (no documentation read). A 20 ug test resting in bottom water at 4358 m (ODP 929, Omega 0.957)
+is gone within a year with the Naviaux near-equilibrium rate and 2 m2/g: burial and pore water must control what the
+cores keep; that rate at Omega 0.9-0.99 is not yet checked against the paper. Next: sediment-pile plan (Claude
+Doc "Sediment pile model card: plan"): burial path, pore-water profile by sediment depth, respiration, diagenetic
+column, calibration against grayscale and test weights.

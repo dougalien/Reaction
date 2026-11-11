@@ -21,6 +21,12 @@ from .analysis import DEFAULT_UNIT
 from ..sorption import KD_MEDIA
 from .fluids import CUSTOM, CUSTOM_LABEL, PRESETS, REDOX_CHOICES, FluidPreset, label as fluid_label
 
+def depth_m(p_bar: float) -> float:
+    """Depth in the ocean at this pressure: about 10 m per bar below the 1 atm at the surface (a column of
+    seawater of mean density 1.033 g/cm3; within about 1% of the UNESCO pressure-depth relation to 6 km)."""
+    return max(p_bar - 1.01325, 0.0) * 1e5 / (1033.0 * 9.81)
+
+
 MODES = ("static", "flow_through", "flush", "both")
 KINDS = ("path", "transport")
 MAX_COLUMN_SOLVES = 40000             # cells x shifts x (1 + dispersion mixes) in one column run
@@ -176,6 +182,11 @@ class Scenario:
     salinity: float | None = None
     alkalinity_umol_kg: float | None = None
     dic_umol_kg: float | None = None
+    # a measured water column (the card's pressure read as depth, about 10 m per bar): rows [depth m, temperature C, salinity, total alkalinity and
+    # DIC in umol/kg of seawater], by increasing depth.  The temperature at each depth then comes from it, and
+    # the marine carbonate system that the seawater rates use takes salinity, alkalinity and DIC from it,
+    # interpolated linearly in depth (held at the end values beyond them); empty = the card's single water
+    water_profile: list = field(default_factory=list)
     # uncertainty bands: this many extra runs, each with every log K shifted by its own random draw
     # (one standard deviation from the reliability check, see thermo.validity.logk_sigma); 0 = none
     uncertainty_runs: int = 0
@@ -315,9 +326,35 @@ class Scenario:
         out[-1] = 1.0
         return out
 
+    def profile_ok(self) -> bool:
+        """The water profile is at least two rows of five numbers, by increasing depth."""
+        rows = self.water_profile
+        return (len(rows) >= 2 and all(isinstance(row, (list, tuple)) and len(row) == 5
+                                       and all(isinstance(x, (int, float)) for x in row) for row in rows)
+                and all(b[0] > a[0] for a, b in zip(rows, rows[1:])))
+
+    def profile_at(self, depth: float) -> tuple[float, float, float, float] | None:
+        """(temperature C, salinity, alkalinity and DIC in mol/kg of seawater) of the water profile at this
+        depth (m), linear between its rows and held at its ends; None without a profile."""
+        rows = self.water_profile
+        if not rows or not self.profile_ok():
+            return None
+        if depth <= rows[0][0]:
+            row = rows[0]
+        elif depth >= rows[-1][0]:
+            row = rows[-1]
+        else:
+            k = next(i for i in range(1, len(rows)) if rows[i][0] >= depth)
+            (z0, *a), (z1, *b) = rows[k - 1], rows[k]
+            w = (depth - z0) / (z1 - z0)
+            row = [depth, *(x + w * (y - x) for x, y in zip(a, b))]
+        return float(row[1]), float(row[2]), float(row[3]) * 1e-6, float(row[4]) * 1e-6
+
     def tp(self, f: float) -> tuple[float, float]:
         """(temperature in C, pressure in bar) at the fraction ``f`` (0 to 1) of the way along the path."""
         p = self.p_start_bar + (self.p_end_bar - self.p_start_bar) * f
+        if self.water_profile and self.profile_ok():
+            return self.profile_at(depth_m(p))[0], p
         if self.mix_follows_temperature:
             m = self.mix_ratio * f
             return (self.t_start_c + self.mix_t_c * m) / (1.0 + m), p
@@ -445,6 +482,11 @@ class Scenario:
             out.append(f"follow_phase must be one of {', '.join(FOLLOW_PHASES)}")
         if self.mode not in MODES:
             out.append(f"mode must be one of {', '.join(MODES)}")
+        if self.water_profile:
+            rows = self.water_profile
+            if not self.profile_ok():
+                out.append("water_profile needs at least two rows of five numbers [depth m, temperature C, "
+                           "salinity, alkalinity umol/kg, DIC umol/kg], by increasing depth")
         if not 0.0 < self.flush_fraction <= 1.0:
             out.append("flush_fraction must be above 0 and at most 1")
         if self.mode == "flush":
@@ -995,6 +1037,11 @@ class Example:
 
 
 # deep water for a shell sinking from 1 to 5.5 km (the foram examples)
+# GLODAPv2.2023 (Lauvset et al. 2024, Earth Syst. Sci. Data 16, 2047-2072), Atlantic file, cruise 323019940104,
+# station 198 (6.543 N, 42.994 W, March 1994, bottom 4707 m), samples with G2talkf = G2tco2f = 2: depth (m),
+# in situ temperature (C), salinity, total alkalinity and DIC (umol/kg), as the product gives them
+WATER_PROFILE_CEARA = [[6.0, 26.776, 35.928, 2349.4, 2004.2], [40.0, 26.779, 35.927, 2351.1, 2002.4], [110.0, 26.63, 36.352, 2378.6, 2024.3], [199.0, 10.891, 35.072, 2310.2, 2190.3], [299.0, 9.113, 34.855, 2303.3, 2203.6], [398.0, 8.064, 34.753, 2300.7, 2216.3], [498.0, 7.039, 34.648, 2300.6, 2212.2], [594.0, 6.311, 34.604, 2298.4, 2220.4], [794.0, 5.023, 34.538, 2302.4, 2219.5], [994.0, 4.894, 34.731, 2309.6, 2218.2], [1191.0, 4.787, 34.876, 2314.6, 2202.6], [1389.0, 4.574, 34.98, 2314.9, 2175.7], [1487.0, 4.432, 34.997, 2315.2, 2171.5], [1584.0, 4.214, 34.998, 2315.2, 2164.0], [1684.0, 3.979, 34.986, 2316.4, 2166.9], [1782.0, 3.808, 34.98, 2313.8, 2165.4], [1979.0, 3.562, 34.962, 2318.7, 2165.1], [2178.0, 3.354, 34.966, 2319.9, 2165.6], [2374.0, 3.165, 34.952, 2325.1, 2165.5], [2668.0, 2.962, 34.945, 2322.8, 2170.2], [2964.0, 2.764, 34.931, 2327.6, 2174.1], [3159.0, 2.641, 34.924, 2327.7, 2174.3], [3352.0, 2.551, 34.918, 2332.2, 2174.8], [3499.0, 2.456, 34.913, 2329.8, 2175.2], [3646.0, 2.379, 34.906, 2329.2, 2173.9], [3792.0, 2.325, 34.9, 2327.6, 2177.1], [3937.0, 2.25, 34.896, 2331.1, 2180.5], [4135.0, 2.164, 34.882, 2333.7, 2180.0], [4329.0, 1.778, 34.839, 2345.7, 2209.0], [4523.0, 1.505, 34.801, 2355.7, 2220.1], [4619.0, 1.451, 34.794, 2356.9, 2227.7]]
+
 FORAM_COLUMN = {"title": "A foram sinking through the lysocline", "fluid": "custom",
                 "analysis": "Na+ 10768\nK+ 399.1\nCa+2 412.3\nMg+2 1291.8\nCl- 19353\nSO4-2 2712\nHCO3- 2.3 mmolal",
                 "units": "mg/kg", "ph": 7.98, "fluid_t_c": 25.0, "charge_balance": "none", "redox": "air",
@@ -1208,6 +1255,26 @@ EXAMPLES: dict[str, Example] = {e.key: e for e in (
                       "so neither shell's dissolution changes the water the other meets."),
              ("depth_axis", "Plotted against depth.")),
             ("calcite", "aragonite"), False, "ug"),
+    Example("ceara", "A foram sinking at the Ceará Rise", "A measured water column",
+            "The foram of the sinking example falls from 1 to 4.6 km through the water column measured at the Ceará "
+            "Rise, western equatorial Atlantic: GLODAPv2.2023 (Lauvset et al. 2024, ESSD 16, 2047), cruise "
+            "323019940104, station 198 (6.54 N, 42.99 W, March 1994, 4707 m deep), the good-flag (2) alkalinity "
+            "and DIC samples. Temperature, salinity, alkalinity and DIC at each depth come from that profile, "
+            "linear between its 31 samples. This water is far less corrosive than the foram example's: it is "
+            "saturated with calcite down to about 4.3 km, so the test keeps its whole mass to there and loses only "
+            "about 0.2% by 4.6 km. Flush mode: fresh water of the column at every 100 m step. The card's own water "
+            "(the foram example's) sets only the fluid's other ions; the rates use the profile. About twenty seconds.",
+            {**FORAM_COLUMN, "title": "A foram sinking through the Ceara Rise water column",
+             "p_start_bar": 101.0, "p_end_bar": 467.0, "steps": 37, "t_start_c": 4.9, "t_end_c": 1.5,
+             "blocked_minerals": DEFAULT_BLOCKED + ["aragonite"],
+             "water_profile": WATER_PROFILE_CEARA},
+            (("water_profile", "Water profile: GLODAPv2.2023 cruise 323019940104 station 198 (Ceará Rise, 1994): "
+                               "depth, temperature, salinity, alkalinity and DIC of its 31 good-flag samples."),
+             ("p_start_bar", "Pressure 101 to 467 bar: 1 to 4.6 km, the deepest sample at 4619 m; the temperature "
+                             "follows the profile."),
+             ("mode", "Flush: fresh water of the column replaces the water around the test after each 100 m step."),
+             ("sinking", "Sinking at the speed its mass gives (Takahashi and Bé 1984), as in the foram example.")),
+            ("calcite",), False, "ug"),
     Example("amd", "Acid mine drainage", "Acid from pyrite, and the acid stored in iron",
             "Oxygenated groundwater oxidizes 10 mmol of pyrite per kg at 25 C, with the 3.5 O2 per pyrite that turns "
             "its sulfur to sulfate: FeS2 + 7/2 O2 + H2O = Fe+2 + 2 SO4-2 + 2 H+. The pH falls from 6.7 to about 2, "
@@ -1370,6 +1437,9 @@ FIELD_HELP = {
     "salinity": "marine carbonate system (with seawater rates): salinity; empty = from the water's chloride",
     "alkalinity_umol_kg": "marine carbonate system: total alkalinity, umol/kg of seawater; empty = from the water",
     "dic_umol_kg": "marine carbonate system: DIC, umol/kg of seawater; empty = the water's total carbonate",
+    "water_profile": "a measured water column, the pressure read as depth: rows [depth m, temperature C, salinity, alkalinity "
+                     "umol/kg, DIC umol/kg] by increasing depth (e.g. a GLODAP station); the temperature and the "
+                     "marine carbonate system at each depth come from it",
     "sinking": "true (with kinetics): the reactant is a particle sinking through the water column from the start "
                "to the end pressure, at the speed its mass gives (Takahashi and Bé 1984), recomputed as it "
                "dissolves; the duration is then not used",
