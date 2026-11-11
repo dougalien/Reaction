@@ -99,7 +99,9 @@
         behavior of aqueous electrolytes at high pressures and temperatures: IV. Calculation of activity
         coefficients, osmotic coefficients, and apparent molal and standard and relative partial molal properties to
         600 °C and 5 kb. American Journal of Science 281, 1249–1516.
-        <a href="https://doi.org/10.2475/ajs.281.10.1249" target="_blank" rel="noopener">doi:10.2475/ajs.281.10.1249</a></li>
+        <a href="https://doi.org/10.2475/ajs.281.10.1249" target="_blank" rel="noopener">doi:10.2475/ajs.281.10.1249</a>
+        <span class="use">The b-gamma activity model: one ion size of 3.72 Å (their Table 2), the mole-fraction term and
+        b<sub>γ</sub>(T, P) from their Table 27.</span></li>
       <li>Tanger, J.C. and Helgeson, H.C. (1988) Revised equations of state for the standard partial molal properties
         of ions and electrolytes. American Journal of Science 288, 19–98.
         <a href="https://doi.org/10.2475/ajs.288.1.19" target="_blank" rel="noopener">doi:10.2475/ajs.288.1.19</a></li>
@@ -130,7 +132,13 @@
       <li>Marshall, W.L. and Franck, E.U. (1981) Ion product of water substance, 0–1000 °C, 1–10,000 bars. Journal of
         Physical and Chemical Reference Data 10, 295–304.
         <a href="https://doi.org/10.1063/1.555643" target="_blank" rel="noopener">doi:10.1063/1.555643</a>
-        <span class="use">The reliability rating shown before each run and under the plot.</span></li>
+        <span class="use">Kept for comparison; it was the reliability reference until IAPWS R11-24 replaced it.</span></li>
+      <li>IAPWS (2024) Revised Release on the Ionization Constant of H2O, R11-24, with Bandura, A.V. and Lvov, S.N.
+        (2006) The ionization constant of water over wide ranges of temperature and density. Journal of Physical and
+        Chemical Reference Data 35, 15–30.
+        <a href="https://ui.adsabs.harvard.edu/abs/2006JPCRD..35...15B/abstract" target="_blank" rel="noopener">ADS 2006JPCRD..35...15B</a>;
+        <a href="https://doi.org/10.1063/5.0198792" target="_blank" rel="noopener">doi:10.1063/5.0198792</a>
+        <span class="use">The reliability rating shown before each run and under the plot (0–1000 °C, to 1000 MPa).</span></li>
       <li>Peng, D.-Y. and Robinson, D.B. (1976) A new two-constant equation of state. Industrial &amp; Engineering
         Chemistry Fundamentals 15, 59–64.
         <a href="https://doi.org/10.1021/i160057a011" target="_blank" rel="noopener">doi:10.1021/i160057a011</a>
@@ -144,7 +152,16 @@
       <li>Helgeson, H.C. (1969) Thermodynamics of hydrothermal systems at elevated temperatures and pressures.
         American Journal of Science 267, 729–804.
         <a href="https://doi.org/10.2475/ajs.267.7.729" target="_blank" rel="noopener">doi:10.2475/ajs.267.7.729</a>
-        <span class="use">The B-dot equation (default activity model), tabulated to 300 °C.</span></li>
+        <span class="use">The B-dot equation (default activity model), tabulated to 300 °C along the saturation
+        curve, with no pressure term.</span></li>
+      <li>Dick, J.M. (2019) CHNOSZ: thermodynamic calculations and diagrams for geochemistry. Frontiers in Earth
+        Science 7, 180. <a href="https://doi.org/10.3389/feart.2019.00180" target="_blank" rel="noopener">doi:10.3389/feart.2019.00180</a>
+        <span class="use">The b<sub>γ</sub> values of Helgeson, Kirkham and Flowers (1981) as tabulated in CHNOSZ's
+        <code>bgamma()</code> (GPL-3), and how they are splined; not checked here against the printed table.</span></li>
+      <li>Manning, C.E., Shock, E.L. and Sverjensky, D.A. (2013) The chemistry of carbon in aqueous fluids at crustal and
+        upper-mantle conditions. Reviews in Mineralogy and Geochemistry 75, chapter 5.
+        <a href="https://msaweb.org/wp-content/uploads/2022/05/RiMG075_Ch05.pdf" target="_blank" rel="noopener">msaweb.org</a>
+        <span class="use">b<sub>γ</sub> above 500 °C at 2 and 5 kbar, read from their figure (via CHNOSZ).</span></li>
       <li>Davies, C.W. (1962) Ion Association. Butterworths, London.
         <span class="use">The Davies equation, with the 0.2 coefficient EQ3/6 uses.</span></li>
       <li>Drummond, S.E. (1981) Boiling and mixing of hydrothermal fluids: chemical effects on mineral precipitation.
@@ -157,15 +174,20 @@
       <li>Pitzer, K.S. (1975) Thermodynamics of electrolytes. V. Effects of higher-order electrostatic terms.
         Journal of Solution Chemistry 4, 249–265.
         <a href="https://doi.org/10.1007/BF00646562" target="_blank" rel="noopener">doi:10.1007/BF00646562</a>
-        <span class="use">Unsymmetrical mixing (E-theta).</span></li>
+        <span class="use">Unsymmetrical mixing (E-theta), with the Chebyshev form of the J integral of Harvie (1981,
+        PhD thesis, University of California San Diego) as PHREEQC codes it.</span></li>
       <li>Parkhurst, D.L. and Appelo, C.A.J. (2013) Description of input and examples for PHREEQC version 3.
         U.S. Geological Survey Techniques and Methods 6-A43.
         <a href="https://doi.org/10.3133/tm6A43" target="_blank" rel="noopener">doi:10.3133/tm6A43</a>;
         <a href="https://www.usgs.gov/software/phreeqc-version-3" target="_blank" rel="noopener">PHREEQC download</a>.
-        <span class="use">The Pitzer parameters (<code>pitzer.dat</code>), the exchange and surface constants (<code>phreeqc.dat</code>) and the rate table (<code>phreeqc_rates.dat</code>).</span></li>
+        <span class="use">The Pitzer parameters and, for the species and minerals it lists, the equilibrium
+        constants and molar volumes (<code>pitzer.dat</code>, public domain, shipped unchanged), the exchange and surface constants (<code>phreeqc.dat</code>) and the rate table (<code>phreeqc_rates.dat</code>).</span></li>
       <li>Appelo, C.A.J., Parkhurst, D.L. and Post, V.E.A. (2014) Equations for calculating hydrogeochemical reactions of
         minerals and gases such as CO2 at high pressures and temperatures. Geochimica et Cosmochimica Acta 125, 49–67.
-        <a href="https://doi.org/10.1016/j.gca.2013.10.003" target="_blank" rel="noopener">doi:10.1016/j.gca.2013.10.003</a></li>
+        <a href="https://doi.org/10.1016/j.gca.2013.10.003" target="_blank" rel="noopener">doi:10.1016/j.gca.2013.10.003</a>
+        <span class="use">Molar volumes of species and the pressure dependence of log K and of the Debye-Hückel b
+        in the Pitzer model; water's density and dielectric constant as PHREEQC computes them, from Wagner and Pruss
+        (2002) and Bradley, D.J. and Pitzer, K.S. (1979) Journal of Physical Chemistry 83, 1599–1603.</span></li>
       <li>Appelo, C.A.J. (2015) Principles, caveats and improvements in databases for calculating hydrogeochemical
         reactions in saline waters from 0 to 200 °C and 1 to 1000 atm. Applied Geochemistry 55, 62–71.
         <a href="https://doi.org/10.1016/j.apgeochem.2014.11.007" target="_blank" rel="noopener">doi:10.1016/j.apgeochem.2014.11.007</a>

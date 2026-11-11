@@ -3,6 +3,7 @@ Pitzer) against PyCO2SYS (pip install PyCO2SYS; its defaults: Lueker et al. 2000
 Millero 1995 pressure terms).  Reaction's pH is found by matching the total alkalinity of its speciation.
 Major ions: the reference composition of Millero et al. (2008), mol per kg of seawater.
 Run: python scripts/seawater_omega_benchmark.py"""
+import sys
 import PyCO2SYS as pyco2
 from reaction.app.engine import Engine
 from reaction.speciation import speciate
@@ -39,7 +40,7 @@ for t, p in ((25, 1.013), (2, 1.013), (2, 400.0)):
                   pressure=(p - 1.013) * 10)
     print(f"T {t} P {p:g} bar | PyCO2SYS: pH_T {r['pH_total']:.3f} pH_free {r['pH_free']:.3f} CO3 {r['carbonate']:.1f} umol/kg "
           f"Om_cal {r['saturation_calcite']:.3f} Om_arag {r['saturation_aragonite']:.3f}")
-    for model in ("bdot", "pitzer"):
+    for model in sys.argv[1:] or ("bdot", "pitzer"):
         try:
             ph, oc, oa, co3, lg = reaction_omega(t, p, model)
             print(f"   Reaction {model:6s}: pH {ph:.3f} free CO3 {co3:.1f} umol/kg (log gamma {lg:.2f}) Om_cal {oc:.3f} Om_arag {oa:.3f}")

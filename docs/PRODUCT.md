@@ -138,7 +138,8 @@ can be chosen, and either can change along a run. A run follows a straight line 
 (T, P); equal values hold a variable fixed. This replaces the old workflow of generating a database per
 pressure (saturation, 300, 400, 500 bar) with SUPCRT92.
 
-How far to trust it. The water ionization constant is measured everywhere (Marshall and Franck, 1981) and
+How far to trust it. The water ionization constant is known everywhere (IAPWS R11-24, 2024, which replaced
+Marshall and Franck, 1981, as the reference here) and
 depends on the same dielectric constant, g function and Born coefficients as every charged species, so the
 engine's own value, compared with the measurement, is an independent check at any (T, P). The app runs it
 along every path, flags stretches as good (within 0.15 log units and density at least 0.35 g/cm3), approximate
@@ -166,7 +167,8 @@ Gibbs energy is its 1-bar ideal-gas standard state, so the fugacity reported at 
 pressure, but there is no gas phase in the assemblage and no fugacity coefficients to turn fugacity into
 partial pressure (CO2, CH4, H2O vapour), no gas-liquid equilibrium and no CO2 solubility model at high P. Other
 limits: minerals have constant molar volume (as in SUPCRT92), the B-dot activity model is tabulated only to
-300 C (held above), and ionic-strength effects beyond a few molal need Pitzer.
+300 C (held above; b-gamma of Helgeson, Kirkham and Flowers 1981 is offered for hotter or deeper runs), and
+ionic-strength effects beyond a few molal need Pitzer (pitzer.dat, about 0-200 C and 1-1000 atm).
 
 ## Solver status
 

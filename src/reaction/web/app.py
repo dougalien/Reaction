@@ -194,7 +194,7 @@ NUM_FIELDS = {  # field: (label, min, max, step, help)
     "redox_value": ("Value", None, None, 0.1, None),
 }
 CHOICES = {  # field: (label, [(value, text)], help)
-    "activity_model": ("Activity model", [("bdot", "B-dot"), ("davies", "Davies"), ("pitzer", "Pitzer (brines)")], None),
+    "activity_model": ("Activity model", [("bdot", "B-dot (EQ3/6)"), ("bgamma", "b-gamma (HKF 1981)"), ("davies", "Davies"), ("pitzer", "Pitzer (brines)")], None),
     "units": ("Default unit", [("mg/kg", "mg/kg"), ("mg/l", "mg/L"), ("mmol/kg", "mmol/kg"), ("mol/kg", "mol/kg"),
                                ("mmolal", "mmol/kg water"), ("molal", "mol/kg water"), ("meq/l", "meq/L")], None),
     "mix_spacing": ("Steps even in", [("ratio", "Amount mixed"), ("temperature", "Temperature")], None),
@@ -882,7 +882,7 @@ def _plot_panel(sess, res, other, view) -> None:
     st.plotly_chart(fig, width="stretch")
     if any(lv != "good" for lv in rel):
         st.caption("Shaded columns: points where the thermodynamic data are less reliable (amber approximate, rust "
-                   "unreliable), from the water-ionization check against Marshall and Franck (1981).")
+                   "unreliable), from the water-ionization check against IAPWS R11-24 (2024).")
     banded = next((r for r in res["modes"].values() if r.get("band_runs")), None)
     if banded and any(s.get("band") for s in series):
         st.caption(f"Shaded: the middle 90% of {banded['band_runs']} runs with the log K values shifted at random by "

@@ -74,7 +74,7 @@
             <div class="hint" style="margin-top:4px">Per kg means per kg of solution; mg/L is read at 1 kg/L. Auto balance adjusts the main ion of the side that is short. Redox: Fe(III), sulfide, H2 or O2 in the analysis set it; otherwise choose air, a log fO2, Eh or pe.</div>
           </div>
           <details id="fluid-read" style="margin-top:6px"><summary id="fluid-sum" class="small"></summary><div id="fluid-table"></div></details>
-          <label class="f" style="margin-top:8px">Activity model<select id="f-activity_model"><option value="bdot">B-dot</option><option value="davies">Davies</option><option value="pitzer">Pitzer (brines)</option></select></label>
+          <label class="f" style="margin-top:8px">Activity model<select id="f-activity_model"><option value="bdot">B-dot (EQ3/6)</option><option value="bgamma">b-gamma (HKF 1981)</option><option value="davies">Davies</option><option value="pitzer">Pitzer (brines)</option></select></label>
           <label class="f" style="margin-top:8px" title="Water is taken away until the fluid is this many times more concentrated; 1 means no evaporation">Evaporate to (times concentrated)<input id="f-evaporate" type="number" min="1" max="10000" step="any"></label>
         </fieldset>
         <fieldset class="group">

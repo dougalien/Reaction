@@ -47,7 +47,7 @@ def test_hydrothermal_fluid_is_the_end_of_the_seawater_heating_run(engine, runs)
 
 def test_every_starting_card_runs_and_gives_its_minerals(runs):
     expect = {"seawater": {"anhydrite", "brucite"}, "freshwater": {"calcite", "anhydrite"},
-              "brine": {"halite", "anhydrite", "epsomite"}, "hydrothermal": {"anhydrite"}}
+              "brine": {"halite", "gypsum"}, "hydrothermal": {"anhydrite"}}
     for key, result in runs.items():
         run = result["modes"]["static"]
         assert all(v is not None for v in run["properties"]["pH"]), key

@@ -21,6 +21,23 @@ def log_gamma_bdot(z: float, a0: float, ionic_strength: float,
     return -A * z * z * s / (1.0 + a0 * B * s) + bdot * ionic_strength
 
 
+def log_gamma_bgamma(z: float, ionic_strength: float, sum_molality: float,
+                     A: float, B: float, bgamma: float, a0: float = 3.72) -> float:
+    """Helgeson, Kirkham and Flowers (1981) extended Debye-Hueckel equation for an ion in an
+    NaCl-dominated solution: one distance of closest approach a0 (3.72 angstrom, NaCl), the
+    conversion from mole fraction to molality, log(1 + m*/55.51) with m* the molality of all solutes,
+    and the extended term b_gamma * I (``thermo/bgamma.py``).  As CHNOSZ (Dick, 2019) applies it:
+    HKF81's species-specific extended term (their eq. 298) is replaced by the common b_gamma."""
+    s = math.sqrt(ionic_strength)
+    return (-A * z * z * s / (1.0 + a0 * B * s) - log_x_water(sum_molality)
+            + bgamma * ionic_strength)
+
+
+def log_x_water(sum_molality: float) -> float:
+    """log10 of the mole fraction of water, log10(1 + m*/55.51) with the sign reversed (HKF81 Gamma)."""
+    return math.log10(1.0 + sum_molality / WATER_MOLES_PER_KG)
+
+
 def log_gamma_davies(z: float, ionic_strength: float, A: float) -> float:
     """Davies (1962) equation with the 0.2 coefficient EQ3/6 uses."""
     s = math.sqrt(ionic_strength)
@@ -57,6 +74,21 @@ def log_activity_water_bdot(sum_molality: float, ionic_strength: float,
         - (2.0 / 3.0) * A * ionic_strength ** 1.5 * _sigma(x)
         + bdot * ionic_strength ** 2
     )
+
+
+def log_activity_water_bgamma(sum_molality: float, ionic_strength: float,
+                              A: float, B: float, bgamma: float, a0: float = 3.72) -> float:
+    """log10 a_w consistent with :func:`log_gamma_bgamma`.
+
+    With the mole-fraction term on every solute, the ideal part of the Gibbs-Duhem integral is the
+    mole fraction of water itself (log x_w = -log(1 + m*/55.51)) rather than -m*/(55.51 ln 10).  The
+    Debye-Hueckel and b_gamma parts are those of EQ3/6 eq. 94 (as in :func:`log_activity_water_bdot`),
+    with a0 = 3.72 angstrom; like that equation they are exactly Gibbs-Duhem consistent for a single
+    1:1 electrolyte and approximate for mixtures and for the neutral species.
+    """
+    x = a0 * B * math.sqrt(ionic_strength)
+    return -log_x_water(sum_molality) + (1.0 / WATER_MOLES_PER_KG) * (
+        (2.0 / 3.0) * A * ionic_strength ** 1.5 * _sigma(x) - bgamma * ionic_strength ** 2)
 
 
 def log_activity_water_davies(sum_molality: float, ionic_strength: float,

@@ -14,3 +14,12 @@ The EQ3/6 database itself is not bundled. Reaction reads only its ion sizes, and
 is still used when present.
 
 To refresh OBIGT, run `scripts/fetch_references.ps1` and copy `obigt/` to `OBIGT/`.
+
+## `reaction/data/pitzer.dat`
+
+PHREEQC's Pitzer database, copied unchanged from https://github.com/usgs-coupled/phreeqc3
+(`database/pitzer.dat`, commit be755855, retrieved 2026-11-11, sha256
+dada3271bb67d249b99c93fef870134e9cb342fc5e6aa94796fd33cacc3383ba). PHREEQC and its databases are
+public domain (U.S. Geological Survey). Reaction reads its Pitzer parameters, equilibrium constants and
+molar volumes (`reaction/phreeqc_pitzer.py`); the Pitzer interaction parameters are also in
+`reaction/data/pitzer_phreeqc.tsv`.

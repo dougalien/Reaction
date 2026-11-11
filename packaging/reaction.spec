@@ -10,6 +10,7 @@ a = Analysis(
     [str(ROOT / "packaging" / "reaction_exe.py")],
     pathex=[str(ROOT / "src")],
     datas=[(str(SRC / "data" / "*.tsv"), "reaction/data"),
+           (str(SRC / "data" / "*.dat"), "reaction/data"),
            (str(SRC / "data" / "reference"), "reaction/data/reference"),
            (str(SRC / "app" / "static"), "reaction/app/static")],
     excludes=["matplotlib", "pandas", "tkinter", "pytest", "IPython"],

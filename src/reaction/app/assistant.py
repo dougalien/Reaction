@@ -303,7 +303,7 @@ _NAME = r"[a-z][a-z0-9\-]*(?:,(?:ordered|disordered|low|high|alpha|beta|maximum)
 _NOT_REACTANTS = re.compile(
     r"(?:it|them|this|that|these|those|the|a|an|some|any|anything|nothing|one|instead|then|now|too|also|again|"
     r"run|runs|rock|rocks|minerals?|reactants?|reaction|isotopes?|uncertainty|solid|kinetics|rates?|pitzer|"
-    r"b-?dot|davies|both|static|flow|mixing|evaporation|redox|air|oxygen|cells?|columns?|transport|axis|log|"
+    r"b-?dot|b-?gamma|hkf|davies|both|static|flow|mixing|evaporation|redox|air|oxygen|cells?|columns?|transport|axis|log|"
     r"linear|plot|temperature|pressure|steps?|water|fluid|solution|brine|seawater|sea|rain|rainwater|vent|"
     r"hydrothermal|freshwater|fresh|river|formation|contaminated|stream|salt|gsl|lake|custom|exchange\w*|"
     r"surface|sorption|ferrihydrite|hfo|clays?|sediment|soil|bed|gas phase|what|how|why|to|at|in|on|by|for|"
@@ -704,6 +704,7 @@ def change_bits(ch: dict, card: Scenario) -> list[str]:
         bits.append(f"evaporated to {ch['evaporate']:g} times" if ch["evaporate"] > 1 else "no evaporation")
     if "activity_model" in ch:
         bits.append({"pitzer": "Pitzer activity coefficients", "bdot": "B-dot activity coefficients",
+                     "bgamma": "b-gamma (HKF 1981) activity coefficients",
                      "davies": "Davies activity coefficients"}[ch["activity_model"]])
     if "solid_solutions" in ch:
         bits.append("solid solutions can form" if ch["solid_solutions"] else "pure minerals only")
@@ -801,6 +802,8 @@ def _brine_options(low: str) -> dict:
         out["activity_model"] = "pitzer"
     elif re.search(r"\bb[- ]?dot\b", low):
         out["activity_model"] = "bdot"
+    elif re.search(r"\bb[- ]?gamma\b|\bhkf\b|\bhelgeson[- ]kirkham", low):
+        out["activity_model"] = "bgamma"
     elif re.search(r"\bdavies\b", low):
         out["activity_model"] = "davies"
     if re.search(r"\b(evaporat|concentrat)\w*", low):
