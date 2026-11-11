@@ -738,7 +738,8 @@ class Engine:
             moles = r["amount"] / mw if r["unit"] == "g" else r["amount"]
             law = None
             if sc.kinetics and self.db.species[name].kind == Kind.MINERAL:
-                law = (sc.seawater_rates and seawater_rate_law(name, sc.carbonate_rates == "seawater_dong")) \
+                law = (sc.seawater_rates and seawater_rate_law(name, sc.carbonate_rates == "seawater_dong",
+                                                           lab=sc.carbonate_rates == "seawater_lab")) \
                     or rate_law(name)
                 if isinstance(law, SeawaterCarbonateLaw) and self._marine is not None:
                     law = dataclasses.replace(law, omega=marine_log_omega(self._marine, name), mineral=name)

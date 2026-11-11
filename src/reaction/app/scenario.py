@@ -163,8 +163,9 @@ class Scenario:
     duration_unit: str = "years"
     surface_area_cm2_per_g: float = 100.0
     # rate laws for calcite and aragonite: "lab" (Palandri and Kharaka 2004, far from equilibrium, linear
-    # in 1 - Omega) or "seawater" (measured in seawater near equilibrium on the BET surface: Naviaux et al.
-    # 2019 for calcite, Dong et al. 2019 for aragonite); see kinetics.SEAWATER_CARBONATE
+    # in 1 - Omega), "seawater" (measured in seawater near equilibrium on the BET surface: the in-situ lower
+    # bound of Naviaux et al. 2019, Mar. Chem. 215), "seawater_lab" (their filtered-seawater laboratory fits,
+    # GCA 246) or "seawater_dong" (aragonite after Dong et al. 2019); see kinetics.SEAWATER_CARBONATE
     carbonate_rates: str = "lab"
     # read the pressure as depth in seawater (about 10 m per bar) and plot the kinetic run against it, for
     # a shell sinking through the water column
@@ -856,9 +857,10 @@ def _coerce(key: str, value: Any) -> Any:
         low = str(value).strip().lower()
         low = {"": "lab", "palandri": "lab", "pk": "lab", "laboratory": "lab", "sea": "seawater",
                "sea water": "seawater", "marine": "seawater", "ocean": "seawater"}.get(low, low)
-        low = {"dong": "seawater_dong", "seawater dong": "seawater_dong"}.get(low, low)
-        if low not in ("lab", "seawater", "seawater_dong"):
-            raise ValueError(f"'{value}' is not lab, seawater or seawater_dong")
+        low = {"dong": "seawater_dong", "seawater dong": "seawater_dong", "seawater lab": "seawater_lab",
+               "in situ": "seawater", "in-situ": "seawater", "insitu": "seawater"}.get(low, low)
+        if low not in ("lab", "seawater", "seawater_lab", "seawater_dong"):
+            raise ValueError(f"'{value}' is not lab, seawater, seawater_lab or seawater_dong")
         return low
     if key == "mix_spacing":
         low = str(value).strip().lower()
@@ -1198,10 +1200,12 @@ EXAMPLES: dict[str, Example] = {e.key: e for e in (
             "through water cooling from 4 to 1.5 C and compressed with depth (101 to 559 bar). The x axis "
             "is depth. Saturation comes from the marine carbonate system (the constants of PyCO2SYS: Lueker et al. 2000, "
             "Mucci 1983, Millero 1995), not the HKF database. The water is saturated with calcite near 2.8 km; below that it is ever more corrosive, but the "
-            "near-equilibrium rate in seawater is slow (Naviaux et al. 2019) until the saturation state falls below "
-            "about 0.8, near 4 km, where etch pits open and the rate rises steeply: the lysocline. The rate is per m2 "
+            "near-equilibrium rate in seawater is slow until the saturation state falls below about 0.8, near 3.8 km, "
+            "where etch pits open and the rate rises steeply: the lysocline. The rates are the in-situ lower bound "
+            "Naviaux et al. (2019, Mar. Chem. 215) recommend for sinking particles, about 4 times slower than in "
+            "filtered seawater in the laboratory. The rate is per m2 "
             "of BET surface, and a test's pores and chambers give it about 2 m2/g, some 200 times the surface of a "
-            "solid grain of its size. The foram keeps its mass to 2.8 km, loses about 1% to 4 km and about 27% by "
+            "solid grain of its size. The foram keeps its mass to 2.8 km, loses about 0.1% to 4 km and about 4.5% by "
             "5.5 km; the plot shows its mass in µg. Flush mode: the test stays and fresh water of the column "
             "replaces the water around it at every 100 m step, so it always meets the ocean, never its own "
             "products. The water's alkalinity and DIC (2307 and 2219 umol/kg) are held the same at every "
@@ -1211,8 +1215,8 @@ EXAMPLES: dict[str, Example] = {e.key: e for e in (
             (("blocked_minerals", "Blocked: aragonite as well, which the shallower water is supersaturated with "
                                   "but which does not precipitate from seawater."),
              ("analysis", "The water: deep seawater with the CO2 of old bottom water (2.3 mmol/kg carbonate, pH 7.98 "
-                          "measured at 25 C), chosen to put the calcite saturation horizon near 3 km and the "
-                          "lysocline near 4 km, as in the North Pacific."),
+                          "measured at 25 C), chosen to put the calcite saturation horizon near 2.8 km and "
+                          "Omega 0.8 near 3.8 km, as in the North Pacific."),
              ("p_start_bar", "Pressure 101 to 559 bar: the foram's depth, 1 to 5.5 km (about 10 m per bar); the "
                              "temperature falls from 4 to 1.5 C on the way."),
              ("depth_axis", "Plotted against depth."),
@@ -1225,8 +1229,9 @@ EXAMPLES: dict[str, Example] = {e.key: e for e in (
                                      "(its walls thin and its pores widen), so its surface per gram doubles by the "
                                      "time half is gone; 0.667 would treat it as a shrinking solid grain."),
              ("kinetics", "How they react: At measured rates."),
-             ("carbonate_rates", "Carbonate rates: measured in seawater near saturation (Naviaux et al. 2019), on "
-                                 "the BET surface, instead of the far-from-equilibrium laboratory law."),
+             ("carbonate_rates", "Carbonate rates: measured in seawater near saturation, on the BET surface: the "
+                                 "in-situ lower bound of Naviaux et al. (2019, Mar. Chem. 215); 'seawater_lab' gives "
+                                 "their laboratory fits, about 4 times faster."),
              ("sinking", "Sinking: each 100 m step lasts 100 m divided by the test's speed, 10^2.06 W^0.64 m/day "
                          "for a test of W µg (Takahashi and Bé 1984), recomputed as it loses mass.")),
             ("calcite",), False, "ug"),
@@ -1235,8 +1240,8 @@ EXAMPLES: dict[str, Example] = {e.key: e for e in (
             "sink together through the same water column as the foram example, 1 to 5.5 km. Aragonite is the more "
             "soluble polymorph: this water is just undersaturated with aragonite already at 1 km, some 1.8 km "
             "above the calcite saturation horizon (2.8 km), so the pteropod starts losing mass at once. Both dissolve by the same mechanisms in seawater (Dong et al. 2019), so "
-            "both follow the calcite rate law of Naviaux et al. (2019), each on its own saturation state: the "
-            "pteropod is half gone near 3.9 km and gone by 4.2 km, while the foram keeps about 73% of its mass, "
+            "both follow the in-situ calcite rate law of Naviaux et al. (2019, Mar. Chem. 215), each on its own "
+            "saturation state: the pteropod is half gone by 5.5 km, while the foram keeps about 95% of its mass, "
             "as when it sinks alone (to 0.01 µg): in flush mode each shell meets fresh water at every step, so neither "
             "feels what the other gives off. (Dong et al.'s "
             "own aragonite law, the 'seawater_dong' carbonate rates, is far slower and leaves the pteropod almost "
@@ -1247,8 +1252,8 @@ EXAMPLES: dict[str, Example] = {e.key: e for e in (
                            {"name": "pteropods", "amount": 2e-5, "unit": "g"}]},
             (("reactants", "Reactants: one foram (20 µg of calcite) and one pteropod (20 µg of aragonite), each "
                            "with a BET surface of 2 m2/g, in 1 kg of the water around them."),
-             ("carbonate_rates", "Carbonate rates: measured in seawater near saturation (Naviaux et al. 2019), for "
-                                 "aragonite on its own saturation state."),
+             ("carbonate_rates", "Carbonate rates: measured in seawater near saturation (the in-situ lower bound of "
+                                 "Naviaux et al. 2019, Mar. Chem. 215), for aragonite on its own saturation state."),
              ("p_start_bar", "The same water column as the foram example: 1 to 5.5 km, 4 to 1.5 C, each shell at the speed "
                              "its mass gives (the time axis follows the foram)."),
              ("mode", "Flush: after each 100 m step fresh water of the column replaces the water around the shells, "
@@ -1446,7 +1451,8 @@ FIELD_HELP = {
     "depth_axis": "true: read the pressure as depth in seawater (about 10 m per bar) and plot a kinetic run "
                   "against depth, for a shell sinking through the water column",
     "carbonate_rates": "rate laws for calcite and aragonite: lab (default; Palandri and Kharaka 2004, far from "
-                       "equilibrium) or seawater (measured in seawater near saturation on the BET surface: "
-                       "Naviaux et al. 2019 for calcite, and for aragonite on its own saturation state) or seawater_dong (aragonite "
-                       "after Dong et al. 2019 instead)",
+                       "equilibrium), seawater (measured in seawater near saturation on the BET surface: the in-situ "
+                       "lower bound of Naviaux et al. 2019, Mar. Chem. 215, for calcite and for aragonite on its own "
+                       "saturation state), seawater_lab (their laboratory fits, GCA 246, about 4 times faster) or "
+                       "seawater_dong (aragonite after Dong et al. 2019 instead)",
 }

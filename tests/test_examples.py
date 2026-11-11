@@ -62,7 +62,7 @@ def test_sinking_foram_crosses_the_lysocline(runs):
     assert ug[at(2500)] - ug[at(4000)] < 1.5                                        # slow just below it
     assert ug[at(4000)] - ug[at(5000)] > 8 * (ug[at(2500)] - ug[at(4000)])          # the lysocline
     assert all(a >= b for a, b in zip(ug, ug[1:]))
-    assert 8 < ug[-1] < 17                                  # about 6 days at the Takahashi and Be speed
+    assert 18.5 < ug[-1] < 19.6          # about 6 days at the Takahashi and Be speed, at the in-situ rates
     days = run["axes"]["time"]["values"]
     assert 5 < days[-1] < 7 and card.sinking
     ca = run["elements"]["Ca"]
@@ -76,8 +76,7 @@ def test_pteropod_aragonite_starts_dissolving_shallower(runs):
     first = lambda v: next(i for i in range(1, len(v)) if v[i] < v[0] - 1e-4)       # noqa: E731
     assert first(arag) < first(cal)
     assert all(a < c for a, c in zip(arag_sat, cal_sat))
-    half = lambda v: next(i for i in range(len(v)) if v[i] < 10)                    # noqa: E731
-    assert depth[half(arag)] < 5300 and arag[-1] < 0.1 and cal[-1] > 8
+    assert arag[-1] < 12 and cal[-1] > 18 and arag[-1] < cal[-1] - 5
     alone = _shell(runs["forams"], "calcite")[1]                      # flush: fresh water at each step, so the
     assert max(abs(a - b) for a, b in zip(cal, alone)) < 0.05          # pteropod cannot shelter the foram
 

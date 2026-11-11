@@ -550,3 +550,12 @@ is gone within a year with the Naviaux near-equilibrium rate and 2 m2/g: burial 
 cores keep; that rate at Omega 0.9-0.99 is not yet checked against the paper. Next: sediment-pile plan (Claude
 Doc "Sediment pile model card: plan"): burial path, pore-water profile by sediment depth, respiration, diagenetic
 column, calibration against grayscale and test weights.
+Seawater rates now the in-situ lower bound (Douglas, 2026-11-11, "let's go with your recommendation"): Naviaux et al.
+(2019), Mar. Chem. 215, 103684 (PDF in the Reaction folder, 10299274.pdf), abstract and Section 5: 10^-14.3
+(1-Omega)^0.11 mol cm-2 s-1 for 0.8 < Omega < 1 and 10^-10.8 (1-Omega)^4.7 below, recommended for water-column
+dissolution of particles from high-DOC surface water, ~4x slower than their lab fits. The old GCA 246 lab fits
+(-13.07/0.34, -10.01/4.81, kink 0.75) are `carbonate_rates: seawater_lab` (not re-checked against GCA 246: that paper
+is not in hand). Ea stays 25 kJ/mol (GCA). Caveat: their in-situ Omega is from Alk and pH, 5-10% below Omega(Alk, DIC)
+which Reaction computes. Mar. Chem. Table 1 lab 5 C reads -13.1 n 0.11 (Omega > 0.8), the graphical abstract's lab
+line ~-13.4: not reconciled. New results: forams 19.11 ug at 5.5 km (95.5%), shells pteropod 9.8 ug at 5.5 km, ceara
+19.995 ug at 4.6 km; resting at ODP 929 depth (Omega 0.957): 16.1 ug after 1 yr, 8.2 after 3, gone by 10.

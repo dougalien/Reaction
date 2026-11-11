@@ -202,11 +202,13 @@ CHOICES = {  # field: (label, [(value, text)], help)
                  "Minerals and basalt glass dissolve or grow at measured rates (Palandri and Kharaka 2004; "
                  "Gislason and Oelkers 2003) instead of all at once"),
     "carbonate_rates": ("Calcite and aragonite rates", [("lab", "Laboratory (far from equilibrium)"),
-                                                        ("seawater", "Seawater, near saturation"),
+                                                        ("seawater", "Seawater, in situ (Naviaux et al. 2019)"),
+                                                        ("seawater_lab", "Seawater, laboratory (Naviaux et al. 2019)"),
                                                         ("seawater_dong", "Seawater, aragonite after Dong et al.")],
                         "Laboratory: Palandri and Kharaka (2004). Seawater: measured near saturation on the BET "
-                        "surface, Naviaux et al. (2019) for calcite and for aragonite on its own saturation state; or aragonite "
-                        "after Dong et al. (2019)"),
+                        "surface, the in-situ lower bound of Naviaux et al. (2019, Mar. Chem.), for calcite and for aragonite "
+                        "on its own saturation state; seawater laboratory: their filtered-seawater fits (GCA 2019); or "
+                        "aragonite after Dong et al. (2019)"),
     "sinking": ("Duration from", [(False, "The run time"), (True, "Sinking speed (Takahashi & Bé)")],
                 "Sinking: the reactant falls from the start to the end pressure at the speed its mass gives, "
                 "10^2.06 W^0.64 m/day for W µg, recomputed as it dissolves"),
