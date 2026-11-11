@@ -157,6 +157,7 @@ class ReactionPath:
                  minerals: Sequence[str] = (),
                  suppress_minerals: Sequence[str] = (),
                  flow_through: bool = False,
+                 flush: float = 0.0,
                  no_precipitation: bool = False,
                  saturation_tol: float = 1e-6,
                  kinetic_tol: float = 0.03,
@@ -170,6 +171,13 @@ class ReactionPath:
         self.initial_minerals = tuple(minerals)
         self.suppress_minerals = set(suppress_minerals)
         self.flow_through = flow_through
+        # flush (Bethke's flush model, GWB React): after each point this fraction of the fluid leaves and
+        # the same amount of the starting fluid takes its place; the solids (the rock, or a shell) stay
+        if not 0.0 <= flush <= 1.0:
+            raise ValueError("flush: the fraction of the fluid displaced at each step must be 0 to 1")
+        self.flush = flush
+        self._flushed: dict[str, float] = {}       # net moles of each component the flushing brought in
+        self._fluid0: dict[str, float] | None = None
         self.no_precipitation = no_precipitation
         self.saturation_tol = saturation_tol
         self.kinetic_tol = kinetic_tol
@@ -208,6 +216,8 @@ class ReactionPath:
         ss_names = {ss.name for ss in self.system.solid_solutions}
         for comp, moles in self._split_off.items():
             bulk[comp] = bulk.get(comp, 0.0) - moles
+        for comp, moles in self._flushed.items():
+            bulk[comp] = bulk.get(comp, 0.0) + moles
         for name, moles in [*((k, v) for k, v in self._removed.items() if k not in ss_names),
                             *self._removed_members.items()]:
             for comp, c in _composition_row(self.system, name).items():
@@ -443,6 +453,27 @@ class ReactionPath:
                                 options={"xatol": tol, "maxiter": 200})
         return xi0 if start >= -found.fun else float(found.x)
 
+    def _fluid(self, state: EquilibriumState) -> dict[str, float]:
+        """Moles of each component in the fluid (the aqueous solution and any gas): the whole system less its
+        minerals and solid solutions."""
+        if any(abs(v) > 0 for v in state.sorbed.values()):
+            raise ValueError("flush does not yet separate sorbed species from the fluid")
+        fluid = dict(state.bulk)
+        solids = [*state.minerals.items(), *((m, v) for members in state.solid_solutions.values()
+                                              for m, v in members.items())]
+        for name, moles in solids:
+            for comp, c in _composition_row(self.system, name).items():
+                fluid[comp] = fluid.get(comp, 0.0) - c * moles
+        return fluid
+
+    def _flush_out(self, state: EquilibriumState) -> None:
+        """Displace ``self.flush`` of the fluid by as much of the starting fluid (each component in turn)."""
+        now = self._fluid(state)
+        for comp in set(now) | set(self._fluid0):
+            change = self.flush * (self._fluid0.get(comp, 0.0) - now.get(comp, 0.0))
+            if change:
+                self._flushed[comp] = self._flushed.get(comp, 0.0) + change
+
     def _saturated(self, state: EquilibriumState) -> list[str]:
         sat = state.speciation.saturation
         return [r.name for r in self.reactants
@@ -528,6 +559,7 @@ class ReactionPath:
         that goes on from where another stopped passes the last one's ``step_hint``)."""
         self._transferred, self._removed, self._stopped = set(), {}, {}
         self._removed_members, self._split_off = {}, {}
+        self._flushed, self._fluid0 = {}, None
         n_kin = {r.name: 0.0 for r in self.kinetic}
         self._span = (0.0, n_kin, 0.0, n_kin)
         self._dt_hint = step_hint
@@ -580,6 +612,18 @@ class ReactionPath:
             points.append(PathPoint(xi, self._temperature(xi), state.speciation.pressure_bar,
                                     state, reacted, tuple(sorted(self._transferred)),
                                     dict(self._removed), self._kinetic_rates(state, n_kin), before_vent))
+            if self.flush:
+                # the point shows the fluid the step reacted with; then fresh starting fluid displaces it
+                if self._fluid0 is None:
+                    self._fluid0 = self._fluid(state)
+                else:
+                    self._flush_out(state)
+                    try:
+                        state = self._solve(xi, state)[0]
+                    except SpeciationError as exc:
+                        if on_failure is None:
+                            raise
+                        on_failure(xi, exc)
         if progress:
             progress(len(xis), len(xis))
         self.step_hint = self._dt_hint

@@ -22,7 +22,7 @@ def end_point(result: dict, mode: str | None = None) -> tuple[str, int, float, f
     """(mode, index, temperature C, pressure bar) of the last solved point of ``result``, or None."""
     modes = result.get("modes", {})
     if mode not in modes:
-        mode = next((m for m in ("static", "outlet", "flow_through") if m in modes), next(iter(modes), None))
+        mode = next((m for m in ("static", "outlet", "flow_through", "flush") if m in modes), next(iter(modes), None))
     if mode is None:
         return None
     run = modes[mode]
@@ -72,7 +72,7 @@ def fluid_from_result(result: dict, mode: str | None = None) -> tuple[dict, str]
     changes = {"fluid": CUSTOM, "analysis": "\n".join(lines), "units": "molal", "ph": float(props["pH"][i]),
                "fluid_t_c": t, "fluid_p_bar": p, "charge_balance": "none", **redox,
                "t_start_c": t, "t_end_c": t, "p_start_bar": p, "p_end_bar": p, **CONSUMED}
-    where = {"static": "", "flow_through": " (flow-through)", "outlet": " at the column outlet"}.get(mode, "")
+    where = {"static": "", "flow_through": " (flow-through)", "flush": " (flush)", "outlet": " at the column outlet"}.get(mode, "")
     note = (f"Took the fluid at the end of the last run{where} ({t:g} °C, {p:g} bar, pH {changes['ph']:.2f}) "
             f"as the starting fluid; the minerals that formed stay behind.")
     if left_out:

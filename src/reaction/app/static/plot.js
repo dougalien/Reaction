@@ -58,7 +58,8 @@ class LinePlot {
       const stride = Math.ceil((e1 - e0) / 8);
       for (let e = e0; e <= e1; e += stride) yticks.push(Math.pow(10, e));
     } else {
-      if (y0 >= 0 && y0 < 0.35 * y1) y0 = 0;
+      // an amount (opts.zero) is drawn from zero, so a loss reads as the share of what there was
+      if (y0 >= 0 && (opts.zero || y0 < 0.35 * y1)) y0 = 0;
       if (y1 === y0) { y1 += 1; y0 -= 1; }
       const pad = (y1 - y0) * 0.05;
       if (y0 !== 0) y0 -= pad;

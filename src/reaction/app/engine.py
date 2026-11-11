@@ -5,7 +5,9 @@ equilibrium of the whole closed system: the aqueous species, plus whichever mine
 equilibrium constants are computed from Gibbs energies at each (T, P), so pressure is as free as
 temperature: there is no fixed-pressure database anywhere.  In *static* mode minerals stay and can
 redissolve.  In *flow-through* mode minerals are left behind as they form and never redissolve, so only
-the fluid goes on; the run reports everything left behind so far.
+the fluid goes on; the run reports everything left behind so far.  In *flush* mode (Bethke's flush model)
+the solids stay and, after each step, fresh starting fluid displaces the fluid (all of it by default), as
+around a shell sinking through an ocean of water.
 """
 from __future__ import annotations
 
@@ -98,6 +100,9 @@ def marine_log_omega(water: tuple[float, float, float], mineral: str):
             return None
         return math.log10(getattr(marine.solve(s, t_c, p_bar, ta, dic), f"omega_{mineral}"))
     return lambda t_c, p_bar: at(round(t_c, 4), round(p_bar, 3))
+
+
+SINKING_KINETIC_TOL = 3e-4      # see _march
 
 
 def sinking_speed(ug: float) -> float:
@@ -306,7 +311,7 @@ class Engine:
         for k, mode in enumerate(modes):
             def tick(i, n, k=k):
                 progress(share * (k + i / n) / len(modes), f"{MODE_LABELS[modes[k]]}: {i} of {n} points")
-            runs[mode] = self._march(system, bulk0, points, sc, mode == "flow_through", tick, notes, mix, sp0)
+            runs[mode] = self._march(system, bulk0, points, sc, mode, tick, notes, mix, sp0)
         if sc.uncertainty_runs:
             notes.extend(self._uncertainty(sc, modes, runs, lambda f, m: progress(share + (1.0 - share) * f, m)))
 
@@ -873,10 +878,10 @@ class Engine:
 
     # ---- the march along the path ---------------------------------------------------------------
     def _march(self, system: System, bulk0: dict, points: list[tuple[float, float]], sc: Scenario,
-               flow_through: bool, tick, notes: list[str], mix: Speciation | None = None,
+               mode: str, tick, notes: list[str], mix: Speciation | None = None,
                sp0: Speciation | None = None) -> dict:
         """The library's reaction path, with reaction progress counting the steps of the card: the same
-        closed-system and flow-through rules as every other path (see ``path.py``)."""
+        closed-system, flow-through and flush rules as every other path (see ``path.py``)."""
         db = self.db
         n = len(points)
         last = max(n - 1, 1)
@@ -908,7 +913,12 @@ class Engine:
         path = ReactionPath(system, bulk0, reactants=reactants, separate=separate,
                             temperature=lambda xi: sc.tp(xi / (last * step))[0],
                             pressure=lambda xi: sc.tp(xi / (last * step))[1],
-                            suppress_minerals=suppress, flow_through=flow_through)
+                            suppress_minerals=suppress, flow_through=mode == "flow_through",
+                            flush=sc.flush_fraction if mode == "flush" else 0.0,
+                            # a sinking shell's mass is the result: at the general 0.03 the foram example ended
+                            # 0.27 ug (5% of what dissolved) from its value as the tolerance goes to zero;
+                            # 3e-4 brings that to about 0.03 ug, at about 4 times the run time
+                            kinetic_tol=SINKING_KINETIC_TOL if sc.sinking else 0.03)
 
         xis = [f * last * step for f in sc.fractions()]
         where = {round(x, 9): i for i, x in enumerate(xis)}
@@ -934,7 +944,11 @@ class Engine:
         add_partition(run, sc)
         if separate is not None:
             run["split"] = [split.get(round(x, 9)) for x in xis]
-        if sc.isotopes:
+        if sc.isotopes and mode == "flush":
+            note = "Isotopes are not followed in flush mode yet (the fluid that leaves takes its δ with it)."
+            if note not in notes:
+                notes.append(note)
+        elif sc.isotopes:
             run["isotopes"] = self._isotopes(sc, bulk0, reactants, solved, points, notes)
         return run
 
@@ -1234,7 +1248,7 @@ class Engine:
         try:
             for mode in modes:
                 try:
-                    out[mode] = self._march(system, bulk0, points, sc, mode == "flow_through",
+                    out[mode] = self._march(system, bulk0, points, sc, mode,
                                             lambda i, total: None, [], mix, sp0)
                 except Exception:                        # a draw the solver cannot follow: left out
                     out[mode] = None

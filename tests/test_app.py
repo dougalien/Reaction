@@ -247,7 +247,7 @@ def chat_and_wait(s: Session, text: str):
 
 def test_it_asks_for_the_mode_before_running_then_runs(session):
     chat_and_wait(session, "heat seawater to 300 C")
-    assert "Static, flow-through, or both?" in session.chat[-1]["text"]
+    assert "Static, flow-through, flush, or both?" in session.chat[-1]["text"]
     assert session.engine_stub.calls == []
     chat_and_wait(session, "both")
     assert wait(lambda: session.engine_stub.calls and session.run_state["state"] == "idle")

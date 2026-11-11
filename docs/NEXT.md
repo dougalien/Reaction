@@ -522,3 +522,19 @@ dic_umol_kg, salinity) or from the water (engine.marine_water). Next: a measured
 Defaults (Douglas, 2026-11-10: "the default should be as close to reality as possible"): solid_solutions and
 isotopes on. A column run leaves isotopes out with a note instead of refusing. Tests that named pure endmembers
 (clinochlore, tremolite, chrysotile) accept the solid solutions too.
+Flush mode (Douglas, 2026-11-11: "We want the foram test to experience the water chemistry and T/P changes as it
+sinks ... We want a flush model"). Card `mode: flush` (`flush_fraction`, default 1): Bethke's flush model as in GWB
+React (Reaction Modeling Guide, Release 19, s3.3: a fluid "displaces existing fluid from the system", an equal mass
+of water). In `path.py` the solids stay and, after each point, `flush` of the fluid (bulk less minerals and solid
+solutions) is replaced by the starting fluid; the point shows the fluid the step reacted with. Not yet with sorption
+(refused) or isotopes (left out with a note); not for columns. The foram and shells examples now use flush. Why: in
+flow-through (GWB s3.2, EQ6) only precipitates leave and one 1 kg parcel keeps every solute the shells give off, the
+wrong process for a shell falling through an ocean. Results hardly change for one 20 ug shell per kg, because the
+seawater rates take Omega from the card's fixed TA/DIC at each T and P (engine.marine_log_omega), but the shells
+example can no longer let the pteropod's products reach the foram. Before this, the shells example's apparently
+deeper calcite lysocline was the plot's y axis (it started at zero only below 0.35 x max, so with aragonite going to
+0 the calcite loss looked small); mineral plots now always start at zero (plot.js `zero`, Streamlit tozero).
+Sinking runs use kinetic_tol 3e-4 (engine.SINKING_KINETIC_TOL) instead of 0.03: foram end mass 14.295 (0.03),
+14.493 (3e-3), 14.532 (1e-3), 14.555 (3e-4), 14.567 ug (1e-4); the step error shrinks only about as tol^0.5, so a
+higher-order kinetic step would be the better fix. Still to do: a measured TA/DIC/T/S depth profile for the
+flushing water (GLODAP or BATS), which flush now makes possible.

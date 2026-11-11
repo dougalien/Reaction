@@ -123,7 +123,7 @@ class DiagramPlot {
     // diagram is pinned to its edge and says where it really is
     const many = Object.keys(d.path || {}).length > 1;
     Object.entries(d.path || {}).forEach(([mode, pts]) => {
-      const name = many ? (mode === "flow_through" ? "flow-through " : "static ") : "";
+      const name = many ? ({ flow_through: "flow-through ", flush: "flush " }[mode] || "static ") : "";
       const pin = (p) => {
         const px = sx(p[0]), py = sy(p[1]);
         const cxp = Math.min(Math.max(px, m.l + 8), m.l + pw - 8), cyp = Math.min(Math.max(py, m.t + 8), m.t + ph - 8);
