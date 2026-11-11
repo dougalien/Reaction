@@ -27,6 +27,14 @@ def depth_m(p_bar: float) -> float:
     return max(p_bar - 1.01325, 0.0) * 1e5 / (1033.0 * 9.81)
 
 
+def _rows_ok(rows, width: int) -> bool:
+    """At least two rows of ``width`` numbers, the first column increasing."""
+    return (isinstance(rows, (list, tuple)) and len(rows) >= 2
+            and all(isinstance(row, (list, tuple)) and len(row) == width
+                    and all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in row) for row in rows)
+            and all(b[0] > a[0] for a, b in zip(rows, rows[1:])))
+
+
 MODES = ("static", "flow_through", "flush", "both")
 KINDS = ("path", "transport")
 MAX_COLUMN_SOLVES = 40000             # cells x shifts x (1 + dispersion mixes) in one column run
@@ -188,6 +196,33 @@ class Scenario:
     # the marine carbonate system that the seawater rates use takes salinity, alkalinity and DIC from it,
     # interpolated linearly in depth (held at the end values beyond them); empty = the card's single water
     water_profile: list = field(default_factory=list)
+    # a test buried in the sediment (with kinetics): it rests at the seafloor (the card's start pressure read as
+    # the water depth) and is buried at ``sedimentation_cm_kyr`` to ``burial_depth_cm`` below it, so the run
+    # lasts burial_depth / sedimentation and the pore pressure rises hydrostatically with burial.  The pore water
+    # the test meets at each depth below the seafloor: ``porewater_profile`` rows [depth below the seafloor cm,
+    # TA umol/kg, DIC umol/kg] by increasing depth (measured pore-water chemistry), with the temperature and
+    # salinity of the bottom water (the water profile at the seafloor, if any); empty = bottom water all the way
+    # down (no organic matter respired), which overstates dissolution below the sediment surface
+    burial: bool = False
+    sedimentation_cm_kyr: float = 1.0
+    burial_depth_cm: float = 50.0
+    porewater_profile: list = field(default_factory=list)
+    # burial: the pore water from the sediment itself (porewater.py, the model of Hales and Emerson 1997, GCA
+    # 61, 501), in place of porewater_profile: steady alkalinity and DIC of a carbonate sediment whose calcite
+    # dissolves at k (1 - Omega)^n, with CO2 from oxic respiration, both diffusing to the bottom water.  The
+    # buried shells dissolve at the same k per mass.  No defaults: these describe the site's sediment
+    sediment_column: bool = False
+    porosity: float | None = None                 # volume fraction
+    caco3_wt_pct: float | None = None             # calcite, weight % of the dry sediment
+    sediment_k_pct_day: float | None = None       # calcite rate constant, % of the calcite per day
+    sediment_n: float | None = None               # order in (1 - Omega)
+    o2_flux_umol_cm2_yr: float | None = None      # O2 consumed in the sediment, umol per cm2 per year
+    co2_per_o2: float | None = None               # CO2 made per O2 consumed (beta)
+    respiration_depth_cm: float | None = None     # e-folding depth of the O2 consumption, cm
+    # bioturbation of the sediment column (both given = on): biodiffusion through the mixed layer; the mean
+    # mass left in the tests then follows the biodiffusion-burial equation (porewater.mixed_mass_left)
+    mixed_layer_cm: float | None = None
+    biodiffusion_cm2_yr: float | None = None
     # uncertainty bands: this many extra runs, each with every log K shifted by its own random draw
     # (one standard deviation from the reliability check, see thermo.validity.logk_sigma); 0 = none
     uncertainty_runs: int = 0
@@ -289,9 +324,9 @@ class Scenario:
     def varies(self) -> list[str]:
         out = []
         t_end = self.tp(1.0)[0]
-        if abs(t_end - self.t_start_c) > 1e-9:
+        if abs(t_end - self.t_start_c) > 1e-9 and not self.burial:      # burial: the bottom water's, held
             out.append("temperature_c")
-        if abs(self.p_end_bar - self.p_start_bar) > 1e-9:
+        if abs(self.p_end_bar - self.p_start_bar) > 1e-9 and not self.burial:   # burial: its depth axis instead
             out.append("pressure_bar")
         return out
 
@@ -329,10 +364,7 @@ class Scenario:
 
     def profile_ok(self) -> bool:
         """The water profile is at least two rows of five numbers, by increasing depth."""
-        rows = self.water_profile
-        return (len(rows) >= 2 and all(isinstance(row, (list, tuple)) and len(row) == 5
-                                       and all(isinstance(x, (int, float)) for x in row) for row in rows)
-                and all(b[0] > a[0] for a, b in zip(rows, rows[1:])))
+        return _rows_ok(self.water_profile, 5)
 
     def profile_at(self, depth: float) -> tuple[float, float, float, float] | None:
         """(temperature C, salinity, alkalinity and DIC in mol/kg of seawater) of the water profile at this
@@ -353,6 +385,10 @@ class Scenario:
 
     def tp(self, f: float) -> tuple[float, float]:
         """(temperature in C, pressure in bar) at the fraction ``f`` (0 to 1) of the way along the path."""
+        if self.burial:          # the pore pressure rises hydrostatically; the temperature is the bottom water's
+            p = self.p_start_bar + self.burial_depth_cm / 100.0 * 1033.0 * 9.81 / 1e5 * f
+            t = self.profile_at(depth_m(self.p_start_bar))[0] if self.profile_ok() else self.t_start_c
+            return t, p
         p = self.p_start_bar + (self.p_end_bar - self.p_start_bar) * f
         if self.water_profile and self.profile_ok():
             return self.profile_at(depth_m(p))[0], p
@@ -393,7 +429,46 @@ class Scenario:
 
     @property
     def duration_s(self) -> float:
+        if self.burial:
+            return self.burial_kyr * 1000.0 * TIME_UNITS["years"]
         return self.duration * TIME_UNITS.get(self.duration_unit, 1.0)
+
+    def sediment(self):
+        """The sediment of the pore-water column (porewater.Sediment)."""
+        from ..porewater import Sediment
+        return Sediment(porosity=self.porosity, caco3_wt_pct=self.caco3_wt_pct, k_pct_day=self.sediment_k_pct_day,
+                        n=self.sediment_n, o2_flux_umol_cm2_yr=self.o2_flux_umol_cm2_yr, beta=self.co2_per_o2,
+                        resp_depth_cm=self.respiration_depth_cm)
+
+    @property
+    def bioturbation(self) -> bool:
+        return bool(self.burial and self.sediment_column and self.mixed_layer_cm and self.biodiffusion_cm2_yr)
+
+    @property
+    def burial_kyr(self) -> float:
+        """How long the burial takes, thousand years."""
+        return self.burial_depth_cm / max(self.sedimentation_cm_kyr, 1e-12)
+
+    def burial_cm(self, p_bar: float) -> float:
+        """Depth below the seafloor (cm) at this pore pressure, in a burial run."""
+        return 100.0 * (depth_m(p_bar) - depth_m(self.p_start_bar))
+
+    def porewater_at(self, z_cm: float) -> tuple[float, float] | None:
+        """(TA, DIC) in mol/kg of the pore-water profile at this depth below the seafloor (cm), linear between
+        its rows and held at its ends; None without one."""
+        rows = self.porewater_profile
+        if not rows or not _rows_ok(rows, 3):
+            return None
+        if z_cm <= rows[0][0]:
+            row = rows[0]
+        elif z_cm >= rows[-1][0]:
+            row = rows[-1]
+        else:
+            k = next(i for i in range(1, len(rows)) if rows[i][0] >= z_cm)
+            (z0, *a), (z1, *b) = rows[k - 1], rows[k]
+            w = (z_cm - z0) / (z1 - z0)
+            row = [z_cm, *(x + w * (y - x) for x, y in zip(a, b))]
+        return float(row[1]) * 1e-6, float(row[2]) * 1e-6
 
     @property
     def hold_methane_apart(self) -> bool:
@@ -488,6 +563,33 @@ class Scenario:
             if not self.profile_ok():
                 out.append("water_profile needs at least two rows of five numbers [depth m, temperature C, "
                            "salinity, alkalinity umol/kg, DIC umol/kg], by increasing depth")
+        if self.burial:
+            if not self.kinetics or self.transport or self.sinking:
+                out.append("a burial run needs kinetics and a path, and is not a sinking run")
+            if not 0.0 < self.sedimentation_cm_kyr <= 1e5:
+                out.append("the sedimentation rate must be above 0 and at most 100000 cm per thousand years")
+            if not 0.0 < self.burial_depth_cm <= 1e5:
+                out.append("the burial depth must be above 0 and at most 100000 cm")
+            if self.sediment_column:
+                missing = [k for k in SEDIMENT_FIELDS if getattr(self, k) is None]
+                if missing:
+                    out.append("the sediment column needs " + ", ".join(missing) + " (the site's sediment: no "
+                               "defaults)")
+                else:
+                    out.extend(self.sediment().problems())
+                if self.porewater_profile:
+                    out.append("give either a measured porewater_profile or the sediment column, not both")
+                if not self.seawater_rates:
+                    out.append("the sediment column needs the seawater carbonate rates (its saturation is the "
+                               "marine carbonate system's)")
+                if (self.mixed_layer_cm is None) != (self.biodiffusion_cm2_yr is None):
+                    out.append("bioturbation needs both mixed_layer_cm and biodiffusion_cm2_yr")
+                elif self.mixed_layer_cm is not None and not (0.0 < self.mixed_layer_cm <= 100.0
+                                                              and 0.0 < self.biodiffusion_cm2_yr <= 1e4):
+                    out.append("the mixed layer must be 0 to 100 cm and the biodiffusion above 0")
+            if self.porewater_profile and not _rows_ok(self.porewater_profile, 3):
+                out.append("porewater_profile needs at least two rows of three numbers [depth below the seafloor "
+                           "cm, alkalinity umol/kg, DIC umol/kg], by increasing depth")
         if not 0.0 < self.flush_fraction <= 1.0:
             out.append("flush_fraction must be above 0 and at most 1")
         if self.mode == "flush":
@@ -756,6 +858,11 @@ REDOX_LABELS = {"log_fo2": "log fO2", "eh": "Eh (volts)", "pe": "pe"}
 MIX_SPACINGS = ("ratio", "temperature")
 
 
+SEDIMENT_FIELDS = ("porosity", "caco3_wt_pct", "sediment_k_pct_day", "sediment_n", "o2_flux_umol_cm2_yr",
+                   "co2_per_o2", "respiration_depth_cm")
+MIXING_FIELDS = ("mixed_layer_cm", "biodiffusion_cm2_yr")
+
+
 def _coerce(key: str, value: Any) -> Any:
     if key == "redox":
         text = str(value).strip()
@@ -777,7 +884,7 @@ def _coerce(key: str, value: Any) -> Any:
     if key in ("t_start_c", "t_end_c", "p_start_bar", "p_end_bar", "fluid_t_c", "mix_ratio", "duration",
                "surface_area_cm2_per_g", "shell_area_exponent", "evaporate", "exchange_meq", "hfo_g", "kaolinite_g", "illite_g",
                "montmorillonite_g", "kd_solid_g", "column_m", "dispersivity_m",
-               "pore_volumes"):
+               "pore_volumes", "sedimentation_cm_kyr", "burial_depth_cm"):
         return float(value)
     if key == "duration_unit":
         low = str(value).strip().lower()
@@ -785,7 +892,8 @@ def _coerce(key: str, value: Any) -> Any:
         if low not in TIME_UNITS:
             raise ValueError(f"'{value}' is not a time unit (use {', '.join(TIME_UNITS)})")
         return low
-    if key in ("mix_t_c", "fluid_p_bar", "salinity", "alkalinity_umol_kg", "dic_umol_kg"):
+    if key in ("mix_t_c", "fluid_p_bar", "salinity", "alkalinity_umol_kg", "dic_umol_kg", *SEDIMENT_FIELDS,
+               *MIXING_FIELDS):
         if value is None or (isinstance(value, str) and not value.strip()):
             return None
         return float(value)
@@ -870,7 +978,7 @@ def _coerce(key: str, value: Any) -> Any:
             raise ValueError(f"'{value}' is not ratio or temperature")
         return low
     if key in ("gas_phase", "kinetics", "solid_solutions", "isotopes", "clay_edges", "redox_apart", "minerals_form",
-               "energy", "depth_axis", "sinking"):
+               "energy", "depth_axis", "sinking", "burial", "sediment_column"):
         if isinstance(value, str):
             low = value.strip().lower()
             if low in ("true", "yes", "on", "1", "allowed", "allow"):
@@ -1260,26 +1368,32 @@ EXAMPLES: dict[str, Example] = {e.key: e for e in (
                       "so neither shell's dissolution changes the water the other meets."),
              ("depth_axis", "Plotted against depth.")),
             ("calcite", "aragonite"), False, "ug"),
-    Example("ceara", "A foram sinking at the Ceará Rise", "A measured water column",
-            "The foram of the sinking example falls from 1 to 4.6 km through the water column measured at the Ceará "
-            "Rise, western equatorial Atlantic: GLODAPv2.2023 (Lauvset et al. 2024, ESSD 16, 2047), cruise "
-            "323019940104, station 198 (6.54 N, 42.99 W, March 1994, 4707 m deep), the good-flag (2) alkalinity "
-            "and DIC samples. Temperature, salinity, alkalinity and DIC at each depth come from that profile, "
-            "linear between its 31 samples. This water is far less corrosive than the foram example's: it is "
-            "saturated with calcite down to about 4.3 km, so the test keeps its whole mass to there and loses only "
-            "about 0.2% by 4.6 km. Flush mode: fresh water of the column at every 100 m step. The card's own water "
-            "(the foram example's) sets only the fluid's other ions; the rates use the profile. About twenty seconds.",
-            {**FORAM_COLUMN, "title": "A foram sinking through the Ceara Rise water column",
+    Example("ceara", "Ceará Rise: foram and pteropod sinking", "A measured water column, western equatorial Atlantic",
+            "The foram and the pteropod of the two-shell example fall from 1 to 4.6 km through the water column "
+            "measured at the Ceará Rise, western equatorial Atlantic: GLODAPv2.2023 (Lauvset et al. 2024, ESSD 16, "
+            "2047), cruise 323019940104, station 198 (6.54 N, 42.99 W, March 1994, 4707 m deep), the good-flag (2) "
+            "alkalinity and DIC samples. Temperature, salinity, alkalinity and DIC at each depth come from that "
+            "profile, linear between its 31 samples. This water is far less corrosive than the foram example's. It "
+            "is saturated with calcite down to about 4.3 km, so the foram keeps its whole mass to there and loses "
+            "only about 0.02% by 4.6 km. It is saturated with aragonite only from just below 1 km to about 2.7 km, so the "
+            "pteropod loses mass below 2.7 km, about 1.5% by 4.6 km. Flush mode: fresh "
+            "water of the column at every 100 m step. The card's own water (the foram example's) sets only the "
+            "fluid's other ions; the rates use the profile. About thirty seconds.",
+            {**FORAM_COLUMN, "title": "Ceara Rise: a foram and a pteropod sinking through the measured water column",
              "p_start_bar": 101.0, "p_end_bar": 467.0, "steps": 37, "t_start_c": 4.9, "t_end_c": 1.5,
-             "blocked_minerals": DEFAULT_BLOCKED + ["aragonite"],
+             "reactants": [{"name": "forams", "amount": 2e-5, "unit": "g"},
+                           {"name": "pteropods", "amount": 2e-5, "unit": "g"}],
              "water_profile": WATER_PROFILE_CEARA},
             (("water_profile", "Water profile: GLODAPv2.2023 cruise 323019940104 station 198 (Ceará Rise, 1994): "
                                "depth, temperature, salinity, alkalinity and DIC of its 31 good-flag samples."),
              ("p_start_bar", "Pressure 101 to 467 bar: 1 to 4.6 km, the deepest sample at 4619 m; the temperature "
                              "follows the profile."),
              ("mode", "Flush: fresh water of the column replaces the water around the test after each 100 m step."),
-             ("sinking", "Sinking at the speed its mass gives (Takahashi and Bé 1984), as in the foram example.")),
-            ("calcite",), False, "ug"),
+             ("reactants", "Reactants: one foram (20 µg of calcite) and one pteropod (20 µg of aragonite), each "
+                           "with a BET surface of 2 m2/g, as in the two-shell example."),
+             ("sinking", "Each shell sinks at the speed its mass gives (Takahashi and Bé 1984); the time axis follows "
+                         "the foram.")),
+            ("calcite", "aragonite"), False, "ug"),
     Example("amd", "Acid mine drainage", "Acid from pyrite, and the acid stored in iron",
             "Oxygenated groundwater oxidizes 10 mmol of pyrite per kg at 25 C, with the 3.5 O2 per pyrite that turns "
             "its sulfur to sulfate: FeS2 + 7/2 O2 + H2O = Fe+2 + 2 SO4-2 + 2 H+. The pH falls from 6.7 to about 2, "
@@ -1442,6 +1556,24 @@ FIELD_HELP = {
     "salinity": "marine carbonate system (with seawater rates): salinity; empty = from the water's chloride",
     "alkalinity_umol_kg": "marine carbonate system: total alkalinity, umol/kg of seawater; empty = from the water",
     "dic_umol_kg": "marine carbonate system: DIC, umol/kg of seawater; empty = the water's total carbonate",
+    "burial": "true (with kinetics): a test resting at the seafloor (the start pressure read as the water depth) "
+              "is buried at sedimentation_cm_kyr to burial_depth_cm, meeting the pore water of porewater_profile",
+    "sedimentation_cm_kyr": "burial: the sedimentation rate, cm per thousand years",
+    "burial_depth_cm": "burial: how deep below the seafloor the run follows the test, cm",
+    "sediment_column": "burial: true = the pore water from the sediment (steady diffusion with calcite "
+                       "dissolution and respiration), in place of porewater_profile; needs the fields below",
+    "porosity": "sediment column: pore-water volume fraction",
+    "caco3_wt_pct": "sediment column: calcite, weight % of the dry sediment",
+    "sediment_k_pct_day": "sediment column: calcite dissolution rate constant, % of the calcite per day (Hales and "
+                          "Emerson 1997: 25-300, best 125, at the Ceara Rise)",
+    "sediment_n": "sediment column: reaction order in (1 - Omega) (4.5 in Hales and Emerson 1997, after Keir 1980)",
+    "o2_flux_umol_cm2_yr": "sediment column: O2 consumed in the sediment, umol per cm2 per year",
+    "co2_per_o2": "sediment column: CO2 made per O2 consumed (0.77 Redfield, 0.64, 0.55)",
+    "respiration_depth_cm": "sediment column: e-folding depth of the O2 consumption, cm",
+    "mixed_layer_cm": "sediment column: depth of the bioturbated mixed layer, cm (with biodiffusion_cm2_yr)",
+    "biodiffusion_cm2_yr": "sediment column: biodiffusion coefficient in the mixed layer, cm2/yr",
+    "porewater_profile": "burial: measured pore water, rows [depth below the seafloor cm, alkalinity umol/kg, DIC "
+                         "umol/kg]; empty = bottom water all the way down",
     "water_profile": "a measured water column, the pressure read as depth: rows [depth m, temperature C, salinity, alkalinity "
                      "umol/kg, DIC umol/kg] by increasing depth (e.g. a GLODAP station); the temperature and the "
                      "marine carbonate system at each depth come from it",

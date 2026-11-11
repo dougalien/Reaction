@@ -559,3 +559,43 @@ is not in hand). Ea stays 25 kJ/mol (GCA). Caveat: their in-situ Omega is from A
 which Reaction computes. Mar. Chem. Table 1 lab 5 C reads -13.1 n 0.11 (Omega > 0.8), the graphical abstract's lab
 line ~-13.4: not reconciled. New results: forams 19.11 ug at 5.5 km (95.5%), shells pteropod 9.8 ug at 5.5 km, ceara
 19.995 ug at 4.6 km; resting at ODP 929 depth (Omega 0.957): 16.1 ug after 1 yr, 8.2 after 3, gone by 10.
+Ceara card (2026-11-11, Douglas: "add pteropods to any Ceara Rise model"): now "Ceara Rise: foram and pteropod
+sinking", forams + pteropods 20 ug each, aragonite unblocked. Run: calcite horizon 4297 m, foram 19.995 ug at 4.6 km
+(0.02%; the old card text said 0.2%, which was wrong); aragonite saturated only from just below 1 km to ~2.7 km,
+pteropod 19.70 ug at 4.6 km (1.5%).
+Burial (sediment pile, step 1 of the plan): `burial: true` with kinetics. The test rests at the seafloor (start
+pressure = water depth) and is buried at `sedimentation_cm_kyr` to `burial_depth_cm`; run time = depth / rate; pore
+pressure hydrostatic; T and S of the water profile at the seafloor; TA and DIC from `porewater_profile` rows
+[z cm, TA, DIC umol/kg], else bottom water all the way down (a bound, not a prediction). Axes: depth below the
+seafloor (cm) and time since burial (kyr). No bioturbation, compaction, respiration or diagenetic column yet; the
+pore-water profile has no field in the web form (card JSON or the assistant only). No Ceara burial example: the
+sedimentation rate and the pore-water profile (Martin and Sayles) are not in hand. Test result with bottom water at
+4.4 km (Omega calcite 0.94): both shells gone in the first kyr step; the in-situ rate dissolves a 20 ug test in
+years, so preservation turns on the pore water in the top cm, not on the burial rate.
+Sediment column (Douglas, 2026-11-11: "the tests will be surrounded by other tests and other sediment that will
+fix the pore fluid chemistry"; chose the column over a box): porewater.py, the steady diffusion-reaction model of
+Hales and Emerson (1997, GCA 61, 501-514; PDF 1-s2.0-S0016703796003663-main.pdf in the Reaction folder):
+R = k (1-phi)[C](1-Omega)^4.5, k 25-300 %/day (best 125) at Ceara Rise Sta. G; CO2 = beta x O2 consumption, O2
+flux 10-25 umol/cm2/yr, ~70% within a 3 mm scale; CaCO3 ~65% (A, B), 35-50% (G); F 2.5-3, phi = F^(-1/2.3).
+Card: sediment_column + porosity, caco3_wt_pct, sediment_k_pct_day, sediment_n, o2_flux_umol_cm2_yr, co2_per_o2,
+respiration_depth_cm (no defaults). Checks: grid-converged, DIC mass balance closes to 0.2%; dissolution flux at
+4000 m (Sta. A values) 6.8 and 4685 m (Sta. G) 20.8 umol/cm2/yr vs their Table 2 (beta 0.64) 6-9 and 8-23; our
+bottom-water Omega is GLODAP's (1.12 at 4000 m) not theirs (1.02). Buried shells take the sediment's k per mass
+(an assumption; their calcite is mostly 8-64 um). Result at Sta. A values, 2 cm/kyr (test value): foram 20 ->
+11.5 ug by 10 cm (first reported 12.8: marine_log_omega rounded the pressure to 0.001 bar = 1 cm of burial; now 1e-6
+bar, and the buried shells read a precomputed log Omega(z) of the column), all loss in the top 2 cm; pteropod gone; at Sta. G values both gone in the top cm. Missing:
+bioturbation (tests held at their depth; real tests are mixed through the mixed layer and leave the corrosive
+top mm fast), single-exponential respiration, sedimentation rate of the cores, Martin and Sayles (1996).
+From memory, unchecked: Boudreau D0 fit and tortuosity, Wolf-Gladrow alkalinity 17/106.
+Sedimentation rate bracket (2026-11-11, Douglas: "bracket the likely sedimentation rate"): ODP Leg 154 Initial
+Reports site chapters: Pleistocene averages 33 m/m.y. (925, 3040 m; 926, 3598 m), 35-43 (927, 3315 m), 28-33 (928,
+4012 m), up to 40 (929, 4356 m), i.e. 2.8-4.3 cm/kyr including glacials (upper bound). Calcite mass balance with
+Martin and Sayles' rain of 16.5 umol/cm2/yr (as quoted by Hales and Emerson) minus Hales and Emerson's dissolution
+(beta 0.64), burial = w (1-phi) rho_s f / M: Sta. A 1.1-1.8, B 0.7-2.0, C 1.5-2.0, G <= 2.2 cm/kyr (phi 0.62-0.67,
+rho_s 2.7 assumed). Working bracket 1-4 cm/kyr, most likely 1-2. Holocene 14C rates for the cores not found.
+Bioturbation: porewater.mixed_mass_left, biodiffusion D_b over a mixed layer L with burial; card mixed_layer_cm +
+biodiffusion_cm2_yr; output kinetic "mixed:<mineral>" (% left). Limits checked: no mixing exp(-I/w), fast mixing
+1/(1 + I/w), I = int lam dz. At D_b >= ~0.05 cm2/yr the result is the fast-mixing limit whatever L (5-10 cm); Teal
+et al. 2008 (Aquat. Biol. 2, 207): global mean L 5.75 +- 5.67 cm, D_b decreases with water depth. Calcite left below
+the mixed layer (k 125%/day, n 4.5): Sta. A values 47/64/78% at 1/2/4 cm/kyr, Sta. G values 15/27/42%; no mixing
+33/57/76% and 0.5/7/26%. Aragonite 0% in every case. BURIAL_KINETIC_TOL 3e-3 (1.3% from exact).

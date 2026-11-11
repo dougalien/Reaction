@@ -89,8 +89,12 @@ def test_ceara_rise_profile_keeps_the_foram_to_the_saturation_horizon(runs):
     horizon = depth[next(i for i, x in enumerate(sat) if x < 0)]
     assert 4000 < horizon < 4500
     assert all(u > 19.999 for z, u in zip(depth, ug) if z < horizon - 100)
-    assert 19.5 < ug[-1] < 20.0
+    assert 19.99 < ug[-1] < 20.0
+    _, arag, asat = _shell(run, "aragonite")
+    assert all(x > 0 for z, x in zip(depth, asat) if 1200 < z < 2500)    # aragonite-saturated mid-column
+    assert asat[-1] < 0 and 19.5 < arag[-1] < 19.9                        # the pteropod loses ~1.5% by 4.6 km
     card = example_card("ceara")
+    assert [r["name"] for r in card.reactants] == ["forams", "pteropods"]
     assert card.tp(0.0)[0] == pytest.approx(card.profile_at(987.0)[0], abs=0.05)
 
 

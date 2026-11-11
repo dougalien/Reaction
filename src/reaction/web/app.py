@@ -170,6 +170,24 @@ NUM_FIELDS = {  # field: (label, min, max, step, help)
     "salinity": ("Salinity", 0.0, 45.0, 0.1, "Empty: from the water's chloride"),
     "alkalinity_umol_kg": ("Alkalinity (µmol/kg)", 0.0, 5000.0, 10.0, "Empty: from the water's speciation"),
     "dic_umol_kg": ("DIC (µmol/kg)", 0.0, 5000.0, 10.0, "Empty: the water's total carbonate"),
+    "sedimentation_cm_kyr": ("Sedimentation rate (cm/kyr)", 0.001, 1e5, 0.1,
+                             "Burial: how fast sediment buries the test; the run lasts burial depth / rate"),
+    "burial_depth_cm": ("Burial depth (cm)", 0.01, 1e5, 1.0, "Burial: how deep below the seafloor the run follows the test"),
+    "porosity": ("Porosity", 0.05, 0.98, 0.01, "Sediment column: pore-water volume fraction"),
+    "caco3_wt_pct": ("CaCO₃ (wt %)", 0.0, 100.0, 1.0, "Sediment column: calcite in the dry sediment"),
+    "sediment_k_pct_day": ("Calcite k (% per day)", 0.0, 1e4, 1.0,
+                           "Sediment column: R = k (1 - Ω)^n per mass of calcite; Hales and Emerson (1997) at the "
+                           "Ceará Rise: 25-300, best 125"),
+    "sediment_n": ("Order n", 0.1, 10.0, 0.1, "Sediment column: 4.5 in Hales and Emerson (1997), after Keir (1980)"),
+    "o2_flux_umol_cm2_yr": ("O₂ flux (µmol/cm²/yr)", 0.0, 1000.0, 1.0,
+                            "Sediment column: O₂ consumed in the sediment; 10-25 at the Ceará Rise (Hales and Emerson 1997)"),
+    "co2_per_o2": ("CO₂ per O₂", 0.0, 1.5, 0.01, "Sediment column: 0.77 Redfield, 0.64, 0.55 (Hales and Emerson 1997)"),
+    "respiration_depth_cm": ("Respiration depth (cm)", 0.01, 100.0, 0.1,
+                             "Sediment column: e-folding depth of the O₂ consumption"),
+    "mixed_layer_cm": ("Mixed layer (cm)", 0.0, 100.0, 1.0,
+                       "Bioturbation: depth mixed by burrowers (global mean 5.75 ± 5.67 cm, Teal et al. 2008); "
+                       "empty = no mixing"),
+    "biodiffusion_cm2_yr": ("Biodiffusion (cm²/yr)", 0.0, 1e4, 0.05, "Bioturbation: mixing coefficient in the mixed layer"),
     "shell_area_exponent": ("Shell surface exponent", -1.0, 1.0, 0.1, "Forams and pteropods with seawater rates: "
                             "whole surface = start surface x (mass left / mass)^p. 0 keeps it, so the surface "
                             "per gram rises as the shell dissolves; 0.667 is a shrinking solid grain"),
@@ -212,6 +230,12 @@ CHOICES = {  # field: (label, [(value, text)], help)
     "sinking": ("Duration from", [(False, "The run time"), (True, "Sinking speed (Takahashi & Bé)")],
                 "Sinking: the reactant falls from the start to the end pressure at the speed its mass gives, "
                 "10^2.06 W^0.64 m/day for W µg, recomputed as it dissolves"),
+    "burial": ("Setting", [(False, "Water or rock"), (True, "Buried in sediment")],
+               "Buried: the test rests at the seafloor (the start pressure read as water depth) and is buried at the "
+               "sedimentation rate, meeting the pore-water profile at each depth (bottom water without one)"),
+    "sediment_column": ("Pore water", [(False, "Profile or bottom water"), (True, "From the sediment")],
+                        "From the sediment: the steady pore water of a carbonate sediment (Hales and Emerson 1997): "
+                        "its calcite dissolving, CO₂ from respiration, both diffusing to the bottom water"),
     "depth_axis": ("Plot against", [(False, "Time"), (True, "Depth (sinking shell)")],
                    "Depth reads the pressure as depth in seawater, about 10 m per bar"),
     "duration_unit": ("Time unit", [(u, u) for u in ("seconds", "minutes", "hours", "days", "years")], None),
@@ -520,6 +544,16 @@ def _reactants_box(sess, snap, card, col, running) -> None:
             choice(sess, card, "carbonate_rates", a)
             choice(sess, card, "depth_axis", b)
             choice(sess, card, "sinking", b)
+            choice(sess, card, "burial", a)
+            if card.get("burial"):
+                num(sess, card, "sedimentation_cm_kyr", b)
+                num(sess, card, "burial_depth_cm", a)
+                choice(sess, card, "sediment_column", b)
+                if card.get("sediment_column"):
+                    for i, f in enumerate(("porosity", "caco3_wt_pct", "sediment_k_pct_day", "sediment_n",
+                                           "o2_flux_umol_cm2_yr", "co2_per_o2", "respiration_depth_cm",
+                                           "mixed_layer_cm", "biodiffusion_cm2_yr")):
+                        num(sess, card, f, a if i % 2 == 0 else b)
             if str(card.get("carbonate_rates", "")).startswith("seawater"):
                 num(sess, card, "shell_area_exponent", a)
                 num(sess, card, "salinity", b)
