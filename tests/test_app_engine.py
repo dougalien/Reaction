@@ -6,7 +6,7 @@ import pytest
 from reaction.app import config
 from reaction.app.engine import Engine
 from reaction.app.narrate import story
-from reaction.app.scenario import Scenario
+from reaction.app.scenario import Scenario, depth_m
 
 
 @pytest.fixture(scope="module")
@@ -155,6 +155,80 @@ def test_flush_refuses_sorption_and_columns():
     assert any("flush" in p for p in Scenario(mode="flush", exchange_meq=10.0).problems())
     assert not Scenario(mode="flush").problems()
     assert Scenario(mode="flush", flush_fraction=0.0).problems()
+
+
+def test_burial_follows_the_pore_water(engine):
+    """A foram and a pteropod resting below the calcite saturation horizon of the Ceara Rise column and buried
+    20 cm.  The pore-water values here are synthetic test inputs, not measurements: with bottom water all the
+    way down both shells dissolve in the first step (years, against the kyr of burial); with a pore water of
+    higher alkalinity the calcite is saturated and the foram survives while the pteropod still dissolves."""
+    from reaction.app.scenario import example_card
+    import dataclasses
+    card = dataclasses.replace(example_card("ceara"), sinking=False, depth_axis=False, burial=True,
+                               p_start_bar=451.0, p_end_bar=451.0, steps=6, sedimentation_cm_kyr=2.0,
+                               burial_depth_cm=20.0)
+    assert not card.problems() and card.burial_kyr == 10.0
+    assert card.burial_cm(card.tp(1.0)[1]) == pytest.approx(20.0)
+    assert card.tp(0.0)[0] == card.tp(1.0)[0] == pytest.approx(card.profile_at(depth_m(451.0))[0])
+    bare = engine.run(card)
+    run = bare["modes"]["flush"]
+    assert bare["varies"][:2] == ["burial", "time"] and "temperature_c" not in bare["varies"]
+    assert bare["axes"]["burial"]["values"][-1] == 20.0 and bare["axes"]["time"]["unit"] == "kyr"
+    assert bare["axes"]["time"]["values"][-1] == 10.0
+    assert run["saturation"]["calcite"][0] < 0 and run["minerals"]["calcite"][-1] < 1e-12
+    assert any("no pore-water profile" in n for n in bare["notes"])
+    pore = engine.run(dataclasses.replace(card, porewater_profile=[[0, 2400, 2250], [20, 2600, 2400]]))
+    run = pore["modes"]["flush"]
+    assert all(x > 0 for x in run["saturation"]["calcite"])
+    assert run["minerals"]["calcite"][-1] * 100.087e6 == pytest.approx(20.0, rel=1e-6)
+    assert run["minerals"]["aragonite"][-1] < 1e-12
+    assert any("pore-water profile (2 depths, 0 to 20 cm" in n for n in pore["notes"])
+
+
+def test_burial_in_a_sediment_column(engine):
+    """Burial through the pore water of the sediment column (Hales and Emerson 1997, Station A values: 4000 m,
+    65% CaCO3, O2 flux 24 umol/cm2/yr, k 125%/day, n 4.5).  The sedimentation rate (2 cm/kyr) is a test
+    value, not a Ceara Rise measurement.  Above the saturation horizon, metabolic CO2 still dissolves calcite
+    in the top centimetres: the foram loses part of its mass, the pteropod all of it."""
+    from reaction.app.scenario import example_card
+    import dataclasses
+    card = dataclasses.replace(example_card("ceara"), sinking=False, depth_axis=False, burial=True,
+                               p_start_bar=406.3, p_end_bar=406.3, steps=11, sedimentation_cm_kyr=2.0,
+                               burial_depth_cm=10.0, sediment_column=True, porosity=0.65, caco3_wt_pct=65.0,
+                               sediment_k_pct_day=125.0, sediment_n=4.5, o2_flux_umol_cm2_yr=24.0, co2_per_o2=0.64,
+                               respiration_depth_cm=0.5)
+    assert not card.problems()
+    res = engine.run(card)
+    run = res["modes"]["flush"]
+    cal = [v * 100.087e6 for v in run["minerals"]["calcite"]]
+    assert run["saturation"]["calcite"][0] > 0 > run["saturation"]["calcite"][1]   # undersaturated below
+    assert 5.0 < cal[-1] < 19.0 and cal[-1] == pytest.approx(cal[-2], rel=0.01)     # loss in the top cm only
+    assert run["minerals"]["aragonite"][-1] < 1e-12
+    assert any("Hales and Emerson" in n and "umol CaCO3 per cm2" in n for n in res["notes"])
+    missing = dataclasses.replace(card, sediment_k_pct_day=None).problems()
+    assert any("sediment_k_pct_day" in p for p in missing)
+    # without mixing the foram keeps exp(-int lam dz / w) of its mass: about 57% for these values
+    assert cal[-1] == pytest.approx(11.5, abs=0.3)
+    mixed = engine.run(dataclasses.replace(card, mixed_layer_cm=8.0, biodiffusion_cm2_yr=0.2))
+    left = mixed["modes"]["flush"]["kinetic"]["mixed:calcite"]
+    assert left[0] == pytest.approx(left[-1], rel=0.05)        # well mixed through the layer
+    assert 100.0 * cal[-1] / 20.0 < left[-1] < 70.0            # mixing preserves more (well-mixed limit 64%)
+    assert mixed["catalog"]["kinetic"]["mixed:calcite"]["label"].endswith("left, mixed")
+    assert dataclasses.replace(card, mixed_layer_cm=8.0).problems()
+
+
+def test_burial_checks_its_inputs():
+    import dataclasses
+    rx = [{"name": "forams", "amount": 2e-5, "unit": "g"}]
+    ok = Scenario(burial=True, kinetics=True, reactants=rx)
+    assert not ok.problems()
+    assert any("burial" in p for p in dataclasses.replace(ok, kinetics=False).problems())
+    assert dataclasses.replace(ok, sedimentation_cm_kyr=0.0).problems()
+    assert dataclasses.replace(ok, porewater_profile=[[0, 2400]]).problems()
+    assert dataclasses.replace(ok, porewater_profile=[[5, 2400, 2250], [0, 2600, 2400]]).problems()
+    card = dataclasses.replace(ok, porewater_profile=[[0, 2400, 2250], [10, 2600, 2450]])
+    assert card.porewater_at(5.0) == pytest.approx((2500e-6, 2350e-6))
+    assert card.porewater_at(50.0) == pytest.approx((2600e-6, 2450e-6))
 
 
 @pytest.mark.parametrize("key", ["rainwater", "vent_fluid", "formation_brine"])

@@ -47,7 +47,7 @@ from .. import catabolic, isotopes, marine
 from . import analysis, config, rocks
 from .fluids import AIR_LOG_FO2, PRESETS, preset
 from .names import pretty_mineral, pretty_species
-from .scenario import ALWAYS_EXCLUDED, MODE_LABELS, Scenario, is_shell, reactant_ssa_m2_g
+from .scenario import ALWAYS_EXCLUDED, MODE_LABELS, Scenario, depth_m, is_shell, reactant_ssa_m2_g
 
 Progress = Callable[[float, str], None]
 
@@ -89,20 +89,22 @@ def marine_water(db, sc: Scenario, spec) -> tuple[float, float, float] | None:
     return s, ta, dic
 
 
-def marine_log_omega(water: tuple[float, float, float], mineral: str):
+def marine_log_omega(water, mineral: str):
     """log Omega of calcite or aragonite at (t_c, p_bar) in this marine water, or None outside the
-    constants' range (the rate law then uses the database's saturation)."""
-    s, ta, dic = water
-
+    constants' range (the rate law then uses the database's saturation).  ``water`` is (salinity, TA, DIC)
+    or a function of the pressure giving them (a water profile)."""
     @lru_cache(maxsize=4096)
     def at(t_c: float, p_bar: float):
+        s, ta, dic = water(p_bar) if callable(water) else water
         if not marine.in_range(s, t_c, p_bar):
             return None
         return math.log10(getattr(marine.solve(s, t_c, p_bar, ta, dic), f"omega_{mineral}"))
-    return lambda t_c, p_bar: at(round(t_c, 4), round(p_bar, 3))
+    # pressure to 1e-6 bar: a buried shell moves 1 cm per 0.001 bar, and the pore water changes over mm
+    return lambda t_c, p_bar: at(round(t_c, 4), round(p_bar, 6))
 
 
 SINKING_KINETIC_TOL = 3e-4      # see _march
+BURIAL_KINETIC_TOL = 3e-3       # buried shell: 11.61 ug against the exact 11.46 (1.3%); 3e-4 gives 11.50 at 3x the time
 
 
 def sinking_speed(ug: float) -> float:
@@ -110,12 +112,6 @@ def sinking_speed(ug: float) -> float:
     w = 10^2.06 W^0.64 m/day (about 500 m/day at 10 µg).  Spines and cytoplasm change it; the measured
     spread is wide (G. glutinata, 3 µg: about 330 m/day; G. menardii, 27 µg: about 1100 m/day)."""
     return 10.0 ** 2.06 * max(ug, 0.01) ** 0.64 / 86400.0
-
-
-def depth_m(p_bar: float) -> float:
-    """Depth in the ocean at this pressure: about 10 m per bar below the 1 atm at the surface (a column of
-    seawater of mean density 1.033 g/cm3; within about 1% of the UNESCO pressure-depth relation to 6 km)."""
-    return max(p_bar - 1.01325, 0.0) * 1e5 / (1033.0 * 9.81)
 
 
 class _Evaporation(Reactant):
@@ -384,8 +380,15 @@ class Engine:
                 days = next(iter(sink.values()))
                 axes["time"] = {"key": "time", "label": "Time sinking", "unit": "days",
                                 "values": [_sig(d) for d in days]}
-            varies = ["time"] + varies
-            if sc.depth_axis:                    # a shell sinking: pressure read as depth in seawater
+            if sc.burial:
+                axes["time"] = {"key": "time", "label": "Time since burial began", "unit": "kyr",
+                                "values": [_sig(sc.burial_kyr * i / last) for i in range(len(points))]}
+                axes["burial"] = {"key": "burial", "label": "Depth below the seafloor", "unit": "cm",
+                                  "values": [_sig(sc.burial_depth_cm * i / last) for i in range(len(points))]}
+                varies = ["burial", "time"] + varies
+            else:
+                varies = ["time"] + varies
+            if sc.depth_axis and not sc.burial:      # a shell sinking: pressure read as depth in seawater
                 axes["depth"] = {"key": "depth", "label": "Depth", "unit": "m",
                                  "values": [_sig(depth_m(pt[1])) for pt in points]}
                 varies = ["depth"] + varies
@@ -744,19 +747,31 @@ class Engine:
             moles = r["amount"] / mw if r["unit"] == "g" else r["amount"]
             law = None
             if sc.kinetics and self.db.species[name].kind == Kind.MINERAL:
-                law = (sc.seawater_rates and seawater_rate_law(name, sc.carbonate_rates == "seawater_dong")) \
+                law = (sc.seawater_rates and seawater_rate_law(name, sc.carbonate_rates == "seawater_dong",
+                                                           lab=sc.carbonate_rates == "seawater_lab")) \
                     or rate_law(name)
-                if isinstance(law, SeawaterCarbonateLaw) and self._marine is not None:
+                ssa0 = reactant_ssa_m2_g(r, shells=sc.seawater_rates) or sc.surface_area_cm2_per_g * 1e-4
+                if isinstance(law, SeawaterCarbonateLaw) and sc.burial and sc.sediment_column:
+                    # the sediment's law, k (1 - Omega)^n per mole: per m2 of this reactant's surface
+                    law = SeawaterCarbonateLaw(
+                        regimes=((math.log10(sc.sediment().k_per_s() / (ssa0 * mw)), sc.sediment_n, 1.0),),
+                        e_kj=0.0, source=f"the sediment's, {sc.sediment_k_pct_day:g}% per day x (1 - Omega)^"
+                                         f"{sc.sediment_n:g} (Hales and Emerson 1997, GCA 61, 501, Eqn. 4)")
+                if isinstance(law, SeawaterCarbonateLaw) and getattr(self, "_column", None) is not None:
+                    z, log_omega = self._column_omega(sc, name)
+                    law = dataclasses.replace(law, mineral=name, omega=(
+                        lambda t_c, p_bar, z=z, w=log_omega: float(np.interp(sc.burial_cm(p_bar), z, w))))
+                elif isinstance(law, SeawaterCarbonateLaw) and self._marine is not None:
                     law = dataclasses.replace(law, omega=marine_log_omega(self._marine, name), mineral=name)
             ssa = reactant_ssa_m2_g(r, shells=sc.seawater_rates)
-            shell = law is not None and is_shell(r) and sc.seawater_rates
+            shell = law is not None and is_shell(r) and sc.seawater_rates and not (sc.burial and sc.sediment_column)
             if law is not None and notes is not None and (ssa or isinstance(law, SeawaterCarbonateLaw)):
                 label = r["name"] if r["name"].lower() == name.lower() else f"{r['name']} ({pretty_mineral(name)})"
                 note = (f"{label[0].upper()}{label[1:]}: reactive surface "
                         + (f"{ssa:g} m2 per g (BET, about {ssa * 1e4 / max(sc.surface_area_cm2_per_g, 1e-9):,.0f} "
                            f"times the card's {sc.surface_area_cm2_per_g:g} cm2 per g)" if ssa else
                            f"{sc.surface_area_cm2_per_g:g} cm2 per g")
-                        + (f" at the start, rising as the shell dissolves (its pores widen and its walls thin: the "
+                        + (f" at the start, the surface per gram rising as the shell dissolves (its pores widen and its walls thin: the "
                            f"whole surface goes as (mass left / mass)^{sc.shell_area_exponent:.3g})"
                            if shell else "")
                         + f"; rate law {law.source}.")
@@ -768,7 +783,8 @@ class Engine:
                 speed = (lambda done, moles=moles, mw=mw: sinking_speed((moles - done) * mw * 1e6))
             out.append(mineral_reactant(system, name, moles, rates=(moles / span, 0.0, 0.0),
                                         rate_law=law, area=(ssa if ssa else area) * moles * mw,
-                                        area_exponent=sc.shell_area_exponent if shell else 2.0 / 3.0,
+                                        area_exponent=(1.0 if sc.burial and sc.sediment_column and law is not None
+                                                       else sc.shell_area_exponent if shell else 2.0 / 3.0),
                                         speed=speed))
         if steady and notes is not None:
             notes.append(f"No measured rate for {', '.join(steady)}: "
@@ -892,7 +908,20 @@ class Engine:
         suppress = [name for name, kind in zip(system.net.phase_names, system.net.phase_kind)
                     if kind == Kind.MINERAL and (name.lower() in blocked or not sc.minerals_form)]
         self._marine = marine_water(db, sc, sp0) if sc.seawater_rates and sp0 is not None else None
-        if self._marine is not None:
+        self._column = None
+        self._column_cache = {}
+        if self._marine is not None and sc.burial:
+            self._marine = self._burial_water(sc, self._marine, notes)
+        elif self._marine is not None and sc.water_profile:
+            self._marine = lambda p_bar: sc.profile_at(depth_m(p_bar))[1:]
+            z = [row[0] for row in sc.water_profile]
+            note = (f"Calcite and aragonite saturation from the marine carbonate system (Lueker et al. 2000 K1 and "
+                    f"K2, Mucci 1983 solubility, Millero 1995 pressure terms, as PyCO2SYS), with the temperature, "
+                    f"salinity, alkalinity and DIC of the card's water profile ({len(z)} depths, {z[0]:g} to "
+                    f"{z[-1]:g} m, linear between them), and the rates use it.")
+            if note not in notes:
+                notes.append(note)
+        elif self._marine is not None:
             s, ta, dic = self._marine
             note = (f"Calcite and aragonite saturation from the marine carbonate system (Lueker et al. 2000 K1 and "
                     f"K2, Mucci 1983 solubility, Millero 1995 pressure terms, as PyCO2SYS): salinity {s:.2f}, "
@@ -918,7 +947,7 @@ class Engine:
                             # a sinking shell's mass is the result: at the general 0.03 the foram example ended
                             # 0.27 ug (5% of what dissolved) from its value as the tolerance goes to zero;
                             # 3e-4 brings that to about 0.03 ug, at about 4 times the run time
-                            kinetic_tol=SINKING_KINETIC_TOL if sc.sinking else 0.03)
+                            kinetic_tol=SINKING_KINETIC_TOL if sc.sinking else BURIAL_KINETIC_TOL if sc.burial else 0.03)
 
         xis = [f * last * step for f in sc.fractions()]
         where = {round(x, 9): i for i, x in enumerate(xis)}
@@ -934,13 +963,14 @@ class Engine:
         if sc.sinking and kinetic:
             run["sink_days"] = self._sink_days(kinetic, run, step)
         if self._marine is not None:                 # the saturation the rates see, at each point
-            s, ta, dic = self._marine
             for mineral in ("calcite", "aragonite"):
                 if mineral in run.get("saturation", {}):
+                    seen = marine_log_omega(self._marine, mineral)
                     run["saturation"][mineral] = [
-                        _sig(math.log10(getattr(marine.solve(s, t, p, ta, dic), f"omega_{mineral}")))
-                        if marine.in_range(s, t, p) else v
+                        v if (w := seen(t, p)) is None else _sig(w)
                         for (t, p), v in zip(points, run["saturation"][mineral])]
+        if self._column is not None and sc.bioturbation:
+            self._bioturbate(sc, kinetic, run, notes)
         add_partition(run, sc)
         if separate is not None:
             run["split"] = [split.get(round(x, 9)) for x in xis]
@@ -951,6 +981,97 @@ class Engine:
         elif sc.isotopes:
             run["isotopes"] = self._isotopes(sc, bulk0, reactants, solved, points, notes)
         return run
+
+    def _burial_water(self, sc: Scenario, bottom: tuple[float, float, float], notes: list[str]):
+        """The marine water a buried test meets, as a function of the pore pressure: the salinity of the bottom
+        water (the water profile at the seafloor, else the card's water), and the alkalinity and DIC of the
+        pore-water profile at that depth below the seafloor, or of the bottom water without one."""
+        seafloor = depth_m(sc.p_start_bar)
+        if sc.profile_ok():
+            bottom = sc.profile_at(seafloor)[1:]
+        s = bottom[0]
+        src = (f"the card's water profile at the seafloor ({seafloor:.0f} m)" if sc.profile_ok()
+               else "the card's water")
+        if sc.sediment_column:
+            from ..porewater import solve_column
+            sed = sc.sediment()
+            col = solve_column(sed, s, sc.tp(0.0)[0], sc.p_start_bar, bottom[1], bottom[2],
+                               depth_cm=max(sc.burial_depth_cm, 10.0, 2.0 * (sc.mixed_layer_cm or 0.0)))
+            self._column = (col, s)
+            show = [z for z in (0.0, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0) if z <= col.z_cm[-1]]
+            omegas = ", ".join(f"{float(np.interp(z, col.z_cm, col.omega)):.3f} at {z:g} cm" for z in show)
+            note = (f"Pore water from the sediment (the steady diffusion-reaction model of Hales and Emerson 1997, "
+                    f"GCA 61, 501): calcite {sed.caco3_wt_pct:g} wt%, porosity {sed.porosity:g}, dissolving at "
+                    f"{sed.k_pct_day:g}% per day x (1 - Omega)^{sed.n:g}; O2 consumed {sed.o2_flux_umol_cm2_yr:g} "
+                    f"umol/cm2/yr over an e-folding depth of {sed.resp_depth_cm:g} cm, {sed.beta:g} CO2 per O2; "
+                    f"bottom water of {src}. Calcite Omega {omegas}; the sediment dissolves "
+                    f"{col.flux_umol_cm2_yr:.3g} umol CaCO3 per cm2 per year. The buried shells dissolve at the "
+                    f"same rate constant per mass as the sediment's calcite (aragonite on its own saturation state), "
+                    f"an assumption: Hales and Emerson find the Ceara Rise calcite mostly in the 8-64 um fraction, "
+                    f"finer than a foram test.")
+            water = lambda p_bar: (s, *col.at(sc.burial_cm(p_bar)))                  # noqa: E731
+        elif sc.porewater_at(0.0) is not None:
+            z = [row[0] for row in sc.porewater_profile]
+            note = (f"Buried test: calcite and aragonite saturation from the marine carbonate system (Lueker et al. "
+                    f"2000 K1 and K2, Mucci 1983 solubility, Millero 1995 pressure terms, as PyCO2SYS), with the "
+                    f"temperature and salinity of {src} and the alkalinity and DIC of the card's pore-water profile "
+                    f"({len(z)} depths, {z[0]:g} to {z[-1]:g} cm below the seafloor, linear between them, held "
+                    f"at its ends); the rates use it.")
+            water = lambda p_bar: (s, *sc.porewater_at(sc.burial_cm(p_bar)))          # noqa: E731
+        else:
+            note = (f"Buried test: no pore-water profile on the card, so the pore water is the bottom water of "
+                    f"{src} all the way down (salinity {s:.2f}, alkalinity {bottom[1] * 1e6:.0f} and DIC "
+                    f"{bottom[2] * 1e6:.0f} umol/kg). Real pore water changes with depth as organic matter is "
+                    f"respired and carbonate dissolves, so this is a bound, not a prediction: measured pore water "
+                    f"(porewater_profile) is needed for the sediment's own effect.")
+            water = tuple(bottom)
+        notes.append(f"Burial: {sc.burial_depth_cm:g} cm at {sc.sedimentation_cm_kyr:g} cm per thousand years, "
+                     f"{sc.burial_kyr:g} thousand years; the test is taken as held at its depth in the sediment "
+                     f"(no bioturbation or compaction) and the pore pressure as hydrostatic.")
+        notes.append(note)
+        return water
+
+    def _column_omega(self, sc: Scenario, mineral: str) -> tuple[np.ndarray, np.ndarray]:
+        """log Omega of calcite or aragonite in the sediment column's pore water on a fine grid of depth below
+        the seafloor (cm): the column's nodes and 3001 even steps, computed once per run."""
+        col, salinity = self._column
+        cache = self._column_cache
+        key = (id(col), mineral.lower())
+        if key not in cache:
+            t_c, p_bar = sc.tp(0.0)
+            z = np.unique(np.concatenate([col.z_cm, np.linspace(0.0, col.z_cm[-1], 3001)]))
+            ta = np.interp(z, col.z_cm, col.ta)
+            dic = np.interp(z, col.z_cm, col.dic)
+            cache[key] = (z, np.array([math.log10(getattr(marine.solve(salinity, t_c, p_bar, a, d),
+                                                          f"omega_{mineral.lower()}")) for a, d in zip(ta, dic)]))
+        return cache[key]
+
+    def _bioturbate(self, sc: Scenario, kinetic: list, run: dict, notes: list[str]) -> None:
+        """The mean mass left in the buried shells when biodiffusion mixes the top of the sediment
+        (porewater.mixed_mass_left), at each depth of the burial run, as kinetic "mixed:" series."""
+        from ..porewater import mixed_mass_left
+        k_yr = sc.sediment().k_per_s() * 365.25 * 86400.0
+        w = sc.sedimentation_cm_kyr / 1000.0
+        depths = [sc.burial_depth_cm * f for f in sc.fractions()]
+        said = []
+        for r in kinetic:
+            mineral = (r.mineral or "").lower()
+            if mineral not in ("calcite", "aragonite"):
+                continue
+            z, log_omega = self._column_omega(sc, mineral)
+            omega = 10.0 ** log_omega
+            lam = k_yr * np.clip(1.0 - omega, 0.0, None) ** sc.sediment_n
+            left = mixed_mass_left(z, lam, w, sc.biodiffusion_cm2_yr, sc.mixed_layer_cm)
+            run.setdefault("kinetic", {})[f"mixed:{r.name}"] = [_sig(100.0 * float(np.interp(d, z, left)))
+                                                                for d in depths]
+            below = float(np.interp(sc.mixed_layer_cm, z, left))
+            said.append(f"{r.name} {100.0 * below:.3g}%")
+        if said:
+            notes.append(f"Bioturbation: biodiffusion {sc.biodiffusion_cm2_yr:g} cm2/yr through a {sc.mixed_layer_cm:g} cm "
+                         f"mixed layer, burial {sc.sedimentation_cm_kyr:g} cm/kyr (the 'left, mixed' series on the Rates "
+                         f"tab): the mean mass left in the tests at the base of the mixed layer is "
+                         + ", ".join(said) + ". This is the mean over many tests (each loses mass in proportion to its "
+                         "mass, so the mean follows the biodiffusion equation exactly); single tests scatter about it.")
 
     @staticmethod
     def _sink_days(kinetic: list, run: dict, step: float) -> dict[str, list]:
@@ -1670,7 +1791,8 @@ def _catalog(db, runs: dict[str, dict], sc: Scenario) -> dict:
         for k in run.get("kinetic", {}):
             what, name = k.split(":", 1)
             shown = pretty_mineral(name) if name in db.species else name
-            kinetic[k] = {"label": f"{shown} rate" if what == "rate" else f"{shown} left",
+            kinetic[k] = {"label": f"{shown} rate" if what == "rate" else
+                          f"{shown} left, mixed" if what == "mixed" else f"{shown} left",
                           "unit": ("mol/s" if name in db.species else "g/s") if what == "rate" else "% of start"}
     composition = {}
     for run in runs.values():

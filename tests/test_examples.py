@@ -62,7 +62,7 @@ def test_sinking_foram_crosses_the_lysocline(runs):
     assert ug[at(2500)] - ug[at(4000)] < 1.5                                        # slow just below it
     assert ug[at(4000)] - ug[at(5000)] > 8 * (ug[at(2500)] - ug[at(4000)])          # the lysocline
     assert all(a >= b for a, b in zip(ug, ug[1:]))
-    assert 8 < ug[-1] < 17                                  # about 6 days at the Takahashi and Be speed
+    assert 18.5 < ug[-1] < 19.6          # about 6 days at the Takahashi and Be speed, at the in-situ rates
     days = run["axes"]["time"]["values"]
     assert 5 < days[-1] < 7 and card.sinking
     ca = run["elements"]["Ca"]
@@ -76,10 +76,35 @@ def test_pteropod_aragonite_starts_dissolving_shallower(runs):
     first = lambda v: next(i for i in range(1, len(v)) if v[i] < v[0] - 1e-4)       # noqa: E731
     assert first(arag) < first(cal)
     assert all(a < c for a, c in zip(arag_sat, cal_sat))
-    half = lambda v: next(i for i in range(len(v)) if v[i] < 10)                    # noqa: E731
-    assert depth[half(arag)] < 5300 and arag[-1] < 0.1 and cal[-1] > 8
+    assert arag[-1] < 12 and cal[-1] > 18 and arag[-1] < cal[-1] - 5
     alone = _shell(runs["forams"], "calcite")[1]                      # flush: fresh water at each step, so the
     assert max(abs(a - b) for a, b in zip(cal, alone)) < 0.05          # pteropod cannot shelter the foram
+
+
+def test_ceara_rise_profile_keeps_the_foram_to_the_saturation_horizon(runs):
+    """The measured Ceara Rise column (GLODAPv2.2023): calcite-saturated to about 4.3 km, so the foram keeps
+    its mass there and loses only a little by 4.6 km; the temperature follows the profile."""
+    run = runs["ceara"]
+    depth, ug, sat = _shell(run, "calcite")
+    horizon = depth[next(i for i, x in enumerate(sat) if x < 0)]
+    assert 4000 < horizon < 4500
+    assert all(u > 19.999 for z, u in zip(depth, ug) if z < horizon - 100)
+    assert 19.99 < ug[-1] < 20.0
+    _, arag, asat = _shell(run, "aragonite")
+    assert all(x > 0 for z, x in zip(depth, asat) if 1200 < z < 2500)    # aragonite-saturated mid-column
+    assert asat[-1] < 0 and 19.5 < arag[-1] < 19.9                        # the pteropod loses ~1.5% by 4.6 km
+    card = example_card("ceara")
+    assert [r["name"] for r in card.reactants] == ["forams", "pteropods"]
+    assert card.tp(0.0)[0] == pytest.approx(card.profile_at(987.0)[0], abs=0.05)
+
+
+def test_water_profile_interpolates_and_holds_its_ends():
+    from reaction.app.scenario import Scenario
+    card = Scenario(water_profile=[[0.0, 20.0, 35.0, 2300.0, 2000.0], [1000.0, 4.0, 34.0, 2320.0, 2200.0]])
+    assert card.profile_at(500.0) == pytest.approx((12.0, 34.5, 2310e-6, 2100e-6))
+    assert card.profile_at(3000.0) == pytest.approx((4.0, 34.0, 2320e-6, 2200e-6))
+    assert Scenario(water_profile=[[1000.0, 4, 34, 2320, 2200], [0.0, 20, 35, 2300, 2000]]).problems()
+    assert Scenario(water_profile=[[0.0, 20, 35, 2300]]).problems()
 
 
 def test_evaporating_lake_lays_down_salts_in_order(runs):

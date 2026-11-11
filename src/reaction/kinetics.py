@@ -124,8 +124,10 @@ def basalt_glass(si_moles_per_unit: float) -> RateLaw:
 # r = A * k(T) * (1 - Omega)^n, A the BET surface (m2), k in mol m-2 s-1.  Each regime is a pair
 # (log k at 5 C, n, Omega below which it was fitted); the faster regime sets the rate, through a smooth
 # maximum, so the rate and its slope are continuous where the fits meet.
-NAVIAUX_SOURCE = ("Naviaux et al. (2019), Geochim. Cosmochim. Acta 246, 363-384 "
-                  "(calcite in seawater, BET-normalized, 5 C fits)")
+NAVIAUX_SOURCE = ("Naviaux et al. (2019), Mar. Chem. 215, 103684 (calcite in seawater, BET-normalized: the in-situ "
+                  "lower bound recommended there for water-column dissolution)")
+NAVIAUX_LAB_SOURCE = ("Naviaux et al. (2019), Geochim. Cosmochim. Acta 246, 363-384 "
+                      "(calcite in filtered, poisoned seawater in the laboratory, BET-normalized, 5 C fits)")
 DONG_SOURCE = ("Dong et al. (2019), Earth Planet. Sci. Lett. 515, 1-12 "
                "(aragonite in seawater, 0.013 g/g/day (1 - Omega)^1.37 at 5 C on 2.46 m2/g)")
 
@@ -161,9 +163,9 @@ class SeawaterCarbonateLaw:
         f = self.k_factor(t_c)
         # a smooth maximum of the regimes, (sum r_i^s)^(1/s): each fit holds where it is the faster, the
         # corner between them is rounded (a solver sees no kink), and at the crossover the rate is
-        # 2^(1/s) times either fit.  Naviaux et al.'s two calcite fits cross at Omega = 0.79, next to the
-        # 0.75 at which they split their data.  (Cala et al. 2024 round the same corner with an error
-        # function.)
+        # 2^(1/s) times either fit.  The in-situ fits cross at Omega = 0.83, next to the 0.8 at which Naviaux
+        # et al. (2019, Mar. Chem.) split their data; the laboratory fits at 0.79, next to 0.75.  (Cala et al.
+        # 2024 round the same corner with an error function.)
         log_r = [lk + n * math.log10(1.0 - omega) for lk, n, _below in self.regimes]
         top = max(log_r)
         s = SMOOTHNESS
@@ -188,18 +190,34 @@ class SeawaterCarbonateLaw:
 # what sets them apart is aragonite's higher solubility.  Their own 0.013 g/g/day law ("seawater_dong")
 # is far slower per m2 than Naviaux's calcite fits away from equilibrium, which would make a pteropod
 # outlast a foram in water more corrosive to it; it is kept as an option.
-NAVIAUX_FITS = ((-9.07, 0.34, 1.0), (-6.01, 4.81, 0.75))
+NAVIAUX_LAB_FITS = ((-9.07, 0.34, 1.0), (-6.01, 4.81, 0.75))
+# The default (Douglas, 2026-11-11): Naviaux et al. (2019), Mar. Chem. 215, 103684, abstract and Section 5: calcite
+# dissolves about 4 times slower in situ (N. Pacific, 1.9-4.9 C) than in the laboratory, which they trace to dissolved
+# organic carbon on the surface; for particles formed in and sinking out of surface water they recommend the lower
+# bound R = 10^-14.3+-0.2 (1 - Omega)^0.11+-0.1 mol cm-2 s-1 for 0.8 < Omega < 1 and 10^-10.8+-0.4 (1 - Omega)^4.7+-0.7
+# below 0.8.  Their in-situ Omega is from alkalinity and pH, which they find 5-10% below Omega from alkalinity and
+# DIC (what Reaction computes): with Omega(Alk, DIC) these rates set in somewhat deeper than they would.  The
+# temperature dependence is still the laboratory 25 kJ/mol, about the 5 C of their fits.
+NAVIAUX_FITS = ((-10.3, 0.11, 1.0), (-6.8, 4.7, 0.8))
 SEAWATER_CARBONATE = {
     "calcite": SeawaterCarbonateLaw(NAVIAUX_FITS, 25.0, NAVIAUX_SOURCE),
     "aragonite": SeawaterCarbonateLaw(NAVIAUX_FITS, 25.0,
-                                      "Naviaux et al. (2019) calcite fits on aragonite's own saturation state "
-                                      "(same mechanisms in seawater: Dong et al. 2019, Earth Planet. Sci. Lett. 515, 1-12)"),
+                                      "Naviaux et al. (2019, Mar. Chem. 215) in-situ calcite fits on aragonite's own "
+                                      "saturation state (same mechanisms in seawater: Dong et al. 2019, Earth Planet. "
+                                      "Sci. Lett. 515, 1-12)"),
+    "calcite_lab": SeawaterCarbonateLaw(NAVIAUX_LAB_FITS, 25.0, NAVIAUX_LAB_SOURCE),
+    "aragonite_lab": SeawaterCarbonateLaw(NAVIAUX_LAB_FITS, 25.0,
+                                          "Naviaux et al. (2019, GCA 246) laboratory calcite fits on aragonite's own "
+                                          "saturation state"),
     "aragonite_dong": SeawaterCarbonateLaw(((math.log10(0.013 / 2.46 / 100.087 / 86400.0), 1.37, 1.0),),
                                            30.0, DONG_SOURCE),
 }
 
 
-def seawater_rate_law(mineral: str, dong_aragonite: bool = False) -> SeawaterCarbonateLaw | None:
+def seawater_rate_law(mineral: str, dong_aragonite: bool = False,
+                      lab: bool = False) -> SeawaterCarbonateLaw | None:
     if mineral == "aragonite" and dong_aragonite:
         return SEAWATER_CARBONATE["aragonite_dong"]
+    if lab and mineral in ("calcite", "aragonite"):
+        return SEAWATER_CARBONATE[f"{mineral}_lab"]
     return SEAWATER_CARBONATE.get(mineral)
