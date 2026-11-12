@@ -1270,22 +1270,39 @@ EXAMPLES: dict[str, Example] = {e.key: e for e in (
              ("blocked_minerals", "Blocked: silica polymorphs and minerals of metamorphic rocks (lawsonite, "
                                   "paragonite, ...) that cannot form in a soil.")),
             ("Ca", "Na", "Si")),
-    Example("serpentinization", "Serpentinization", "Mantle and solid solutions",
-            "Seawater reacts with 1 kg of mantle olivine (Fo90) at 300 C and 300 bar. Olivine turns to serpentine, "
-            "brucite and magnetite, and the iron that goes to magnetite makes hydrogen. With solid solutions on, "
-            "the serpentine takes about 4% of its iron sites as greenalite, which leaves less iron for magnetite and "
-            "lowers the H2 from about 0.29 to 0.17 mol/kg. Brucite stays pure: the database has no Fe(OH)2.",
+    Example("serpentinization", "Serpentinization", "Mantle, rates and solid solutions",
+            "A reduced salt water reacts with 1 kg of mantle olivine (Fo90) per kg of water at 300 C and 500 bar for "
+            "three years. The olivine reacts at the serpentinization rate measured by Malvoisin et al. (2012), times "
+            "how far it is from equilibrium, so it nearly stops above about 350 C at this pressure. About 84% of the "
+            "olivine reacts, to serpentine, brucite and magnetite; the iron that goes to magnetite makes hydrogen, "
+            "about 0.22 mol/kg. The serpentine and the brucite are Mg-Fe mixtures: about 5% of the serpentine "
+            "is greenalite and about 8% of the brucite is Fe(OH)2, and the iron they hold makes no "
+            "hydrogen. The reaction takes up water: about 0.85 kg of the kilogram is left. Change the temperature, "
+            "the pressure, the amount of olivine, the grain surface or the fluid to see what each does.",
             {"title": "Serpentinization of mantle olivine", "t_start_c": 300.0, "t_end_c": 300.0,
-             "p_start_bar": 300.0, "p_end_bar": 300.0, "steps": 20, "solid_solutions": True,
+             "p_start_bar": 500.0, "p_end_bar": 500.0, "steps": 20, "solid_solutions": True, "kinetics": True,
+             "duration": 3.0, "duration_unit": "years", "surface_area_cm2_per_g": 413.0,
+             "activity_model": "bgamma", "fluid": "custom", "analysis": "Na 0.56\nCl 0.56\nH2 0.001",
+             "units": "molal", "ph": 7.0, "redox": "auto",
              "reactants": [{"name": "olivine fo90", "amount": 1000.0, "unit": "g"}],
              "blocked_minerals": DEFAULT_BLOCKED + ["antigorite"]},
-            (("solid_solutions", "Solid solutions: Can form. Serpentine forms as a chrysotile-greenalite mixture "
-                                 "(Mg and Fe on its three octahedral sites)."),
-             ("reactants", "Reactant: 1000 g olivine Fo90 (90% forsterite), dissolving congruently."),
+            (("kinetics", "How they react: At measured rates. Olivine reacts at the serpentinization rate of "
+                          "Malvoisin et al. (2012, J. Geophys. Res. 117, B04102), measured from 250 to 350 C, times "
+                          "1 - Omega of the olivine; outside that range the rate is extrapolated."),
+             ("duration", "Run for 3 years: the x axis is time."),
+             ("surface_area_cm2_per_g", "Surface area 413 cm2 per g, the geometric surface of smooth 44 um grains; "
+                                        "the rate is proportional to it."),
+             ("analysis", "Fluid: 0.56 molal NaCl with 1 mmol/kg H2, a reduced water that has already met "
+                          "peridotite."),
+             ("activity_model", "Activities: b-gamma (extended Debye-Hueckel)."),
+             ("solid_solutions", "Solid solutions: Can form. Serpentine is a chrysotile-greenalite mixture and "
+                                 "brucite a brucite-Fe(OH)2 mixture, both mixing ideally."),
+             ("reactants", "Reactant: 1000 g olivine Fo90 (90% forsterite) per kg of water, dissolving "
+                           "congruently."),
              ("blocked_minerals", "Blocked: antigorite, the high-temperature serpentine, which is too slow to "
                                   "form here (seafloor serpentinites are lizardite and chrysotile)."),
-             ("t_start_c", "Held at 300 C and 300 bar.")),
-            ("serpentine", "brucite", "magnetite")),
+             ("t_start_c", "Held at 300 C and 500 bar.")),
+            ("serpentine", "ferroan brucite", "magnetite")),
     Example("kinetics", "Calcite dissolving", "Kinetics",
             "One gram of calcite grains dissolves in rainwater at 25 C over twelve hours at its measured rate "
             "(Palandri and Kharaka 2004). The rate is fast at first and falls to zero as the water approaches "

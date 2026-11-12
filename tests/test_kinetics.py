@@ -188,3 +188,33 @@ def test_takahashi_be_sinking_speed():
     from reaction.app.engine import sinking_speed
     assert sinking_speed(10.0) * 86400 == pytest.approx(10 ** 2.06 * 10 ** 0.64)       # about 500 m/day
     assert 450 < sinking_speed(10.0) * 86400 < 550
+
+
+# ---- olivine serpentinization (Malvoisin et al. 2012 rate, the database's driving force) ----------------
+def test_olivine_law_reproduces_malvoisin_rates_and_its_saturation():
+    law = kinetics.olivine_serpentinization(1.0, 1.0)            # forsterite, per mole
+    spec = _Spec(300.0, 7.0)
+    spec.saturation = {"forsterite": -50.0}                      # far from equilibrium
+    # 6.86 % per 1000 h at 300 C on 44 um spheres, divided by the 0.604 driving force of the fit
+    measured = 6.86 / 100 / 3.6e6 / (0.91 * 140.69 + 0.09 * 203.77) / (6 / (3.3e6 * 44e-6))
+    assert law.rate(spec, 1.0) == pytest.approx(measured / 0.6037, rel=0.03)
+    spec.saturation = {"forsterite": 0.0}
+    assert law.rate(spec, 1.0) == pytest.approx(0.0, abs=1e-20)
+    # Fo90: log Omega = 0.9 (SI_fo - 2 log 0.9) + 0.1 (SI_fa - 2 log 0.1), zero for the ideal olivine
+    fo90 = kinetics.olivine_serpentinization(0.9, 1.0)
+    spec.saturation = {"forsterite": 2 * math.log10(0.9), "fayalite": 2 * math.log10(0.1)}
+    assert fo90.log_omega(spec) == pytest.approx(0.0, abs=1e-12)
+
+
+def test_olivine_fo90_serpentinizes_at_its_measured_rate_and_stops_above_equilibrium(engine):
+    def run(t_c):
+        card = kinetic_card(fluid="custom", analysis="Na 0.56\nCl 0.56", units="molal", ph=7.0, redox="none",
+                            temperature_c=t_c, pressure_bar=500, duration=1000, duration_unit="hours",
+                            activity_model="bgamma", surface_area_cm2_per_g=413.0,
+                            reactants=[{"name": "olivine fo90", "amount": 100.0, "unit": "g"}])
+        result = engine.run(card)
+        assert any("Malvoisin" in n for n in result["notes"])
+        return result["modes"]["static"]["kinetic"]["left:Olivine (Fo90)"][-1]
+    # Malvoisin et al. (2012): 6.86 % per 1000 h at 300 C (38-50 um grains, Fo91, pure water or NaCl)
+    assert 100.0 - run(300.0) == pytest.approx(6.86, rel=0.6)
+    assert 100.0 - run(360.0) < 0.1                            # above Teq: olivine is stable

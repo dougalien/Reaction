@@ -117,6 +117,59 @@ def basalt_glass(si_moles_per_unit: float) -> RateLaw:
                    affinity=False, per_unit=1.0 / si_moles_per_unit)
 
 
+# Olivine turning to serpentine at 250-350 C.  Laboratory dissolution constants (Palandri and Kharaka's
+# forsterite) extrapolated to 300 C give rates orders of magnitude faster than olivine actually serpentinizes,
+# as Malvoisin et al. (2012) also found with CHESS.  This law takes the measured serpentinization rate as
+# the far-from-equilibrium rate and lets the database supply the driving force (1 - Omega).
+# Derivation (scripts/malvoisin_rate.py): stage I rates of 38-50 um San Carlos olivine (Fo91) at
+# 500 bar, 4.91, 5.96 and 6.86 % per 1000 h at 250, 270 and 300 C (Malvoisin et al. 2012, section 3.4, para. 19), on the
+# surface of smooth 44 um spheres of 3.3 g/cm3, divided by 1 - Omega of forsterite in a fluid buffered by
+# chrysotile + brucite (this database, a_H2O = 1, 500 bar), and fitted as ln k = a - E/RT.  The 350 C rate
+# (0.15 % per 1000 h) was left out of the fit and is predicted within 11% (tests/test_kinetics.py), but 350 C
+# is within 0.5 C of the equilibrium temperature, so that check is only as good as the log K.
+# The constant at 25 C is only how the fit is stored: the law is measured from 250 to 350 C, at 500 bar, and
+# its surface is geometric (about 400 cm2/g for 44 um grains), not BET.
+MALVOISIN_SOURCE = ("serpentinization of olivine: rate of Malvoisin et al. (2012), J. Geophys. Res. 117, B04102 "
+                    "(San Carlos olivine, 500 bar, 250-300 C, per m2 of geometric surface), times 1 - Omega of the "
+                    "olivine from this database; measured from 250 to 350 C, extrapolated outside")
+MALVOISIN_LOG_K25 = -11.174              # mol m-2 s-1, ln k = -11.855 - 4136.3 / T
+MALVOISIN_E_KJ = 34.39
+MALVOISIN_T_RANGE_C = (250.0, 350.0)
+
+
+@dataclass(frozen=True)
+class OlivineRateLaw(RateLaw):
+    """A rate law for olivine (Fe,Mg)2SiO4 of fixed composition ``x_fo`` that dissolves congruently: its
+    saturation is that of the ideal two-site solid solution of the solid-solution table,
+    log Omega = x_fo (SI_fo - 2 log x_fo) + x_fa (SI_fa - 2 log x_fa), from the fluid's saturation
+    indices of forsterite and fayalite."""
+    x_fo: float = 0.9
+
+    def log_omega(self, spec: Speciation) -> float | None:
+        out = 0.0
+        for name, x in (("forsterite", self.x_fo), ("fayalite", 1.0 - self.x_fo)):
+            if x <= 0.0:
+                continue
+            si = spec.saturation.get(name)
+            if si is None:
+                return None
+            out += x * (si - 2.0 * math.log10(x))
+        return out
+
+    def rate(self, spec: Speciation, area_m2: float, saturation: float | None = None) -> float:
+        log_omega = self.log_omega(spec)
+        if log_omega is None:
+            raise ValueError("olivine rate law: forsterite or fayalite saturation is not available")
+        return RateLaw.rate(self, spec, area_m2, log_omega)
+
+
+def olivine_serpentinization(x_fo: float, mol_per_unit: float) -> OlivineRateLaw:
+    """Serpentinization rate law for olivine with forsterite fraction ``x_fo``; ``mol_per_unit`` is moles of
+    olivine (one Si each) per reactant unit (per gram, for a rock reactant)."""
+    return OlivineRateLaw((Mechanism("serpentinization", MALVOISIN_LOG_K25, MALVOISIN_E_KJ),),
+                          source=MALVOISIN_SOURCE, affinity=True, per_unit=1.0 / mol_per_unit, x_fo=x_fo)
+
+
 # Calcite and aragonite in seawater, near equilibrium.  Laboratory constants such as Palandri and
 # Kharaka's are for pure water far from equilibrium and linear in (1 - Omega); in seawater the rate falls
 # much faster as Omega approaches 1, and the measured rates are normalized to the BET (gas-adsorption)

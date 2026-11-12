@@ -125,7 +125,7 @@ def test_boiling_vents_co2_and_scales_calcite(runs):
 
 def test_serpentinization_makes_iron_serpentine_and_hydrogen(runs):
     run = runs["serpentinization"]
-    assert {"serpentine", "brucite", "magnetite"} <= _formed(run)
+    assert {"serpentine", "ferroan brucite", "magnetite"} <= _formed(run)
     assert 0.01 < run["composition"]["serpentine:greenalite"][-1] < 0.1
     assert 0.1 < run["species"]["H2"][-1] < 0.25
 
