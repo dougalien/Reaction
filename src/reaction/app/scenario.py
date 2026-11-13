@@ -175,6 +175,9 @@ class Scenario:
     # bound of Naviaux et al. 2019, Mar. Chem. 215), "seawater_lab" (their filtered-seawater laboratory fits,
     # GCA 246) or "seawater_dong" (aragonite after Dong et al. 2019); see kinetics.SEAWATER_CARBONATE
     carbonate_rates: str = "lab"
+    # olivine (with kinetics): the Avrami reaction-progress law of Malvoisin et al. (2012, eqs. A1-A2), the grain
+    # radius from the surface area as smooth spheres of 3.3 g/cm3, instead of their initial rate on a shrinking surface
+    olivine_avrami: bool = False
     # read the pressure as depth in seawater (about 10 m per bar) and plot the kinetic run against it, for
     # a shell sinking through the water column
     depth_axis: bool = False
@@ -978,7 +981,7 @@ def _coerce(key: str, value: Any) -> Any:
             raise ValueError(f"'{value}' is not ratio or temperature")
         return low
     if key in ("gas_phase", "kinetics", "solid_solutions", "isotopes", "clay_edges", "redox_apart", "minerals_form",
-               "energy", "depth_axis", "sinking", "burial", "sediment_column"):
+               "energy", "depth_axis", "sinking", "burial", "sediment_column", "olivine_avrami"):
         if isinstance(value, str):
             low = value.strip().lower()
             if low in ("true", "yes", "on", "1", "allowed", "allow"):
@@ -1272,8 +1275,9 @@ EXAMPLES: dict[str, Example] = {e.key: e for e in (
             ("Ca", "Na", "Si")),
     Example("serpentinization", "Serpentinization", "Mantle, rates and solid solutions",
             "A reduced salt water reacts with 1 kg of mantle olivine (Fo90) per kg of water at 300 C and 500 bar for "
-            "three years. The olivine reacts at the serpentinization rate measured by Malvoisin et al. (2012), times "
-            "how far it is from equilibrium, so it nearly stops above about 350 C at this pressure. About 84% of the "
+            "three years. The olivine follows the reaction-progress law of Malvoisin et al. (2012), which speeds up as "
+            "etch pits and fractures open new surface, times how far it is from equilibrium, so it nearly stops above "
+            "about 350 C at this pressure. About 85% of the "
             "olivine reacts, to serpentine, brucite and magnetite; the iron that goes to magnetite makes hydrogen, "
             "about 0.22 mol/kg. The serpentine and the brucite are Mg-Fe mixtures: about 5% of the serpentine "
             "is greenalite and about 8% of the brucite is Fe(OH)2, and the iron they hold makes no "
@@ -1281,17 +1285,20 @@ EXAMPLES: dict[str, Example] = {e.key: e for e in (
             "the pressure, the amount of olivine, the grain surface or the fluid to see what each does.",
             {"title": "Serpentinization of mantle olivine", "t_start_c": 300.0, "t_end_c": 300.0,
              "p_start_bar": 500.0, "p_end_bar": 500.0, "steps": 20, "solid_solutions": True, "kinetics": True,
-             "duration": 3.0, "duration_unit": "years", "surface_area_cm2_per_g": 413.0,
+             "duration": 3.0, "duration_unit": "years", "surface_area_cm2_per_g": 413.0, "olivine_avrami": True,
              "activity_model": "bgamma", "fluid": "custom", "analysis": "Na 0.56\nCl 0.56\nH2 0.001",
              "units": "molal", "ph": 7.0, "redox": "auto",
              "reactants": [{"name": "olivine fo90", "amount": 1000.0, "unit": "g"}],
              "blocked_minerals": DEFAULT_BLOCKED + ["antigorite"]},
-            (("kinetics", "How they react: At measured rates. Olivine reacts at the serpentinization rate of "
-                          "Malvoisin et al. (2012, J. Geophys. Res. 117, B04102), measured from 250 to 350 C, times "
-                          "1 - Omega of the olivine; outside that range the rate is extrapolated."),
+            (("kinetics", "How they react: At measured rates. Olivine follows the Avrami reaction-progress law of "
+                          "Malvoisin et al. (2012, J. Geophys. Res. 117, B04102, eqs. A1-A2), measured from 250 to "
+                          "350 C on 5-150 um grains, with their equilibrium factor replaced by 1 - Omega of the "
+                          "olivine; outside that range the rate is extrapolated. They saw at most about 90% reaction "
+                          "(brucite armoring)."),
+             ("olivine_avrami", "Olivine rate: reaction-progress (Avrami) law, Malvoisin et al. (2012)."),
              ("duration", "Run for 3 years: the x axis is time."),
-             ("surface_area_cm2_per_g", "Surface area 413 cm2 per g, the geometric surface of smooth 44 um grains; "
-                                        "the rate is proportional to it."),
+             ("surface_area_cm2_per_g", "Surface area 413 cm2 per g, the geometric surface of smooth 44 um grains "
+                                        "(radius 22 um, which sets the rate)."),
              ("analysis", "Fluid: 0.56 molal NaCl with 1 mmol/kg H2, a reduced water that has already met "
                           "peridotite."),
              ("activity_model", "Activities: b-gamma (extended Debye-Hueckel)."),
@@ -1597,6 +1604,9 @@ FIELD_HELP = {
     "sinking": "true (with kinetics): the reactant is a particle sinking through the water column from the start "
                "to the end pressure, at the speed its mass gives (Takahashi and Bé 1984), recomputed as it "
                "dissolves; the duration is then not used",
+    "olivine_avrami": "true (with kinetics): olivine follows the reaction-progress (Avrami) law of Malvoisin et "
+                      "al. (2012, eqs. A1-A2), which speeds up as etch pits and fractures make new surface, times "
+                      "1 - Omega; grain radius from the surface area as smooth spheres; grains of 5 um and up",
     "depth_axis": "true: read the pressure as depth in seawater (about 10 m per bar) and plot a kinetic run "
                   "against depth, for a shell sinking through the water column",
     "carbonate_rates": "rate laws for calcite and aragonite: lab (default; Palandri and Kharaka 2004, far from "

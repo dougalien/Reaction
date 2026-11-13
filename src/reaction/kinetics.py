@@ -170,6 +170,74 @@ def olivine_serpentinization(x_fo: float, mol_per_unit: float) -> OlivineRateLaw
                           source=MALVOISIN_SOURCE, affinity=True, per_unit=1.0 / mol_per_unit, x_fo=x_fo)
 
 
+# Olivine serpentinization as reaction progress, after Malvoisin et al. (2012), J. Geophys. Res. 117, B04102,
+# Appendix A.  Their fit to San Carlos olivine (Fo91, 500 bar, 250-350 C, initial grain sizes 5-150 um) is
+#   zeta = 1 - exp(-k f1(T) (t / R^2)^n)                                    (their eq. A2)
+#   f1(T) = A exp(-b / T) (1 - exp(-c (1/T - 1/T0)))                        (their eq. A1)
+# with t in hours, R the initial grain radius in um, A = 808.3, b = 3640 K, c = 8759 K, T0 = 623.6 K, and
+# k, n from their Fig. A2: 0.008514 and 1.459 for 5 um < IGS < 50 um (run 22); for IGS >= 50 um two curves,
+# 0.01333 and 1.289 (dissolution) and 8.561e-7 and 5.400 (dissolution enhanced by grain fracturing; run 2).
+# Below 5 um the law does not hold (their section 4.1).  The sigmoidal shape is the creation of new surface by
+# etch pits and fracturing (their para. 34); brucite armoring limits the measured progress to about 90 %
+# (para. 29, 36), which they rescaled to 100 %.
+# Adaptations made here (not in the paper): (1) A2 is used in its rate form at the current progress,
+#   d zeta / dt = n K^(1/n) (1 - zeta) (-ln(1 - zeta))^((n - 1)/n),  K = k f(T) / R^(2n),
+# exact at constant T, so the rate follows changing conditions; with n > 1 it is zero at zeta = 0, so it is
+# evaluated at no less than ZETA_SEED.  (2) Their temperature-only equilibrium factor
+# 1 - exp(-c (1/T - 1/T0)) is replaced by 1 - Omega of the olivine from this database, so the fluid and the
+# pressure set where the reaction stops (T0 = 350.5 C is where this database puts it at 500 bar).  (3) For
+# IGS >= 50 um the faster of the two curves at the current progress is used, which is how their Fig. A2d reads.
+MALVOISIN_AVRAMI_SOURCE = ("serpentinization of olivine as reaction progress: Avrami law of Malvoisin et al. (2012), "
+                           "J. Geophys. Res. 117, B04102, eqs. A1-A2 and Fig. A2 (San Carlos olivine, 500 bar, "
+                           "250-350 C, grains 5-150 um), in rate form, with their equilibrium factor replaced by "
+                           "1 - Omega of the olivine from this database; they observed at most about 90 % reaction "
+                           "(brucite armoring)")
+MALVOISIN_A1 = (808.3, 3640.0)          # A, b (K)
+MALVOISIN_AVRAMI_SMALL = ((0.008514, 1.459),)                     # 5 um < IGS < 50 um
+MALVOISIN_AVRAMI_LARGE = ((0.01333, 1.289), (8.561e-7, 5.400))    # IGS >= 50 um
+ZETA_SEED = 1e-4
+
+
+@dataclass(frozen=True)
+class OlivineAvramiLaw(OlivineRateLaw):
+    """Malvoisin et al. (2012) eq. A2 in rate form; reads the reaction progress, not the surface."""
+    grain_radius_um: float = 22.0
+    needs_progress: bool = True
+
+    def curves(self) -> tuple[tuple[float, float], ...]:
+        igs = 2.0 * self.grain_radius_um
+        if igs < 5.0:
+            raise ValueError(f"olivine grains of {igs:.1f} um: Malvoisin et al. (2012) found that their law does "
+                             f"not hold below 5 um")
+        return MALVOISIN_AVRAMI_SMALL if igs < 50.0 else MALVOISIN_AVRAMI_LARGE
+
+    def rate_progress(self, spec: Speciation, fraction: float, amount: float) -> float:
+        """Reactant units per second (positive reacts), at progress ``fraction`` of ``amount``."""
+        if amount <= 0.0 or fraction >= 1.0:
+            return 0.0
+        log_omega = self.log_omega(spec)
+        if log_omega is None:
+            raise ValueError("olivine rate law: forsterite or fayalite saturation is not available")
+        a, b = MALVOISIN_A1
+        t_k = spec.temperature_c + 273.15
+        f = a * math.exp(-b / t_k) * (1.0 - 10.0 ** min(log_omega, 30.0))
+        if f <= 0.0:                     # at or past equilibrium: the law is for the forward reaction only
+            return 0.0
+        z = min(max(fraction, ZETA_SEED), 1.0 - 1e-12)
+        best = 0.0
+        for k, n in self.curves():
+            big_k = k * f / self.grain_radius_um ** (2.0 * n)
+            best = max(best, n * big_k ** (1.0 / n) * (1.0 - z) * (-math.log(1.0 - z)) ** ((n - 1.0) / n))
+        return best / 3600.0 * amount
+
+
+def olivine_avrami(x_fo: float, grain_radius_um: float) -> OlivineAvramiLaw:
+    law = OlivineAvramiLaw((), source=MALVOISIN_AVRAMI_SOURCE, affinity=True, x_fo=x_fo,
+                           grain_radius_um=grain_radius_um)
+    law.curves()                         # refuse grains below 5 um at once
+    return law
+
+
 # Calcite and aragonite in seawater, near equilibrium.  Laboratory constants such as Palandri and
 # Kharaka's are for pure water far from equilibrium and linear in (1 - Omega); in seawater the rate falls
 # much faster as Omega approaches 1, and the measured rates are normalized to the BET (gas-adsorption)

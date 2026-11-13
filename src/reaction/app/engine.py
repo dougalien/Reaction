@@ -32,7 +32,7 @@ from ..constants import WATER_MOLES_PER_KG
 from ..database import load_data0
 from ..database.model import Kind
 from ..equilibrium import REDOX_APART, System, redox_intermediates
-from ..kinetics import (MALVOISIN_T_RANGE_C, SeawaterCarbonateLaw, basalt_glass, olivine_serpentinization,
+from ..kinetics import (olivine_avrami, MALVOISIN_T_RANGE_C, SeawaterCarbonateLaw, basalt_glass, olivine_serpentinization,
                         rate_law, seawater_rate_law)
 from ..network import ORGANIC_LIGANDS, PROTON, WATER, organic_held_apart
 from ..path import PathPoint, ReactionPath, Reactant, _composition_row, bulk_over, mineral_reactant
@@ -737,8 +737,14 @@ class Engine:
                 if sc.kinetics and rock.key == "basalt_glass":
                     law = basalt_glass(rocks.elements_per_gram(rock)[0]["Si"])
                 elif sc.kinetics and rock.key.startswith("olivine_fo"):
-                    law = olivine_serpentinization(float(rock.key[len("olivine_fo"):]) / 100.0,
-                                                   rocks.elements_per_gram(rock)[0]["Si"])
+                    x_fo = float(rock.key[len("olivine_fo"):]) / 100.0
+                    if sc.olivine_avrami:
+                        radius_um = 3.0 / (3.3 * sc.surface_area_cm2_per_g) * 1e4
+                        law = olivine_avrami(x_fo, radius_um)
+                        if notes is not None:
+                            notes.append(f"{rock.label}: {law.source}; grain radius {radius_um:.0f} um.")
+                    else:
+                        law = olivine_serpentinization(x_fo, rocks.elements_per_gram(rock)[0]["Si"])
                     if notes is not None:
                         t_lo, t_hi = MALVOISIN_T_RANGE_C
                         temps = [t for t, _p in sc.points()]
