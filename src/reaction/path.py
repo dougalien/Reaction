@@ -254,7 +254,11 @@ class ReactionPath:
         out = {}
         for r in self.kinetic:
             done = reacted.get(r.name, 0.0)
-            rate = r.rate_law.rate(state.speciation, r.surface(done), sat.get(r.mineral) if r.mineral else None)
+            if getattr(r.rate_law, "needs_progress", False):
+                rate = r.rate_law.rate_progress(state.speciation, done / r.amount if r.amount > 0 else 1.0,
+                                                r.amount)
+            else:
+                rate = r.rate_law.rate(state.speciation, r.surface(done), sat.get(r.mineral) if r.mineral else None)
             out[r.name] = rate / r.speed(done) if r.speed is not None else rate
         return out
 
