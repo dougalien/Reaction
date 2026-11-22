@@ -1,0 +1,19 @@
+cff-version: 1.2.0
+message: "If you use Reaction in your work, please cite it as below."
+title: "Reaction: open geochemical reaction-path modelling"
+type: software
+authors:
+  - name: "Dougalien Systems"
+version: 0.1.0
+license: GPL-3.0-or-later
+repository-code: "https://github.com/dougalien/Reaction"
+abstract: >-
+  Reaction computes aqueous speciation, mineral equilibrium, reaction paths and kinetics
+  from the OBIGT (HKF) database of CHNOSZ, IAPWS-95 water and PHREEQC's pitzer.dat, with a
+  browser interface for teaching and research.
+keywords:
+  - geochemistry
+  - aqueous speciation
+  - reaction path
+  - thermodynamics
+  - Pitzer

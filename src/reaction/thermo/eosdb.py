@@ -428,6 +428,8 @@ def load_eos_database(obigt_dir: str | Path, preset: str = "current",
         db.data_notes.append(
             "Methane data (OBIGT organic_aq.csv and organic_gas.csv) are missing from the data folder; "
             "run scripts/fetch_references.ps1 again to add them.")
+    from ..phreeqc_pitzer import add_pitzer_dat_only
+    add_pitzer_dat_only(db)          # used only with the Pitzer model; see Network(pitzer_dat=...)
     if isinstance(eq36_database, str) and eq36_database == "table":
         set_ion_sizes_from_table(db)
     elif eq36_database is not None:

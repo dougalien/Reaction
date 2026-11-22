@@ -332,7 +332,8 @@ def speciate(
                                   f"{switches[old]} instead")
     try:
         net = Network(db, core, switches=switches, decoupled=tuple(decoupled),
-                      suppress=suppress, suppress_phases=suppress_phases)
+                      suppress=suppress, suppress_phases=suppress_phases,
+                      pitzer_dat=activity_model == "pitzer")
     except NetworkError as exc:
         raise SpeciationError(str(exc)) from exc
     for d in decoupled:                  # an organic ligand given its own total carries its acids and complexes

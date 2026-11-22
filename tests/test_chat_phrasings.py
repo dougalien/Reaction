@@ -25,7 +25,7 @@ def plain(**kw):
 
 
 ROWS = [
-    # Douglas, 2026-10-26: a starting card's mixing must not ride along, and "not ... mix" must remove it
+    # a starting card's mixing must not ride along, and "not ... mix" must remove it
     (starting_card("hydrothermal"), "react the hydrothermal fluid with olivine at 300C and 500 bar at a W/R=1",
      {"fluid": "hydrothermal", "mix_with": "", "reactants": OLIVINE, "t_start_c": 300.0, "t_end_c": 300.0,
       "p_start_bar": 500.0}, True),

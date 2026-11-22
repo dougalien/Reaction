@@ -52,7 +52,8 @@ class System:
         hold_apart = tuple(hold_apart) + tuple(b for b in own if b not in hold_apart)
         try:
             self.net = Network(db, basis, switches=switches, suppress=suppress,
-                               suppress_phases=suppress_phases, decoupled=tuple(hold_apart))
+                               suppress_phases=suppress_phases, decoupled=tuple(hold_apart),
+                               pitzer_dat=activity_model == "pitzer")
         except NetworkError as exc:
             raise EquilibriumError(str(exc)) from exc
         for d in hold_apart:                         # its gas and its redox family follow it

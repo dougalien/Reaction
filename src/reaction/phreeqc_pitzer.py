@@ -452,3 +452,88 @@ def potential(data: "PitzerData", mapping: dict[str, tuple[str, float]], name: s
     if p is None:
         return None
     return p - water_off * data.potentials["H2O"]
+
+
+# ---- species and minerals that only pitzer.dat has ------------------------------------------------------
+PITZER_DAT = "pitzer_dat"           # Species.subtype of the entries added below; used only with Pitzer
+SKIP_ONLY = {"Labile_S"}            # a PHREEQC device for sulfur, not a mineral
+
+
+@lru_cache(maxsize=256)
+def _data_at(t_c: float, p_bar: float) -> "PitzerData":
+    return PitzerData.at(t_c, p_bar)
+
+
+class PitzerDatLogK:
+    """log K of a species or mineral defined only in pitzer.dat, written over the database's masters
+    (dissociation form, as the database's own reactions): -p(species) + sum(nu * p(master))."""
+
+    def __init__(self, pitzer_name: str, nu: dict[str, float], mapping: dict[str, tuple[str, float]]):
+        self.pitzer_name, self.nu, self.mapping = pitzer_name, dict(nu), mapping
+
+    def __call__(self, t_c: float, p_bar: float | None = None) -> float:
+        if p_bar is None:
+            from .thermo.eosdb import reference_pressure_bar
+            p_bar = reference_pressure_bar(t_c)
+        data = _data_at(round(float(t_c), 6), round(float(p_bar), 6))
+        total = -data.potentials[self.pitzer_name]
+        for k, c in self.nu.items():
+            total += c * potential(data, self.mapping, k)
+        return total
+
+    def extrapolated(self, t_c: float) -> bool:
+        return False
+
+
+def add_pitzer_dat_only(db) -> list[str]:
+    """Add to an EosDatabase the aqueous species and minerals that pitzer.dat defines and the database
+    lacks (borate complexes such as MgB(OH)4+ and CaB(OH)4+, and evaporite minerals such as glauberite,
+    polyhalite and kainite), with pitzer.dat's own log K and molar volumes.  They carry
+    ``subtype = PITZER_DAT`` and enter a reaction network only with the "pitzer" activity model, since
+    they have no HKF or Maier-Kelley data.  Returns the names added."""
+    from .database.model import Kind, Provenance, Species
+    from .thermo.eosdb import _formation, _Master
+    entries = read()
+    mapping = reaction_names(entries, db)
+    have = {v[0] for v in mapping.values()}
+    masters = {}
+    for sp in db.species.values():
+        if sp.kind != Kind.BASIS or sp.name in ("H2O", "H+", "O2(g)"):
+            continue
+        heavy = [el for el in sp.elements if el not in ("H", "O")]
+        if len(heavy) == 1 and sp.name in mapping:
+            masters[heavy[0]] = _Master(sp.name, dict(sp.elements), sp.charge)
+    added = []
+    for name, e in entries.items():
+        if name in have or e.kind == "gas" or name in SKIP_PHASES or name in SKIP_ONLY \
+                or any(el in name for el in SKIP_ELEMENTS) or name in ("e-", "H2O"):
+            continue
+        if e.kind == "aq":
+            target, z, els = name, charge(name), elements(name)
+        else:
+            target, z, els = PHASE_ALIASES.get(name, name.lower()), 0.0, elements(e.formula)
+        if not els or target in db:
+            continue
+        nu = _formation(els, z, masters)
+        if nu is None or "O2(g)" in nu or any(k not in mapping for k in nu):
+            continue
+        logk = PitzerDatLogK(name, nu, mapping)
+        try:
+            if not math.isfinite(logk(25.0, 1.01325)):
+                continue
+        except (KeyError, TypeError, ValueError):
+            continue
+        kind = Kind.AQUEOUS if e.kind == "aq" else Kind.MINERAL
+        db.species[target] = Species(
+            name=target, kind=kind, formula=e.formula or name, charge=z, elements=els, mol_wt=None,
+            a0=(4.0 if z else 3.0) if kind == Kind.AQUEOUS else None, activity_type=0,
+            reaction={target: -1.0, **nu}, logk=logk,
+            molar_volume=e.vm_phase or None, ref_state={},
+            provenance=Provenance("PHREEQC pitzer.dat", DATA.name, kind.value), subtype=PITZER_DAT)
+        mapping[target] = (name, 0)
+        added.append(target)
+    try:
+        db._pitzer_dat_names = mapping
+    except AttributeError:
+        pass
+    return added

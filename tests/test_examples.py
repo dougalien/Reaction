@@ -110,7 +110,10 @@ def test_water_profile_interpolates_and_holds_its_ends():
 def test_evaporating_lake_lays_down_salts_in_order(runs):
     run = runs["lake"]
     first = {m: next(i for i, x in enumerate(v) if x) for m, v in run["minerals"].items() if v and any(v)}
-    assert first["halite"] < first["anhydrite"] < first["epsomite"]
+    # as PHREEQC 3.7.3 with pitzer.dat (goergeyite blocked): halite, then bloedite, leonite and epsomite;
+    # Ca in glauberite, then polyhalite
+    assert first["halite"] < first["bloedite"] <= first["leonite"] <= first["epsomite"]
+    assert first["glauberite"] < first["polyhalite"]
     assert run["isotopes"]["d18O:water"][-1] > 10
 
 

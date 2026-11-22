@@ -1,7 +1,7 @@
 """Shared fixtures.
 
-External reference material is never stored in this repository.  By default the tests look in the
-app's data folder (``%LOCALAPPDATA%\\Reaction\\external``, or ``REACTION_DATA_DIR``), which holds
+The EQ3/6 database and test library are not stored in this repository (the OBIGT files are bundled
+in src/reaction/data/reference).  By default the tests look in the app's data folder (``%LOCALAPPDATA%\\Reaction\\external``, or ``REACTION_DATA_DIR``), which holds
 
     EQ36_DB/data0.cmp     the EQ3/6 v8.0a database (and the other data0.* files)
     EQ36_tests/           the EQ3/6 test library (contains 3tlib_cmp/ and 6tlib_cmp/)

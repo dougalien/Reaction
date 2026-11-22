@@ -7,6 +7,8 @@ name = "reaction"
 version = "0.1.0"
 description = "Open geochemical reaction-path modelling: speciation, equilibrium, kinetics"
 requires-python = ">=3.10"
+license = {text = "GPL-3.0-or-later"}
+classifiers = ["License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)"]
 dependencies = ["numpy>=1.24", "scipy>=1.10"]
 
 [project.scripts]

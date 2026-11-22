@@ -39,7 +39,7 @@
     <nav class="small">
       <a href="#databases">Databases</a><a href="#eos">Equations of state</a><a href="#activity">Activity models</a>
       <a href="#kinetics">Kinetics</a><a href="#energy">Catabolic energy</a><a href="#isotopes">Isotopes</a><a href="#phases">Brine and vapor</a>
-      <a href="#sorption">Sorption</a><a href="#fluids">Starting fluids and rocks</a><a href="#checks">Checks</a>
+      <a href="#sorption">Sorption</a><a href="#fluids">Starting fluids and rocks</a><a href="#checks">Checks</a><a href="#cite">How to cite</a>
     </nav>
   </section>
 
@@ -132,12 +132,16 @@
       <li>Marshall, W.L. and Franck, E.U. (1981) Ion product of water substance, 0–1000 °C, 1–10,000 bars. Journal of
         Physical and Chemical Reference Data 10, 295–304.
         <a href="https://doi.org/10.1063/1.555643" target="_blank" rel="noopener">doi:10.1063/1.555643</a>
-        <span class="use">Kept for comparison; it was the reliability reference until IAPWS R11-24 replaced it.</span></li>
-      <li>IAPWS (2024) Revised Release on the Ionization Constant of H2O, R11-24, with Bandura, A.V. and Lvov, S.N.
-        (2006) The ionization constant of water over wide ranges of temperature and density. Journal of Physical and
-        Chemical Reference Data 35, 15–30.
-        <a href="https://ui.adsabs.harvard.edu/abs/2006JPCRD..35...15B/abstract" target="_blank" rel="noopener">ADS 2006JPCRD..35...15B</a>;
-        <a href="https://doi.org/10.1063/5.0198792" target="_blank" rel="noopener">doi:10.1063/5.0198792</a>
+        <span class="use">The older water ionization equation, available in the code for comparison with IAPWS R11-24.</span></li>
+      <li>IAPWS (2024) Revised Release on the Ionization Constant of H2O, R11-24; the revised parameters are from
+        Arcis, H., Bachet, M., Dickinson, J.L., Duncanson, I., Eaker, R.W., Jarvis, J.M., Johnson, K.I., Lee, J.,
+        Lord, M., Marks, C. and Tremaine, P.R. (2024) Revised parameters for the IAPWS formulation for the ionization
+        constant of water over a wide range of temperatures and densities. Journal of Physical and Chemical Reference
+        Data 53, 023103.
+        <a href="https://doi.org/10.1063/5.0198792" target="_blank" rel="noopener">doi:10.1063/5.0198792</a>;
+        the equation is that of Bandura, A.V. and Lvov, S.N. (2006) The ionization constant of water over wide ranges
+        of temperature and density. Journal of Physical and Chemical Reference Data 35, 15–30.
+        <a href="https://doi.org/10.1063/1.1928231" target="_blank" rel="noopener">doi:10.1063/1.1928231</a>
         <span class="use">The reliability rating shown before each run and under the plot (0–1000 °C, to 1000 MPa).</span></li>
       <li>Peng, D.-Y. and Robinson, D.B. (1976) A new two-constant equation of state. Industrial &amp; Engineering
         Chemistry Fundamentals 15, 59–64.
@@ -181,7 +185,9 @@
         <a href="https://doi.org/10.3133/tm6A43" target="_blank" rel="noopener">doi:10.3133/tm6A43</a>;
         <a href="https://www.usgs.gov/software/phreeqc-version-3" target="_blank" rel="noopener">PHREEQC download</a>.
         <span class="use">The Pitzer parameters and, for the species and minerals it lists, the equilibrium
-        constants and molar volumes (<code>pitzer.dat</code>, public domain, shipped unchanged), the exchange and surface constants (<code>phreeqc.dat</code>) and the rate table (<code>phreeqc_rates.dat</code>).</span></li>
+        constants and molar volumes (<code>pitzer.dat</code>, public domain, shipped unchanged; with the Pitzer model its
+        evaporite minerals, such as glauberite, bloedite, polyhalite and kainite, and its borate complexes come from it
+        alone), the exchange and surface constants (<code>phreeqc.dat</code>) and the rate table (<code>phreeqc_rates.dat</code>).</span></li>
       <li>Appelo, C.A.J., Parkhurst, D.L. and Post, V.E.A. (2014) Equations for calculating hydrogeochemical reactions of
         minerals and gases such as CO2 at high pressures and temperatures. Geochimica et Cosmochimica Acta 125, 49–67.
         <a href="https://doi.org/10.1016/j.gca.2013.10.003" target="_blank" rel="noopener">doi:10.1016/j.gca.2013.10.003</a>
@@ -205,7 +211,8 @@
       <li>Lasaga, A.C. (1984) Chemical kinetics of water-rock interactions. Journal of Geophysical Research 89,
         4009–4025. <a href="https://doi.org/10.1029/JB089iB06p04009" target="_blank" rel="noopener">doi:10.1029/JB089iB06p04009</a>
         <span class="use">The form of the rate law.</span></li>
-      <li>Gislason, S.R. and Oelkers, E.H. (2003) Mechanism, rates, and consequences of basaltic glass dissolution.
+      <li>Gislason, S.R. and Oelkers, E.H. (2003) Mechanism, rates, and consequences of basaltic glass dissolution:
+        II. An experimental study of the dissolution rates of basaltic glass as a function of pH and temperature.
         Geochimica et Cosmochimica Acta 67, 3817–3832.
         <a href="https://doi.org/10.1016/S0016-7037(03)00176-5" target="_blank" rel="noopener">doi:10.1016/S0016-7037(03)00176-5</a>
         <span class="use">Basalt glass dissolution rate.</span></li>
@@ -307,7 +314,7 @@
   <section class="panel" id="isotopes">
     <h2>Isotope fractionation</h2>
     <ul>
-      <li>Vho, A., Lanari, P. and Rubatto, D. (2020) An internally-consistent database for oxygen isotope fractionation
+      <li>Vho, A., Lanari, P. and Rubatto, D. (2019) An internally-consistent database for oxygen isotope fractionation
         between minerals. Journal of Petrology 60, 2101–2129.
         <a href="https://doi.org/10.1093/petrology/egaa001" target="_blank" rel="noopener">doi:10.1093/petrology/egaa001</a> (CC BY 4.0)
         <span class="use">Mineral-water oxygen fractionation.</span></li>
@@ -333,7 +340,7 @@
         <a href="https://doi.org/10.1016/0016-7037(94)90096-5" target="_blank" rel="noopener">doi:10.1016/0016-7037(94)90096-5</a>
         <span class="use">δ18O and δD of water through evaporation and boiling, and of steam in the gas.</span></li>
       <li>Brenninkmeijer, C.A.M., Kraft, P. and Mook, W.G. (1983) Oxygen isotope fractionation between CO2 and H2O.
-        Chemical Geology (Isotope Geoscience Section) 1, 181–190.
+        Chemical Geology 41 (Isotope Geoscience Section 1), 181–190.
         <span class="use">δ18O of CO2 gas against the water.</span></li>
       <li>Mook, W.G. (1986) 13C in atmospheric CO2. Netherlands Journal of Sea Research 20, 211–223.
         <a href="https://doi.org/10.1016/0077-7579(86)90043-8" target="_blank" rel="noopener">doi:10.1016/0077-7579(86)90043-8</a>; after Vogel, J.C., Grootes, P.M. and Mook, W.G. (1970) Isotopic
@@ -439,7 +446,7 @@
         Professional Paper 440-G. <a href="https://doi.org/10.3133/pp440G" target="_blank" rel="noopener">doi:10.3133/pp440G</a></li>
       <li>Great Salt Lake brine: Drever, J.I. (1997) The Geochemistry of Natural Waters, 3rd ed., Prentice Hall; and
         Jones, B.F., Naftz, D.L., Spencer, R.J. and Oviatt, C.G. (2009) Geochemical evolution of Great Salt Lake, Utah,
-        USA. Aquatic Geochemistry 15, 123–195.
+        USA. Aquatic Geochemistry 15, 95–121.
         <a href="https://doi.org/10.1007/s10498-008-9047-y" target="_blank" rel="noopener">doi:10.1007/s10498-008-9047-y</a></li>
       <li>Basalt glass: close to the global mean of Gale, A., Dalton, C.A., Langmuir, C.H., Su, Y. and Schilling, J.-G.
         (2013) The mean composition of ocean ridge basalts. Geochemistry, Geophysics, Geosystems 14, 489–518.
@@ -470,6 +477,17 @@
         <span class="use">CO2 solubility with a gas phase.</span></li>
       <li>The 41 speciation cases of the EQ3/6 test library and PHREEQC 3.7.3 for cross-checks.</li>
     </ul>
+  </section>
+
+  <section class="panel" id="cite">
+    <h2>How to cite Reaction, and its license</h2>
+    <p>If you use Reaction in a study or a class, please cite it, together with the data and methods above
+      that your result rests on:</p>
+    <p>Dougalien Systems (2026) Reaction: open geochemical reaction-path modelling, version 0.1.0.
+      <a href="https://github.com/dougalien/Reaction" target="_blank" rel="noopener">https://github.com/dougalien/Reaction</a></p>
+    <p>Reaction is free software under the GNU General Public License, version 3 or later: anyone may use, copy,
+      change and share it at no cost, and copies that are passed on stay under the same license. It comes with
+      no warranty.</p>
   </section>
 </main>
 </body>

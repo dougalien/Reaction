@@ -1,5 +1,5 @@
-"""Build the Dougalien Systems letter marks (D, R, M): a letter cut from layered rock with a small fault.
-The layers and the fault are copied exactly from dougalien_mark.svg; only the letter outline changes."""
+"""Build the app letter marks.  D (Dougalien Systems) and M are cut from layered rock with a small fault,
+copied exactly from dougalien_mark.svg; R (Reaction) is the same letter outline in one plain colour."""
 import io, sys, cairosvg
 from PIL import Image
 
@@ -16,10 +16,13 @@ LETTERS = {
     "M": "M22 110 V10 H48 L63.5 50 L79 10 H105 V110 H81 V56 L68 88 H59 L46 56 V110 Z",
 }
 LABEL = {"D": "Dougalien Systems", "R": "Reaction", "M": "Magma"}
+PLAIN = {"R": "#2B3134"}          # letters drawn in one colour (the app's text colour) rather than layered rock
 
 def svg(letter):
-    return (f'<svg role="img" aria-label="{LABEL[letter]}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">'
-            f'<clipPath id="m"><path clip-rule="evenodd" d="{LETTERS[letter]}"/></clipPath>'
+    head = f'<svg role="img" aria-label="{LABEL[letter]}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120">'
+    if letter in PLAIN:
+        return head + f'<path fill-rule="evenodd" fill="{PLAIN[letter]}" d="{LETTERS[letter]}"/></svg>\n'
+    return (head + f'<clipPath id="m"><path clip-rule="evenodd" d="{LETTERS[letter]}"/></clipPath>'
             f'<g clip-path="url(#m)">{LAYERS}</g></svg>\n')
 
 def png(letter, size):

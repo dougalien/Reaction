@@ -16,7 +16,9 @@ Sci. 7, 180; function ``bgamma`` in ``R/nonideal.R``, GPL-3.0), transcribed here
 * 40, 50 and 60 kbar: CHNOSZ's own extrapolation of the 10-30 kbar values.
 The 10-60 kbar rows are kept below for reference but are not used here (see below).
 
-The numbers have not been checked here against the printed HKF81 table.  Each isobar is a cubic spline
+The 0.5-5 kbar values (0-500 C) agree number for number with the printed HKF81 Table 27 (p. 1466).
+HKF81 put in parentheses, as highly uncertain, every 5 kbar value, all values at 0 C, and those at
+25-75 C at 2, 3 and 4 kbar.  Each isobar is a cubic spline
 in T (Forsythe, Malcolm and Moler end conditions, as R's ``splinefun``), and at a given T the
 saturation row and the 0.5-5 kbar isobars are joined by a second such spline in P.
 

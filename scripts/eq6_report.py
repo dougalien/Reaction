@@ -6,7 +6,7 @@
 Reads the EQ3/6 data and test library from the app's data folder (``%LOCALAPPDATA%\\Reaction\\external``,
 or ``REACTION_DATA_DIR``): ``EQ36_DB/data0.cmp`` and ``EQ36_tests/6tlib_cmp``.  For each case it prints the
 number of compared values and how many fall outside the tolerances in ``validation/eq6_run.py``, then the
-worst few.  EQ6 is the oracle for the numerics only; it does not shape the design (docs/PRODUCT.md).
+worst few.  EQ6 is used as a numerical check only.
 """
 from __future__ import annotations
 

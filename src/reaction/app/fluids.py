@@ -146,7 +146,7 @@ PRESETS: dict[str, FluidPreset] = {
         8.25,
         "Great Salt Lake brine as tabulated by Drever (1997, The Geochemistry of Natural Waters, 3rd "
         "edition; mg/kg), a brine of about 25% salinity like the lake's concentrated stages and its "
-        "north arm (Jones and others 2009, Aquatic Geochemistry 15, 123-195); silica (48 mg/kg) left "
+        "north arm (Jones and others 2009, Aquatic Geochemistry 15, 95-121); silica (48 mg/kg) left "
         "out. The pH, not part of that analysis, puts the brine close to the atmosphere's CO2 "
         "(10^-3.39 bar against 10^-3.38) at 25 C with Pitzer activities and pitzer.dat constants; oxygen from equilibrium with air",
         charge_balance="auto", redox="air",

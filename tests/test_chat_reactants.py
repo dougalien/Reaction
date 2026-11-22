@@ -9,7 +9,7 @@ from reaction.app.session import Session
 
 from test_app import FakeEngine, ScriptedModel, wait
 
-DOUGLAS = "react seawater with olivine ((Fo88) at W/R=1 at 300C and 350 bar"
+REQUEST = "react seawater with olivine ((Fo88) at W/R=1 at 300C and 350 bar"
 
 
 @pytest.fixture
@@ -21,7 +21,7 @@ def session(tmp_path):
 
 
 def test_a_water_rock_ratio_sets_the_amount_and_the_temperature_is_held():
-    got = interpret_rules(DOUGLAS, Scenario())
+    got = interpret_rules(REQUEST, Scenario())
     assert got.scenario_changes == {"fluid": "seawater", "reactants": "1000 g olivine fo88",
                                     "temperature_c": 300.0, "pressure_bar": 350.0}
     assert not got.question
@@ -75,10 +75,11 @@ def test_an_unchanged_card_is_not_run_again(session):
 @pytest.mark.skipif(not (config.external_dir() / "OBIGT" / "inorganic_aq.csv").exists(),
                     reason="thermodynamic data not found; set REACTION_DATA_DIR")
 def test_seawater_serpentinizes_fo88_on_the_real_engine():
-    card, problems = Scenario().changed(interpret_rules(DOUGLAS, Scenario()).scenario_changes)
+    card, problems = Scenario().changed(interpret_rules(REQUEST, Scenario()).scenario_changes)
     card.steps = 8
     assert not problems and not card.problems()
     run = Engine().run(card)["modes"]["static"]
     formed = {k for k, v in run["minerals"].items() if v[-1] > 0}
-    assert {"brucite", "magnetite"} <= formed
+    assert "magnetite" in formed
+    assert "brucite" in formed or "ferroan brucite" in formed      # Fe-Mg brucite when solid solutions are on
     assert any(k in formed for k in ("antigorite", "chrysotile", "lizardite", "serpentine"))

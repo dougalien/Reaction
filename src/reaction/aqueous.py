@@ -66,7 +66,8 @@ class AqueousModel:
             # the Pitzer system's own complexes (NaCl, CaSO4, NaSO4- ...) are in its parameters
             cols = np.array([b in pitzer.COMPONENTS for b in net.basis])
             keep = [k for k, i in enumerate(dep_index)
-                    if net.dep_names[i] in pitzer.KEEP or np.any((net.nu_dep[i] != 0) & ~cols)]
+                    if net.dep_names[i] in pitzer.KEEP or np.any((net.nu_dep[i] != 0) & ~cols)
+                    or db[net.dep_names[i]].subtype == phreeqc_pitzer.PITZER_DAT]
             dep_index, logk_dep = dep_index[keep], logk_dep[keep]
         self.dep_index = dep_index
         self.nu = net.nu_dep[dep_index]
