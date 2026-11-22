@@ -5,8 +5,8 @@ The HKF equations that give logK of aqueous species at any T and P are calibrate
 There is no single reference that covers every species, but water itself is measured everywhere: the
 ionization constant of water is given from 0 to 1000 C and to 1000 MPa by the IAPWS Revised Release
 R11-24 (2024), the Bandura and Lvov (2006, J. Phys. Chem. Ref. Data 35, 15) equation with parameters
-re-fitted in 2024 to newer near-critical and supercritical data.  It replaces, here, the older Marshall
-and Franck (1981) equation, which is kept for comparison.
+re-fitted by Arcis et al. (2024, J. Phys. Chem. Ref. Data 53, 023103) to newer near-critical and supercritical
+data.  The older Marshall and Franck (1981) equation is kept for comparison.
 The engine's own logK for H2O = H+ + OH- depends on the same dielectric constant, g function and
 Born coefficients as every charged species, so its distance from the measured value is a cheap,
 independent indicator of how stretched the model is at that point.

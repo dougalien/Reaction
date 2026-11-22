@@ -79,7 +79,7 @@ def is_shell(r: dict) -> bool:
 def reactant_ssa_m2_g(r: dict, shells: bool = True) -> float | None:
     """The reactant's own BET surface (m2/g), or (with ``shells``) its shell default, or None (the card's
     surface area).  The shell defaults go with the seawater carbonate rates, which are per m2 of BET
-    surface; the laboratory constants are used with the card's surface area as before."""
+    surface; the laboratory constants are used with the card's surface area."""
     if r.get("ssa_m2_g"):
         return float(r["ssa_m2_g"])
     return SHELL_SSA_M2_G.get(str(r["name"]).strip().lower()) if shells else None

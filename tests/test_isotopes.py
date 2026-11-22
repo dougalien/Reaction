@@ -22,7 +22,7 @@ def _run(engine, **card):
 
 def test_fractionation_factors():
     f = isotopes.table()
-    # Vho et al. (2020): quartz-water 4.11, -3.33; quartz-calcite 0.39, 0.15
+    # Vho et al. (2019): quartz-water 4.11, -3.33; quartz-calcite 0.39, 0.15
     assert f[("O", "quartz")].delta(25.0) == pytest.approx(35.07, abs=0.02)
     assert f[("O", "calcite")].delta(25.0) == pytest.approx(30.18, abs=0.02)
     # Ohmoto and Rye (1979): calcite-CO2 about 10.1 permil at 25 C; Ohmoto and Lasaga (1982) sulfate-H2S

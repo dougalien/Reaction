@@ -1,144 +1,137 @@
 # Reaction
 
-A Dougalien Systems app ([dougalien.com](https://dougalien.com)).  Open geochemical reaction-path modelling in Python: aqueous speciation,
-equilibrium with minerals and gases, reaction paths and kinetics.  Early
-stage: speciation (B-dot, b-gamma, Davies or Pitzer activity models) works to 400 C and 1 kbar
-and reproduces all 41 speciation cases of the EQ3/6 test library; reaction
-paths and kinetics are next (see [docs/DESIGN.md](docs/DESIGN.md)).
+Geochemical reaction-path modelling in Python, from [Dougalien Systems](https://dougalien.com).
 
-## The calculator
+Reaction computes aqueous speciation, equilibrium with minerals, gases and solid solutions, reaction paths
+and mineral kinetics at any temperature from 0 to 600 °C and any pressure from 1 to 5000 bar. Equilibrium
+constants are calculated from Gibbs energies at every point of a run, so there are no fixed-pressure
+databases. Every number it reports comes from its own solver and from published data; the Sources page in
+the app lists each data set and equation with its reference.
 
-Reaction runs as a small local app with two browser windows that stay in step: a
-control window (scenario card, run history) and a results window (what we
-found, an interactive plot, a picker for any species, element, mineral or
-property).  Put one on each screen.  Nothing leaves your machine.
+## What it does
 
-```
-scripts\reaction.cmd            # starts the server and opens the control window
-```
+- Speciation of any water, from a preset (seawater, deep seawater, rainwater, fresh water, groundwater, karst
+  spring, vent fluid, formation brine, Great Salt Lake brine and others) or a pasted analysis with units and
+  automatic charge balance. Redox from a couple, air, log fO2, Eh or pe.
+- Reaction paths along a straight line in temperature and pressure, with reactants added steadily (minerals,
+  species, gases, rocks and basalt glass; water/rock ratio and titration), a second fluid mixed in, or water
+  evaporated. Static and flow-through modes.
+- Activity models: B-dot (Helgeson 1969, the default), b-gamma (Helgeson, Kirkham and Flowers 1981), Davies,
+  and Pitzer with PHREEQC's `pitzer.dat` for brines.
+- A free gas phase with Peng-Robinson fugacity coefficients.
+- Solid solutions (plagioclase, carbonates, chlorite, epidote, olivine, pyroxenes, Fe-Mg brucite and others).
+- Mineral kinetics from published rate laws (Palandri and Kharaka 2004 and others), including calcite and
+  aragonite dissolution in seawater (Naviaux et al. 2019; Dong et al. 2019).
+- The marine carbonate system from the oceanographic constants, as in PyCO2SYS.
+- Phase separation of saline fluids (NaCl-H2O after Driesner and Heinrich 2007).
+- Stable isotopes (δ18O, δD, δ13C, δ34S) and 87Sr/86Sr carried through the fluid and the minerals.
+- Ion exchange and surface complexation, and one-dimensional reactive transport through a column of cells.
+- Eh-pH, log fO2-pH and activity diagrams at any temperature and pressure.
+- Uncertainty bands: a run can be repeated with log K values varied by their estimated uncertainty.
+- A reliability rating for every point: the engine's water ionization constant is compared with IAPWS R11-24
+  (2024), which shows where the aqueous thermodynamics can be trusted.
 
-Or, without Python, double-click `Reaction.exe` (download it from the
-"Latest Windows build" release, rebuilt by `.github/workflows/windows-exe.yml`
-after each change, or build it with `packaging\build_exe.ps1`).  Its console
-window shows where the app runs; closing it stops the app.  The exe keeps its
-saved runs in `%LOCALAPPDATA%\Reaction\workspace`.
+Worked examples fill the scenario card with one click: basalt alteration, an evaporating lake, a
+contaminated stream, boiling, supercritical seawater, flow-through weathering, serpentinization, calcite
+dissolving, forams and pteropods sinking through the lysocline, acid mine drainage and a vent fluid mixing
+with seawater.
 
-The chat is switched off for now while its free-form reading is improved; the
-control window shows only the scenario card, in larger grouped panels (to bring
-the chat back, see the comment in `control.html`).  With the chat on, say what to model ("heat seawater to 350 C at 500 bar,
-both modes") or edit the card by hand, then press Run.  Use "Open results
-window" to get the second window.  Ask for plot changes in either window
-("plot CaCl+ instead of Ca++", "show anhydrite on a linear axis") or click.  If
-Ollama is running (default model `qwen2.5:7b`, override with
-`REACTION_OLLAMA_MODEL`), it fills the card and asks about anything missing;
-without it, plain rules read the obvious details.  The language model never
-produces numbers, only the card and the plot request.
+## Running it
 
-The thermodynamic data come with the app: the OBIGT csv files of CHNOSZ (GPL-3.0) in
-`src/reaction/data/reference/` and the EQ3/6 ion sizes, as numbers, in `src/reaction/data/ion_sizes_eq36.tsv`
-(see the NOTICE there).  A filled `%LOCALAPPDATA%\Reaction\external` (or `REACTION_DATA_DIR`) still
-takes precedence, as for the validation tests.  Saved runs go to `workspace/` (override with
-`REACTION_WORKSPACE`).  What exists so far is seawater along a straight
-temperature-pressure path (0 to 600 C, 1 to 5000 bar, either or both changing),
-static and flow-through.  There are no fixed-pressure databases: equilibrium
-constants are computed at every point, and the app rates how far to trust them
-there; see [docs/PRODUCT.md](docs/PRODUCT.md) for the plan and the accuracy map.
-
-## On the web (Streamlit)
-
-Reaction also runs as a hosted Streamlit app with the same two windows: Input (the scenario card, at the
-app's address) and Results (`/results`, opened from the "Open results window" button, so it can sit on a
-second screen).  The two windows share one session through a private `?w=` id in the address; each
-visitor has their own card and runs, and one copy of the thermodynamic data serves everyone, one run at a
-time.  The science code is the same; only the front end (`src/reaction/web/`) is new.
+### On the web (Streamlit)
 
     pip install -r requirements.txt
     streamlit run streamlit_app.py
 
-On Streamlit Community Cloud: New app, this repository, entry point `streamlit_app.py`.
+The app has an Input window (the scenario card) and a Results window (`/results`, opened from the "Open
+results window" button so it can sit on a second screen). The two share one session through a private `?w=`
+id in the address. Each visitor has their own card and runs.
 
-## Try it (library)
+### On your own computer
 
-Needs Python 3.10+, numpy and scipy.  The thermodynamic database is not part
-of this repository; point the importer at your own copy of an EQ3/6 `data0`
-file (`scripts/fetch_references.ps1` downloads EQ3/6 v8.0a for you).
+    pip install -e .
+    reaction-app
+
+This starts a local server and opens the control window in the browser; nothing leaves your machine. On
+Windows, `scripts\reaction.cmd` does the same. Saved runs go to `workspace/` (override with
+`REACTION_WORKSPACE`). `packaging/build_exe.ps1` builds a standalone Windows executable.
+
+The control window can also take requests in words through a local language model
+([Ollama](https://ollama.com), default model `qwen2.5:7b`, override with `REACTION_OLLAMA_MODEL`). The
+model only fills in the card and the plot request; it never produces numbers. This chat is switched off by
+default (see the comment in `src/reaction/app/static/control.html`).
+
+## Thermodynamic data
+
+The data Reaction computes with are bundled:
+
+- the OBIGT database of CHNOSZ 2.3.0 (HKF aqueous species, Berman and Maier-Kelley minerals, gases;
+  GPL-3.0) in `src/reaction/data/reference/OBIGT/`;
+- PHREEQC's `pitzer.dat` (public domain, U.S. Geological Survey) in `src/reaction/data/`;
+- the EQ3/6 ion-size parameters, as numbers only, in `src/reaction/data/ion_sizes_eq36.tsv`.
+
+`src/reaction/data/reference/NOTICE.md` gives the source, version and license of each. The EQ3/6 `data0`
+files are not redistributed; Reaction can read them from a path you supply. A data folder named by
+`REACTION_DATA_DIR` takes precedence over the bundled copies.
+
+## Using the library
+
+Needs Python 3.10 or later, numpy and scipy.
 
 ```python
-from reaction.database import load_data0
-from reaction.speciation import speciate, Molal, MgPerKg, PH, Eh
+from reaction.app import config
+from reaction.thermo.eosdb import load_eos_database
+from reaction.speciation import speciate, Molal, MgPerKg, PH, Equilibrium
 
-db = load_data0(r"C:\path\to\Eq3_6v8.0a\DB\data0.cmp")
+db = load_eos_database(config.external_dir() / "OBIGT", "current", eq36_database="table")
+
 seawater = speciate(
     db, 25.0,
-    {"Na+": MgPerKg(10768), "K+": MgPerKg(399.1), "Ca++": MgPerKg(412.3),
-     "Mg++": MgPerKg(1291.8), "Cl-": MgPerKg(19353), "SO4--": MgPerKg(2712),
+    {"Na+": MgPerKg(10768), "K+": MgPerKg(399.1), "Ca+2": MgPerKg(412.3),
+     "Mg+2": MgPerKg(1291.8), "Cl-": MgPerKg(19353), "SO4-2": MgPerKg(2712),
      "HCO3-": Molal(2.022e-3), "H+": PH(8.22)},
-    redox=Eh(0.5),
 )
 print(seawater.table())
-print(seawater.saturation["Calcite"])       # log Q/K
+print(seawater.saturation["calcite"])        # log Q/K
 print(seawater.log_fugacity["CO2(g)"])
 ```
 
-Constraints can also be equilibria and a charge balance.  Rain water in
-equilibrium with atmospheric CO2 and calcite (pH and Ca come out of the model):
+Constraints can also be equilibria and a charge balance. Rain water in equilibrium with atmospheric CO2
+and calcite, where pH and Ca come out of the model:
 
 ```python
-from reaction.speciation import Equilibrium
-
 water = speciate(
     db, 25.0,
-    {"H+": PH(7.0),                          # only a starting guess here
-     "Ca++": Equilibrium("Calcite"),
-     "HCO3-": Equilibrium("CO2(g)", -3.5)},  # log fCO2 = -3.5
+    {"H+": PH(7.0),                            # only a starting guess here
+     "Ca+2": Equilibrium("calcite"),
+     "HCO3-": Equilibrium("CO2(g)", -3.5)},    # log fCO2 = -3.5
     balance_on="H+",
 )
-print(water.ph, water.totals["Ca++"])        # 8.27, 4.97e-4 mol/kg
+print(water.ph, water.totals["Ca+2"])          # 8.33, 5.65e-4 mol/kg
 ```
 
-Other options: `MgPerL`, `LogActivity`, `Eh` / `Pe` / `LogFO2` / `Couple`,
-`switches={"NH3(aq)": "NO3-"}` for basis switches, `suppress=[...]` and
-`suppress_phases=[...]`, `activity_model="davies"`.  Auxiliary species given a
-total (`"O2(aq)": MgPerL(6.6)`) become independent components, as in EQ3NR.
+Pass `pressure_bar=` for any pressure; `speciate(db, 350.0, ..., pressure_bar=500.0)` works the same way.
+The `warnings` list of the result says when a calculation leaves the calibrated range (B-dot above 300 °C,
+water below 0.35 g/cm3). Other options: `MgPerL`, `LogActivity`, `Eh`, `Pe`, `LogFO2`, `Couple`, basis
+`switches`, `suppress` and `suppress_phases`, and `activity_model`. Species names follow OBIGT (`Ca+2`,
+`SO4-2`, `SiO2`, minerals in lower case, gases as `CO2(g)`). `preset="supcrt92"` lets the SUPCRT92
+parameters take precedence, as in EQ3/6's `data0.com`; `"current"` uses the maintained OBIGT files.
 
-## High temperature and pressure
-
-An EQ3/6 database tabulates logK from 0 to 300 C along the water saturation curve.
-For other temperatures and pressures Reaction can compute logK from the species'
-Gibbs energies instead: IAPWS-95 water, the Johnson-Norton dielectric constant,
-the HKF equations for aqueous species (with the g function) and Maier-Kelley heat
-capacities for minerals and gases.  The data are the OBIGT csv files of CHNOSZ.
-
-```python
-from reaction.thermo.eosdb import load_eos_database
-
-eos = load_eos_database(r"C:\path\to\obigt", preset="supcrt92", eq36_database=db)
-vent = speciate(
-    eos, 350.0,                      # degC
-    {"Na+": MgPerKg(10768), "K+": MgPerKg(399.1), "Ca+2": MgPerKg(412.3),
-     "Mg+2": MgPerKg(1291.8), "Cl-": MgPerKg(19353), "SO4-2": MgPerKg(2712),
-     "HCO3-": Molal(2.022e-3), "H+": PH(6.0)},
-    pressure_bar=500.0,
-)
-print(vent.saturation["anhydrite"], vent.warnings)
-```
-
-Species names follow OBIGT here (`Ca+2`, `SO4-2`, `SiO2`, minerals in lower case, gases as
-`CO2(g)`).  `preset="supcrt92"` lets the 1990s SUPCRT92 parameters win, as in EQ3/6's
-`data0.com`; `"current"` prefers the maintained OBIGT files.  Passing an EQ3/6 database as
-`eq36_database` only borrows its ion-size parameters.  The `warnings` list says when a
-calculation leaves the calibrated range (B-dot above 300 C, water below 0.35 g/cm3).
+[docs/DESIGN.md](docs/DESIGN.md) describes the solver, the high-temperature equations and the checks
+against other codes.
 
 ## Tests
 
-```
-python -m pytest                       # self-contained tests only
-set REACTION_EQ36_DIR=C:\path\to\Eq3_6v8.0a
-set REACTION_EQ36_TESTS=C:\path\to\folder-containing-3tlib_cmp
-set REACTION_OBIGT_DIR=C:\path\to\obigt
-python -m pytest                       # adds the EQ3/6 and OBIGT comparison tests
-```
+    pip install -e ".[dev]"
+    python -m pytest
 
-With the references present the suite runs all 41 EQ3/6 speciation cases (43
-problems) and compares every species, solid saturation index and gas fugacity
-with the stored EQ3NR output.
+The suite runs on the bundled data. Comparisons with EQ3/6 v8.0a (the 41 EQ3NR speciation cases of its
+test library and the EQ6 reaction-path cases) run when the EQ3/6 files are in the data folder
+(`scripts/fetch_references.ps1` downloads them) and are skipped otherwise. Other tests compare with
+PHREEQC 3.7.3, PyCO2SYS and published tables.
+
+## License and credits
+
+Reaction bundles the OBIGT data of CHNOSZ (Dick 2019, Frontiers in Earth Science 7, 180), which are
+GPL-3.0. Every data set and equation is cited on the app's Sources page
+(`src/reaction/app/static/sources.html`).

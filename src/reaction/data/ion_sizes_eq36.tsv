@@ -3,7 +3,7 @@
 # Numbers only, read from the EQ3/6 v8.0a composite database data0.cmp (data0.com.V8.R6; LLNL, Wolery,
 # github.com/LLNL/EQ3_6, BSD-3-Clause), as Reaction used them when that file was installed; the sizes
 # themselves are the published values EQ3/6 compiles (Helgeson 1969; Kielland 1937 and later). Extracted
-# with Douglas's approval on 2026-11-04 so that the app needs no copy of the database. No log K values.
+# on 2026-11-04 so that the app needs no copy of the database. No log K values.
 # Species names are as in data0 (Ca++, SO4--); reaction.thermo.eosdb maps them to OBIGT spellings.
 species	a0_angstrom	activity_type
 H2O	3	0

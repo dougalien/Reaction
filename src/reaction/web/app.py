@@ -138,7 +138,6 @@ def header(subtitle: str) -> None:
     st.markdown(
         f"""<div style="display:flex;align-items:center;gap:12px;padding:4px 0 10px">
 <img src="{_svg('dougalien_mark.svg')}" width="34" height="34" alt="Dougalien Systems">
-<img src="{_svg('reaction_mark.svg')}" width="30" height="30" alt="">
 <span style="font-size:1.55rem;font-weight:600;color:#2B3134">Reaction</span>
 <a href="https://dougalien.com" target="_blank" style="color:#5b6468;text-decoration:none">by Dougalien Systems</a>
 <span style="color:#6f777a;font-size:0.9rem">· {subtitle}</span></div>

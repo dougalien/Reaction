@@ -1,4 +1,4 @@
-"""Changing reactants in the chat, as people say it (Douglas's transcript of 2026-10-26 and others)."""
+"""Changing reactants in the chat, as people say it (transcripts of real sessions)."""
 import pytest
 
 from reaction.app import config, rocks
@@ -25,7 +25,7 @@ def edit(text, reactants=None, **card):
     return [(r["amount"], r["name"]) for r in new.reactants], got
 
 
-def test_douglas_transcript_reads_each_message():
+def test_a_transcript_reads_each_message():
     have, got = edit("React the hydrothermal fluid with forsterite(fo88) at a W/R=1 at 350C and 500 bar. Static.")
     assert have == [(1000.0, "forsterite fo88")] and got.scenario_changes["fluid"] == "hydrothermal"
     assert got.scenario_changes["temperature_c"] == 350.0 and got.run

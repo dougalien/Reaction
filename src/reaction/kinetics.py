@@ -301,7 +301,7 @@ class SeawaterCarbonateLaw:
             * self.per_unit
 
 
-# Naviaux et al. 2019, Table 2 at 5 C: log k = -13.07 mol cm-2 s-1, n = 0.34 for Omega > 0.75 (step
+# Naviaux et al. 2019 (Geochim. Cosmochim. Acta 246), Table 2 at 5 C: log k = -13.07 mol cm-2 s-1, n = 0.34 for Omega > 0.75 (step
 # retreat and defect-assisted pits) and -10.01, n = 4.81 below (homogeneous etch pits); activation energy
 # 25 kJ/mol (their Section 4).  Dong et al. 2019: 0.013 g g-1 day-1 (1 - Omega)^1.37 at 5 C for aragonite
 # of 2.46 m2/g, i.e. 6.1e-10 mol m-2 s-1; about twice as fast at 21 C, i.e. about 30 kJ/mol.
@@ -312,7 +312,7 @@ class SeawaterCarbonateLaw:
 # is far slower per m2 than Naviaux's calcite fits away from equilibrium, which would make a pteropod
 # outlast a foram in water more corrosive to it; it is kept as an option.
 NAVIAUX_LAB_FITS = ((-9.07, 0.34, 1.0), (-6.01, 4.81, 0.75))
-# The default (Douglas, 2026-11-11): Naviaux et al. (2019), Mar. Chem. 215, 103684, abstract and Section 5: calcite
+# The default: Naviaux et al. (2019), Mar. Chem. 215, 103684, abstract and Section 5: calcite
 # dissolves about 4 times slower in situ (N. Pacific, 1.9-4.9 C) than in the laboratory, which they trace to dissolved
 # organic carbon on the surface; for particles formed in and sinking out of surface water they recommend the lower
 # bound R = 10^-14.3+-0.2 (1 - Omega)^0.11+-0.1 mol cm-2 s-1 for 0.8 < Omega < 1 and 10^-10.8+-0.4 (1 - Omega)^4.7+-0.7

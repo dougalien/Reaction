@@ -21,6 +21,6 @@ exe = EXE(
     name="Reaction",
     console=True,          # the window shows where the app runs; closing it stops the app
     upx=False,
-    icon=str(ROOT / "packaging" / "reaction.ico"),           # the Reaction R in the Dougalien Systems style (packaging/icon/make_icons.py)
+    icon=str(ROOT / "packaging" / "reaction.ico"),           # the plain Reaction R (packaging/icon/make_icons.py)
     version=str(ROOT / "packaging" / "version_info.txt"),  # company and product in Properties > Details
 )

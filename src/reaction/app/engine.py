@@ -1177,7 +1177,7 @@ class Engine:
         if used:
             said.append("Isotopes: starting values not given on the card were taken as " + "; ".join(used) + ".")
         said.append("Isotopes are in equilibrium among the fluid and the minerals at each step (oxygen: Vho and others "
-                     "2020; carbon: Ohmoto and Rye 1979; sulfur: Ohmoto and Rye 1979, Ohmoto and Lasaga 1982); "
+                     "2019; carbon: Ohmoto and Rye 1979; sulfur: Ohmoto and Rye 1979, Ohmoto and Lasaga 1982); "
                      "δ18O and δ13C of carbonates against VSMOW and VPDB, δ34S against VCDT. Strontium is carried "
                      "with the fluid only (minerals are taken to keep none). δD (VSMOW) of the water follows evaporation "
                      "(liquid-vapour fractionation of Horita and Wesolowski 1994), mixing and phase separation.")

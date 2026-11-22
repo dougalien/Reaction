@@ -9,7 +9,7 @@ from reaction.app.session import Session
 
 from test_app import FakeEngine, ScriptedModel, fake_result, wait
 
-DOUGLAS = "take the result of the seawater heating fluid and cool it back down to 25"
+REQUEST = "take the result of the seawater heating fluid and cool it back down to 25"
 
 
 @pytest.fixture
@@ -32,7 +32,7 @@ def heated(s: Session):
 
 
 def test_rules_read_a_cooling_of_the_last_runs_fluid():
-    got = interpret_rules(DOUGLAS, Scenario())
+    got = interpret_rules(REQUEST, Scenario())
     assert got.from_result and got.direction == "cool" and got.run
     assert got.scenario_changes == {"t_end_c": 25.0}          # "seawater" names the old run, not a new fluid
     assert interpret_rules("cool it back down to 25.", Scenario()).scenario_changes == {"t_end_c": 25.0}
@@ -42,7 +42,7 @@ def test_rules_read_a_cooling_of_the_last_runs_fluid():
 
 def test_the_fluid_at_the_end_of_the_run_becomes_the_starting_fluid(session):
     heated(session)
-    card = run(session, DOUGLAS, 2)
+    card = run(session, REQUEST, 2)
     assert card["fluid"] == "custom"
     assert (card["t_start_c"], card["t_end_c"], card["p_start_bar"], card["p_end_bar"]) == (350.0, 25.0, 500.0, 500.0)
     assert (card["fluid_t_c"], card["fluid_p_bar"], card["units"], card["charge_balance"]) == (350.0, 500.0, "molal", "none")
@@ -65,14 +65,14 @@ def test_cooling_with_nothing_hotter_is_refused_not_run(session):
 
 
 def test_asking_for_the_last_fluid_without_a_run_is_refused(session):
-    session.handle_chat("static. " + DOUGLAS)
+    session.handle_chat("static. " + REQUEST)
     assert session.engine_stub.calls == []
     assert "no run yet" in session.chat[-1]["text"]
 
 
 def test_naming_a_fresh_fluid_afterwards_starts_it_fresh(session):
     heated(session)
-    run(session, DOUGLAS, 2)
+    run(session, REQUEST, 2)
     card = run(session, "heat seawater to 300 C", 3)
     assert (card["fluid"], card["t_start_c"], card["t_end_c"]) == ("seawater", 2.0, 300.0)
 
@@ -83,7 +83,7 @@ def test_the_language_model_cannot_put_seawater_back(tmp_path):
                                                  "run": True}))
     s.engine_stub = engine
     heated(s)
-    card = run(s, DOUGLAS, 2)
+    card = run(s, REQUEST, 2)
     assert (card["fluid"], card["t_start_c"], card["t_end_c"]) == ("custom", 350.0, 25.0)
 
 
