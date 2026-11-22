@@ -130,8 +130,18 @@ test library and the EQ6 reaction-path cases) run when the EQ3/6 files are in th
 (`scripts/fetch_references.ps1` downloads them) and are skipped otherwise. Other tests compare with
 PHREEQC 3.7.3, PyCO2SYS and published tables.
 
+## How to cite
+
+If you use Reaction in a study or a class, please cite it, and cite the data and methods it used
+for your result (the app's Sources page lists them). GitHub's "Cite this repository" button gives
+the reference from `CITATION.cff`.
+
 ## License and credits
 
+Reaction is free software under the GNU General Public License, version 3 or later (`LICENSE`).
+Anyone may use, copy, change and share it at no cost; copies and changed versions that are passed on
+must stay under the same license. It comes with no warranty.
+
 Reaction bundles the OBIGT data of CHNOSZ (Dick 2019, Frontiers in Earth Science 7, 180), which are
-GPL-3.0. Every data set and equation is cited on the app's Sources page
-(`src/reaction/app/static/sources.html`).
+also GPL-3.0, and PHREEQC's pitzer.dat (U.S. Geological Survey, public domain). Every data set and
+equation is cited on the app's Sources page (`src/reaction/app/static/sources.html`).
