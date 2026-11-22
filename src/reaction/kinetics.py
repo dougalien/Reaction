@@ -301,9 +301,9 @@ class SeawaterCarbonateLaw:
             * self.per_unit
 
 
-# Naviaux et al. 2019 (Geochim. Cosmochim. Acta 246), Table 2 at 5 C: log k = -13.07 mol cm-2 s-1, n = 0.34 for Omega > 0.75 (step
+# Naviaux et al. 2019 (Geochim. Cosmochim. Acta 246), Table 1 at 5 C: log k = -13.07 mol cm-2 s-1, n = 0.34 for Omega > 0.75 (step
 # retreat and defect-assisted pits) and -10.01, n = 4.81 below (homogeneous etch pits); activation energy
-# 25 kJ/mol (their Section 4).  Dong et al. 2019: 0.013 g g-1 day-1 (1 - Omega)^1.37 at 5 C for aragonite
+# 25 +- 2 kJ/mol (their Table 2 and Section 4).  Dong et al. 2019: 0.013 g g-1 day-1 (1 - Omega)^1.37 at 5 C for aragonite
 # of 2.46 m2/g, i.e. 6.1e-10 mol m-2 s-1; about twice as fast at 21 C, i.e. about 30 kJ/mol.
 # By default aragonite takes the calcite fits on its own saturation state: Dong et al. find the same
 # mechanisms and nearly the same critical saturation state (0.9 against calcite's 0.87) and that

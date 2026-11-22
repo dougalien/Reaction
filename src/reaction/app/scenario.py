@@ -100,8 +100,11 @@ T_MIN, T_MAX = 0.0, 600.0            # degrees C
 P_MIN, P_MAX = 1.0, 5000.0           # bar (the range the HKF equations are calibrated for)
 
 # carbonates that supersaturated seawater "wants" to form but that do not form on laboratory and
-# field time scales at these temperatures (the usual practice is to block them)
-DEFAULT_BLOCKED = ["dolomite", "magnesite", "huntite"]
+# field time scales at these temperatures (the usual practice is to block them); goergeyite
+# (K2Ca5(SO4)6.H2O, from pitzer.dat) is blocked for the same reason: with it allowed, evaporating seawater
+# makes goergeyite instead of the gypsum seen in salt works and evaporite basins (about 3.6 times
+# concentrated in PHREEQC 3.7.3 with pitzer.dat and goergeyite blocked)
+DEFAULT_BLOCKED = ["dolomite", "magnesite", "huntite", "goergeyite"]
 
 # oxides, elements and ice that the database lists but that are not sensible products here
 ALWAYS_EXCLUDED = ("ice", "sulfur", "S_liq", "graphite", "potassium oxide", "sodium oxide",
@@ -1102,7 +1105,7 @@ STARTING_CARDS: dict[str, StartingCard] = {c.key: c for c in (
                  {"fluid": "freshwater", "t_start_c": 25.0, "t_end_c": 300.0, "steps": 28}),
     StartingCard("brine", "Brine",
                  "Great Salt Lake brine evaporated to a fifth of its water at 25 C and 1 bar, with Pitzer "
-                 "activities: halite, then gypsum, with epsomite close to saturation by the end.",
+                 "activities: halite, then glauberite, which takes up the calcium, and bloedite and polyhalite near the end.",
                  {"fluid": "gsl_brine", "activity_model": "pitzer", "t_start_c": 25.0, "t_end_c": 25.0,
                   "p_start_bar": 1.0, "p_end_bar": 1.0, "evaporate": 5.0, "steps": 30}),
     StartingCard("hydrothermal", "Hydrothermal fluid",
@@ -1194,8 +1197,9 @@ EXAMPLES: dict[str, Example] = {e.key: e for e in (
             ("chlorite", "epidote-clinozoisite", "actinolite", "albite")),
     Example("lake", "Evaporating lake", "Evaporation, brines and isotopes",
             "Great Salt Lake brine evaporates at 25 C until a tenth of its water is left, with Pitzer activities for "
-            "the strong brine. Halite comes out first, then anhydrite, epsomite and sylvite, the order of a closing "
-            "salt lake; the water left grows heavier in 18O and D (d18O from 0 to about +13 permil), because the "
+            "the strong brine. Halite comes out first, then the magnesium and potassium sulfates bloedite, leonite "
+            "and epsomite (PHREEQC with the same pitzer.dat gives the same salts); the little calcium goes into "
+            "glauberite early and polyhalite later. The water left grows heavier in 18O and D (d18O from 0 to about +13 permil), because the "
             "vapour that leaves is light. See Mineral amounts and the Isotopes tab.",
             {"title": "Evaporating salt lake", "fluid": "gsl_brine", "activity_model": "pitzer", "t_start_c": 25.0,
              "t_end_c": 25.0, "p_start_bar": 1.0, "p_end_bar": 1.0, "steps": 30, "evaporate": 10.0,
@@ -1206,7 +1210,7 @@ EXAMPLES: dict[str, Example] = {e.key: e for e in (
              ("isotopes", "Isotopes: On. The vapour carries the liquid-vapour fractionation of Horita and "
                           "Wesolowski (1994), so the lake water grows heavier."),
              ("fluid", "Fluid: Great Salt Lake brine (Drever 1997), already near halite saturation.")),
-            ("halite", "anhydrite", "epsomite", "sylvite")),
+            ("halite", "bloedite", "leonite", "epsomite")),
     Example("clays", "Contaminated stream", "Metals on clays",
             STARTING_CARDS["stream"].description + " The Sorbed and Partition coefficients tabs show what the clays "
             "hold.",

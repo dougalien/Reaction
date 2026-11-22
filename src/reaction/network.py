@@ -151,7 +151,7 @@ class Network:
     def __init__(self, db: ThermoDatabase, basis: list[str], *,
                  switches: dict[str, str] | None = None,
                  decoupled: tuple[str, ...] = (),
-                 suppress=(), suppress_phases=()):
+                 suppress=(), suppress_phases=(), pitzer_dat: bool = False):
         self.db = db
         switches = dict(switches or {})
         if WATER not in basis or PROTON not in basis:
@@ -227,8 +227,13 @@ class Network:
                 self.dep_names.append(name); dep_rows.append(vector(nu))
                 self.dep_terms.append(terms)
 
+        # species and minerals with only pitzer.dat data (phreeqc_pitzer.add_pitzer_dat_only) belong to the
+        # Pitzer model alone
+        def own_data(sp):
+            return pitzer_dat or sp.subtype != "pitzer_dat"
+
         for sp in db.of_kind(Kind.AUX_BASIS, Kind.AQUEOUS):
-            if sp.name not in index:
+            if sp.name not in index and own_data(sp):
                 add_aqueous(sp.name)
         for old in switches:                               # switched-out strict species
             add_aqueous(old)
@@ -237,7 +242,7 @@ class Network:
         # states, it only keeps them out of equilibrium constraints.
         self.inactive_phases = set(suppress_phases)
         for sp in db.of_kind(Kind.MINERAL, Kind.GAS, Kind.LIQUID):
-            if sp.name in index:
+            if sp.name in index or not own_data(sp):
                 continue
             r = red.reduce(sp.name)
             if r is not None:

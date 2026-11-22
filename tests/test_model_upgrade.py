@@ -115,3 +115,25 @@ def test_a_hot_or_deep_b_dot_card_is_pointed_to_b_gamma():
     assert "b-gamma" in bdot_range_note(Scenario(t_start_c=25.0, t_end_c=200.0, p_start_bar=2000.0,
                                                  p_end_bar=2000.0))
     assert bdot_range_note(Scenario(t_start_c=25.0, t_end_c=350.0, activity_model="bgamma")) is None
+
+
+# ---- species and minerals that only pitzer.dat has -------------------------------------------------------
+# Seawater of scripts/seawater_omega_benchmark.py (mol/kg water) at pH 8.282, 25 C, 1 atm in PHREEQC 3.7.3
+# (pitzer.dat as above, PITZER -MacInnes false); run 2026-11-22.
+SEAWATER_MOLAL = {"Na+": 0.4690, "Mg+2": 0.05282, "Ca+2": 0.01028, "K+": 0.01021, "Sr+2": 9.07e-5,
+                  "Cl-": 0.5457, "SO4-2": 0.02824, "Br-": 8.42e-4, "B(OH)3": 4.16e-4, "HCO3-": 2000e-6}
+PHREEQC_SEAWATER = {"MgB(OH)4+": 1.6642e-05, "CaB(OH)4+": 5.5005e-06, "BO2-": 7.6441e-05,
+                    "CO3-2": 1.0919e-04, "MgCO3": 1.0416e-04}
+
+
+def test_pitzer_dat_only_species_join_only_the_pitzer_model(db):
+    from reaction.speciation import PH, Molal, speciate
+    assert db["glauberite"].subtype == "pitzer_dat" and db["MgB(OH)4+"].subtype == "pitzer_dat"
+    basis = {k: Molal(v / 0.9648) for k, v in SEAWATER_MOLAL.items()}
+    basis["H+"] = PH(8.282)
+    bdot = speciate(db, 25.0, basis)
+    assert "MgB(OH)4+" not in bdot.species and "glauberite" not in bdot.saturation
+    sp = speciate(db, 25.0, basis, activity_model="pitzer", ph_scale="internal")
+    assert sp.saturation["calcite"] == pytest.approx(0.7776, abs=0.002)
+    for name, m in PHREEQC_SEAWATER.items():
+        assert sp.species[name].molality == pytest.approx(m, rel=0.04), name
