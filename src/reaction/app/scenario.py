@@ -1128,7 +1128,9 @@ STARTING_CARDS: dict[str, StartingCard] = {c.key: c for c in (
                   "cells": 10, "column_m": 10.0, "dispersivity_m": 0.3, "pore_volumes": 25.0,
                   "kaolinite_g": 100.0, "illite_g": 40.0, "montmorillonite_g": 20.0,
                   "kd_medium": "sediment", "kd_solid_g": 4000.0,
-                  "blocked_minerals": DEFAULT_BLOCKED + ["quartz", "quartz,beta", "chalcedony"]}),
+                  "blocked_minerals": DEFAULT_BLOCKED + ["quartz", "quartz,beta", "chalcedony", "tridymite,low",
+                                                         "tridymite,high", "cristobalite,alpha",
+                                                         "cristobalite,beta", "coesite"]}),
 )}
 
 
