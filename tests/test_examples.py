@@ -114,7 +114,7 @@ def test_evaporating_lake_lays_down_salts_in_order(runs):
     # Ca in glauberite, then polyhalite
     assert first["halite"] < first["bloedite"] <= first["leonite"] <= first["epsomite"]
     assert first["glauberite"] < first["polyhalite"]
-    assert run["isotopes"]["d18O:water"][-1] > 10
+    assert 15 < run["isotopes"]["d18O:water"][-1] < 18                # the example says about +16.5
 
 
 def test_boiling_vents_co2_and_scales_calcite(runs):

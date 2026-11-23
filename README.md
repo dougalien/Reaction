@@ -8,6 +8,9 @@ constants are calculated from Gibbs energies at every point of a run, so there a
 databases. Every number it reports comes from its own solver and from published data; the Sources page in
 the app lists each data set and equation with its reference.
 
+The [user manual](docs/MANUAL.md) explains every control of the app, the models behind it and their limits,
+for students and instructors.
+
 ## What it does
 
 - Speciation of any water, from a preset (seawater, deep seawater, rainwater, fresh water, groundwater, karst

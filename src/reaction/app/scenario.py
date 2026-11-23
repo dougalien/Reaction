@@ -1097,11 +1097,14 @@ class StartingCard:
 
 STARTING_CARDS: dict[str, StartingCard] = {c.key: c for c in (
     StartingCard("seawater", "Seawater",
-                 "Seawater heated from 2 to 350 C at 500 bar: anhydrite from about 150 C, brucite near 350 C.",
+                 "Seawater heated from 2 to 350 C at 500 bar: a little calcite below about 110 C, anhydrite from about "
+                 "150 C, and brucite from about 130 C, most of it near 350 C.",
                  {}),
     StartingCard("freshwater", "Fresh water",
                  "World-average river water in equilibrium with the atmosphere, heated from 25 to 300 C at "
-                 "500 bar: calcite and anhydrite come out as their solubilities fall.",
+                 "500 bar: calcite (from about 190 C) and anhydrite (from about 280 C) come out as their "
+                 "solubilities fall. The river's silica is above quartz saturation, so a little quartz forms "
+                 "at first and redissolves as the water warms; traces of talc and serpentine form as well.",
                  {"fluid": "freshwater", "t_start_c": 25.0, "t_end_c": 300.0, "steps": 28}),
     StartingCard("brine", "Brine",
                  "Great Salt Lake brine evaporated to a fifth of its water at 25 C and 1 bar, with Pitzer "
@@ -1116,15 +1119,18 @@ STARTING_CARDS: dict[str, StartingCard] = {c.key: c for c in (
                   "mix_ratio": 9.0, "mix_t_c": 2.0, "steps": 30}),
     StartingCard("stream", "Contaminated stream",
                  "Stream water carrying metals from a contaminated site flows through 10 m of clay-bearing streambed "
-                 "(kaolinite, illite and montmorillonite on exchange sites, the rest of the sediment holding Ni, As, "
-                 "Cr and Hg by the EPA partition coefficients) at 15 C: Cu and Pb break through first, then Zn and "
-                 "Cd; some Pb stays at the inlet as cerussite, and the Kd metals barely move.",
+                 "(kaolinite, illite and montmorillonite with exchange and edge sites, the rest of the sediment holding "
+                 "As and Cr by the EPA partition coefficients) at 15 C: Cd and Zn break through first, then Hg and "
+                 "Cu; Ni and Pb are less than half through after 25 pore volumes, some Pb stays at the inlet as "
+                 "cerussite, and As and Cr do not reach the outlet.",
                  {"kind": "transport", "fluid": "contaminated_stream", "pore_fluid": "freshwater",
                   "t_start_c": 15.0, "t_end_c": 15.0, "p_start_bar": 1.0, "p_end_bar": 1.0,
                   "cells": 10, "column_m": 10.0, "dispersivity_m": 0.3, "pore_volumes": 25.0,
                   "kaolinite_g": 100.0, "illite_g": 40.0, "montmorillonite_g": 20.0,
                   "kd_medium": "sediment", "kd_solid_g": 4000.0,
-                  "blocked_minerals": DEFAULT_BLOCKED + ["quartz", "quartz,beta", "chalcedony"]}),
+                  "blocked_minerals": DEFAULT_BLOCKED + ["quartz", "quartz,beta", "chalcedony", "tridymite,low",
+                                                         "tridymite,high", "cristobalite,alpha",
+                                                         "cristobalite,beta", "coesite"]}),
 )}
 
 
@@ -1199,7 +1205,7 @@ EXAMPLES: dict[str, Example] = {e.key: e for e in (
             "Great Salt Lake brine evaporates at 25 C until a tenth of its water is left, with Pitzer activities for "
             "the strong brine. Halite comes out first, then the magnesium and potassium sulfates bloedite, leonite "
             "and epsomite (PHREEQC with the same pitzer.dat gives the same salts); the little calcium goes into "
-            "glauberite early and polyhalite later. The water left grows heavier in 18O and D (d18O from 0 to about +13 permil), because the "
+            "glauberite early and polyhalite later. The water left grows heavier in 18O and D (d18O from 0 to about +16.5 permil), because the "
             "vapour that leaves is light. See Mineral amounts and the Isotopes tab.",
             {"title": "Evaporating salt lake", "fluid": "gsl_brine", "activity_model": "pitzer", "t_start_c": 25.0,
              "t_end_c": 25.0, "p_start_bar": 1.0, "p_end_bar": 1.0, "steps": 30, "evaporate": 10.0,
@@ -1219,10 +1225,10 @@ EXAMPLES: dict[str, Example] = {e.key: e for e in (
                       "volumes pass through."),
              ("kaolinite_g", "Clays: 100 g kaolinite, 40 g illite and 20 g montmorillonite per kg of water, each "
                              "with exchange sites at its cation exchange capacity."),
-             ("clay_edges", "Clay edge sites: illite and montmorillonite also bind Pb, Cu, Zn, Cd and Ni on "
+             ("clay_edges", "Clay edge sites: illite and montmorillonite also bind Pb, Cu, Zn, Cd, Ni and Hg on "
                             "their crystal edges (surface complexation)."),
-             ("kd_solid_g", "Kd solid: 4 kg of bed sediment holds As, Cr, Hg and Ni by their measured partition "
-                            "coefficients."),
+             ("kd_solid_g", "Kd solid: 4 kg of bed sediment holds As and Cr by their measured partition "
+                            "coefficients (the clays hold the other metals)."),
              ("pore_fluid", "The column is first filled with clean fresh water, so the fronts are visible.")),
             ("Cu", "Pb", "Zn", "Cd")),
     Example("boiling", "Boiling", "Boiling and a gas phase",

@@ -101,9 +101,8 @@ PRESETS: dict[str, FluidPreset] = {
         6.0,
         "illustrative composition of a sedimentary basin brine, not a specific sample",
         redox="eh", redox_value=-0.1,
-        caveats=("The ionic strength is about 3 molal, beyond what the B-dot activity model is "
-                 "calibrated for; treat activities and saturation states as rough until Pitzer "
-                 "equations are added.",
+        caveats=("The ionic strength is nearly 4 molal, beyond what the B-dot activity model is "
+                 "calibrated for; choose the Pitzer activity model on the card for this brine.",
                  "The redox state is an illustrative Eh of -0.1 V at 25 C, reducing as basin brines are "
                  "(iron ferrous) but above sulfate reduction; change it on the card if you have a "
                  "measurement.")),
