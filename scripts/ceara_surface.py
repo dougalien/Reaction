@@ -1,0 +1,85 @@
+"""A surface of foram mass remaining over water depth and sedimentation rate at the Ceara Rise.
+
+Sites with in-situ O2 fluxes: every station of Hales and Emerson (1997, GCA 61, 501-514), Tables 1-2: B1 3280 m, B2 3290 m,
+B3 3270 m (Station B sampled three times), A 4000 m, C 4120 m, G 4685 m, each with the mean of its own O2-flux
+electrode readings (B1 10, 20; B2 15, 38; B3 13, 24; A 24; C 12; G 11, 13, 14 umol/cm2/yr) and CaCO3 of 65 wt%
+(B, A; C takes A's, as they did) or 40 wt% (G).  The four further sites of Martin and Sayles (1996, GCA 60,
+243-263, Table 1 and Fig. 5C), E 3772 m, F 4164 m, H 4267 m and J 4342 m, have no O2 flux; they get their organic
+carbon oxidation rate (E 26, F 18.5, H 10, J 15 umol/cm2/yr, read from Fig. 5C) times 1.1, the mean ratio of Hales
+and Emerson's O2 flux to Martin and Sayles's oxidation rate at the three sites both studied (B 20/22, A 24/16,
+G 12.7/14), and 65 wt% CaCO3 (60-67% at all their sites but G).  Between the sites, a 100 m grid from 3300 to 4600 m with the O2 flux
+and CaCO3 interpolated linearly in depth between the neighbouring stations (an assumption: there are no
+measurements there).  All else as in ceara_bracket.py: k 125 %/day, n 4.5, beta 0.64, porosity 0.65,
+respiration depth 0.5 cm, bottom water from GLODAP station 198, 20 cm burial, a 10 cm mixed layer with the
+Db of Boudreau (1994).  Sedimentation 0.5, 1, 2, 4 and 8 cm/kyr.  Writes a CSV.
+
+    python scripts/ceara_surface.py out.csv      (about 40 minutes on 4 cores; reruns skip cases already in out.csv)
+"""
+from __future__ import annotations
+
+import csv
+import dataclasses
+import sys
+from concurrent.futures import ProcessPoolExecutor
+
+import numpy as np
+
+sys.path.insert(0, __file__.rsplit("/", 1)[0])
+from ceara_bracket import RATES_CM_KYR, boudreau_db, kept_pct, pressure_bar  # noqa: E402
+
+# name, depth m, CaCO3 wt%, O2 flux umol/cm2/yr (mean of the electrodes)
+STATIONS = (("B3", 3270.0, 65.0, 18.5), ("B1", 3280.0, 65.0, 15.0), ("B2", 3290.0, 65.0, 26.5),
+            ("E", 3772.0, 65.0, 28.6), ("A", 4000.0, 65.0, 24.0), ("C", 4120.0, 65.0, 12.0),
+            ("F", 4164.0, 65.0, 20.35), ("H", 4267.0, 65.0, 11.0), ("J", 4342.0, 65.0, 16.5),
+            ("G", 4685.0, 40.0, 12.67))
+GRID_M = tuple(float(z) for z in range(3300, 4601, 100))
+
+
+def interpolated(z: float) -> tuple[str, float, float, float]:
+    """A grid site: CaCO3 and O2 flux linear in depth between the sites (Station B as the mean of B1-B3)."""
+    sites = [("B", 3280.0, 65.0, 20.0)] + [s for s in STATIONS if not s[0].startswith("B")]
+    zs = [s[1] for s in sites]
+    return (f"grid {z:.0f} m", z, float(np.interp(z, zs, [s[2] for s in sites])),
+            float(np.interp(z, zs, [s[3] for s in sites])))
+
+
+def run(case: tuple) -> tuple:
+    from reaction.app.engine import Engine
+    from reaction.app.scenario import example_card
+    (name, z, caco3, o2), w = case
+    p = pressure_bar(z)
+    card = dataclasses.replace(
+        example_card("ceara"), sinking=False, depth_axis=False, burial=True, p_start_bar=p, p_end_bar=p, steps=21,
+        sedimentation_cm_kyr=w, burial_depth_cm=20.0, sediment_column=True, porosity=0.65, caco3_wt_pct=caco3,
+        sediment_k_pct_day=125.0, sediment_n=4.5, o2_flux_umol_cm2_yr=o2, co2_per_o2=0.64, respiration_depth_cm=0.5,
+        mixed_layer_cm=10.0, biodiffusion_cm2_yr=boudreau_db(w))
+    res = Engine().run(card)
+    return name, z, caco3, o2, w, kept_pct(res, "calcite"), kept_pct(res, "aragonite")
+
+
+HEADER = ["site", "depth_m", "caco3_wt_pct", "o2_flux_umol_cm2_yr", "sedimentation_cm_kyr", "foram_kept_pct",
+          "pteropod_kept_pct"]
+
+
+def main(out: str) -> int:
+    """Runs the cases not already in ``out`` (same site, depth, CaCO3, O2 flux and rate) and appends them."""
+    sites = list(STATIONS) + [interpolated(z) for z in GRID_M]
+    done = set()
+    try:
+        with open(out, newline="") as f:
+            done = {(r[0], *(round(float(x), 3) for x in r[1:5])) for r in list(csv.reader(f))[1:]}
+    except FileNotFoundError:
+        with open(out, "w", newline="") as f:
+            csv.writer(f).writerow(HEADER)
+    cases = [(s, w) for s in sites for w in RATES_CM_KYR
+             if (s[0], *(round(x, 3) for x in (*s[1:], w))) not in done]
+    with ProcessPoolExecutor(4) as pool, open(out, "a", newline="") as f:
+        wr = csv.writer(f)
+        for row in pool.map(run, cases):
+            wr.writerow([row[0], *(round(x, 3) for x in row[1:])])
+            f.flush()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1] if len(sys.argv) > 1 else "ceara_surface.csv"))
