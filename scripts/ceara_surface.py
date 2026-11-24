@@ -13,7 +13,7 @@ measurements there).  All else as in ceara_bracket.py: k 125 %/day, n 4.5, beta 
 respiration depth 0.5 cm, bottom water from GLODAP station 198, 20 cm burial, a 10 cm mixed layer with the
 Db of Boudreau (1994).  Sedimentation 0.5, 1, 2, 4 and 8 cm/kyr.  Writes a CSV.
 
-    python scripts/ceara_surface.py out.csv      (about 40 minutes on 4 cores; reruns skip cases already in out.csv)
+    python scripts/ceara_surface.py out.csv [--trend]     (about 40 minutes, the trend grids 70 more on 4 cores; reruns skip cases already in out.csv)
 """
 from __future__ import annotations
 
@@ -43,6 +43,21 @@ def interpolated(z: float) -> tuple[str, float, float, float]:
             float(np.interp(z, zs, [s[3] for s in sites])))
 
 
+# The regional trend: the O2 flux fitted linearly in depth through the eight site depths (B as the mean of B1-B3),
+# O2 = 52.63 - 0.008456 z (r2 0.32; residual standard deviation 5.6 umol/cm2/yr); organic carbon oxidation falls
+# with depth on the Rise as Martin and Sayles found.  TREND_SHIFT moves it by that deviation for low and high rain.
+TREND = (52.6305, -0.00845614)
+TREND_SD = 5.6
+TREND_M = tuple(float(z) for z in range(3300, 4701, 100))
+
+
+def trend_site(z: float, shift: float = 0.0) -> tuple[str, float, float, float]:
+    """A site on the regional trend: O2 flux from the fit (plus ``shift`` deviations), CaCO3 as interpolated."""
+    o2 = TREND[0] + TREND[1] * z + shift * TREND_SD
+    caco3 = interpolated(z)[2] if z <= 4685.0 else 40.0
+    return f"trend{shift:+g} {z:.0f} m", z, caco3, round(o2, 3)
+
+
 def run(case: tuple) -> tuple:
     from reaction.app.engine import Engine
     from reaction.app.scenario import example_card
@@ -61,9 +76,12 @@ HEADER = ["site", "depth_m", "caco3_wt_pct", "o2_flux_umol_cm2_yr", "sedimentati
           "pteropod_kept_pct"]
 
 
-def main(out: str) -> int:
-    """Runs the cases not already in ``out`` (same site, depth, CaCO3, O2 flux and rate) and appends them."""
+def main(out: str, trend: bool = False) -> int:
+    """Runs the cases not already in ``out`` (same site, depth, CaCO3, O2 flux and rate) and appends them.
+    ``trend``: the regional-trend grid at the fitted O2 flux and one deviation below and above it."""
     sites = list(STATIONS) + [interpolated(z) for z in GRID_M]
+    if trend:
+        sites += [trend_site(z, k) for k in (0.0, -1.0, 1.0) for z in TREND_M]
     done = set()
     try:
         with open(out, newline="") as f:
@@ -82,4 +100,5 @@ def main(out: str) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main(sys.argv[1] if len(sys.argv) > 1 else "ceara_surface.csv"))
+    args = [a for a in sys.argv[1:] if a != "--trend"]
+    sys.exit(main(args[0] if args else "ceara_surface.csv", "--trend" in sys.argv))
