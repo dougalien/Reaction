@@ -13,7 +13,7 @@ measurements there).  All else as in ceara_bracket.py: k 125 %/day, n 4.5, beta 
 respiration depth 0.5 cm, bottom water from GLODAP station 198, 20 cm burial, a 10 cm mixed layer with the
 Db of Boudreau (1994).  Sedimentation 0.5, 1, 2, 4 and 8 cm/kyr.  Writes a CSV.
 
-    python scripts/ceara_surface.py out.csv [--trend] [--likely]     (about 40 minutes, the trend grids 70 more on 4 cores; reruns skip cases already in out.csv)
+    python scripts/ceara_surface.py out.csv [--trend] [--likely] [--family]     (about 40 minutes, the trend grids 70 more on 4 cores; reruns skip cases already in out.csv)
 """
 from __future__ import annotations
 
@@ -81,7 +81,15 @@ HEADER = ["site", "depth_m", "caco3_wt_pct", "o2_flux_umol_cm2_yr", "sedimentati
 LIKELY_CM_KYR = (1.2, 1.85, 2.5)
 
 
-def main(out: str, trend: bool = False, likely: bool = False) -> int:
+# the family of curves: a fixed O2 flux at every depth (0 = no organic rain, the bottom-water-only master curve)
+FAMILY_O2 = (0.0, 5.0, 10.0, 15.0, 20.0, 25.0, 30.0)
+
+
+def family_site(z: float, o2: float) -> tuple[str, float, float, float]:
+    return f"o2={o2:g} {z:.0f} m", z, (interpolated(z)[2] if z <= 4685.0 else 40.0), o2
+
+
+def main(out: str, trend: bool = False, likely: bool = False, family: bool = False) -> int:
     """Runs the cases not already in ``out`` (same site, depth, CaCO3, O2 flux and rate) and appends them.
     ``trend``: the regional-trend grid at the fitted O2 flux and one deviation below and above it.
     ``likely``: only the sites and the central trend, at the likely sedimentation rates."""
@@ -97,7 +105,9 @@ def main(out: str, trend: bool = False, likely: bool = False) -> int:
             csv.writer(f).writerow(HEADER)
     if likely:
         sites = list(STATIONS) + [trend_site(z) for z in TREND_M]
-    rates = LIKELY_CM_KYR if likely else RATES_CM_KYR
+    if family:
+        sites = [family_site(z, o2) for o2 in FAMILY_O2 for z in TREND_M]
+    rates = (1.85,) if family else LIKELY_CM_KYR if likely else RATES_CM_KYR
     cases = [(s, w) for s in sites for w in rates
              if (s[0], *(round(x, 3) for x in (*s[1:], w))) not in done]
     with ProcessPoolExecutor(4) as pool, open(out, "a", newline="") as f:
@@ -110,4 +120,5 @@ def main(out: str, trend: bool = False, likely: bool = False) -> int:
 
 if __name__ == "__main__":
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    sys.exit(main(args[0] if args else "ceara_surface.csv", "--trend" in sys.argv, "--likely" in sys.argv))
+    sys.exit(main(args[0] if args else "ceara_surface.csv", "--trend" in sys.argv, "--likely" in sys.argv,
+                  "--family" in sys.argv))
