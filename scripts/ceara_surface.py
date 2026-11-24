@@ -13,7 +13,7 @@ measurements there).  All else as in ceara_bracket.py: k 125 %/day, n 4.5, beta 
 respiration depth 0.5 cm, bottom water from GLODAP station 198, 20 cm burial, a 10 cm mixed layer with the
 Db of Boudreau (1994).  Sedimentation 0.5, 1, 2, 4 and 8 cm/kyr.  Writes a CSV.
 
-    python scripts/ceara_surface.py out.csv [--trend]     (about 40 minutes, the trend grids 70 more on 4 cores; reruns skip cases already in out.csv)
+    python scripts/ceara_surface.py out.csv [--trend] [--likely]     (about 40 minutes, the trend grids 70 more on 4 cores; reruns skip cases already in out.csv)
 """
 from __future__ import annotations
 
@@ -76,9 +76,15 @@ HEADER = ["site", "depth_m", "caco3_wt_pct", "o2_flux_umol_cm2_yr", "sedimentati
           "pteropod_kept_pct"]
 
 
-def main(out: str, trend: bool = False) -> int:
+# the likely Holocene sedimentation on the Rise: 1.2-2.5 cm/kyr (Martin and Sayles 1996, Table 4; Curry and
+# Lohmann 1990) and its midpoint
+LIKELY_CM_KYR = (1.2, 1.85, 2.5)
+
+
+def main(out: str, trend: bool = False, likely: bool = False) -> int:
     """Runs the cases not already in ``out`` (same site, depth, CaCO3, O2 flux and rate) and appends them.
-    ``trend``: the regional-trend grid at the fitted O2 flux and one deviation below and above it."""
+    ``trend``: the regional-trend grid at the fitted O2 flux and one deviation below and above it.
+    ``likely``: only the sites and the central trend, at the likely sedimentation rates."""
     sites = list(STATIONS) + [interpolated(z) for z in GRID_M]
     if trend:
         sites += [trend_site(z, k) for k in (0.0, -1.0, 1.0) for z in TREND_M]
@@ -89,7 +95,10 @@ def main(out: str, trend: bool = False) -> int:
     except FileNotFoundError:
         with open(out, "w", newline="") as f:
             csv.writer(f).writerow(HEADER)
-    cases = [(s, w) for s in sites for w in RATES_CM_KYR
+    if likely:
+        sites = list(STATIONS) + [trend_site(z) for z in TREND_M]
+    rates = LIKELY_CM_KYR if likely else RATES_CM_KYR
+    cases = [(s, w) for s in sites for w in rates
              if (s[0], *(round(x, 3) for x in (*s[1:], w))) not in done]
     with ProcessPoolExecutor(4) as pool, open(out, "a", newline="") as f:
         wr = csv.writer(f)
@@ -100,5 +109,5 @@ def main(out: str, trend: bool = False) -> int:
 
 
 if __name__ == "__main__":
-    args = [a for a in sys.argv[1:] if a != "--trend"]
-    sys.exit(main(args[0] if args else "ceara_surface.csv", "--trend" in sys.argv))
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    sys.exit(main(args[0] if args else "ceara_surface.csv", "--trend" in sys.argv, "--likely" in sys.argv))
