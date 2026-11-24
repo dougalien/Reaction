@@ -83,6 +83,7 @@ LIKELY_CM_KYR = (1.2, 1.85, 2.5)
 
 # the family of curves: a fixed O2 flux at every depth (0 = no organic rain, the bottom-water-only master curve)
 FAMILY_O2 = (0.0, 5.0, 10.0, 15.0, 20.0, 25.0, 30.0)
+FAMILY_M = tuple(float(z) for z in range(3300, 4701, 25))     # every 25 m, to resolve the measured profile
 
 
 def family_site(z: float, o2: float) -> tuple[str, float, float, float]:
@@ -106,7 +107,7 @@ def main(out: str, trend: bool = False, likely: bool = False, family: bool = Fal
     if likely:
         sites = list(STATIONS) + [trend_site(z) for z in TREND_M]
     if family:
-        sites = [family_site(z, o2) for o2 in FAMILY_O2 for z in TREND_M]
+        sites = [family_site(z, o2) for o2 in FAMILY_O2 for z in FAMILY_M]
     rates = (1.85,) if family else LIKELY_CM_KYR if likely else RATES_CM_KYR
     cases = [(s, w) for s in sites for w in rates
              if (s[0], *(round(x, 3) for x in (*s[1:], w))) not in done]
