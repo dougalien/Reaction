@@ -774,8 +774,10 @@ class Engine:
                 if isinstance(law, SeawaterCarbonateLaw) and sc.burial and sc.sediment_column:
                     # the sediment's law, k (1 - Omega)^n per mole: per m2 of this reactant's surface
                     law = SeawaterCarbonateLaw(
-                        regimes=((math.log10(sc.sediment().k_per_s() / (ssa0 * mw)), sc.sediment_n, 1.0),),
-                        e_kj=0.0, source=f"the sediment's, {sc.sediment_k_pct_day:g}% per day x (1 - Omega)^"
+                        regimes=((math.log10(sc.shell_k_factor * sc.sediment().k_per_s() / (ssa0 * mw)), sc.sediment_n, 1.0),),
+                        e_kj=0.0, source=f"the sediment's, {sc.sediment_k_pct_day:g}% per day"
+                                         + (f" x {sc.shell_k_factor:g}" if sc.shell_k_factor != 1.0 else "")
+                                         + " x (1 - Omega)^"
                                          f"{sc.sediment_n:g} (Hales and Emerson 1997, GCA 61, 501, Eqn. 4)")
                 if isinstance(law, SeawaterCarbonateLaw) and getattr(self, "_column", None) is not None:
                     z, log_omega = self._column_omega(sc, name)
@@ -1070,7 +1072,7 @@ class Engine:
         """The mean mass left in the buried shells when biodiffusion mixes the top of the sediment
         (porewater.mixed_mass_left), at each depth of the burial run, as kinetic "mixed:" series."""
         from ..porewater import mixed_mass_left
-        k_yr = sc.sediment().k_per_s() * 365.25 * 86400.0
+        k_yr = sc.shell_k_factor * sc.sediment().k_per_s() * 365.25 * 86400.0
         w = sc.sedimentation_cm_kyr / 1000.0
         depths = [sc.burial_depth_cm * f for f in sc.fractions()]
         said = []

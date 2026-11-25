@@ -225,6 +225,7 @@ class Scenario:
     o2_flux_umol_cm2_yr: float | None = None      # O2 consumed in the sediment, umol per cm2 per year
     co2_per_o2: float | None = None               # CO2 made per O2 consumed (beta)
     respiration_depth_cm: float | None = None     # e-folding depth of the O2 consumption, cm
+    shell_k_factor: float = 1.0                   # buried shells' rate constant per mass / the sediment's (1 = same)
     # bioturbation of the sediment column (both given = on): biodiffusion through the mixed layer; the mean
     # mass left in the tests then follows the biodiffusion-burial equation (porewater.mixed_mass_left)
     mixed_layer_cm: float | None = None
@@ -1606,6 +1607,8 @@ FIELD_HELP = {
     "o2_flux_umol_cm2_yr": "sediment column: O2 consumed in the sediment, umol per cm2 per year",
     "co2_per_o2": "sediment column: CO2 made per O2 consumed (0.77 Redfield, 0.64, 0.55)",
     "respiration_depth_cm": "sediment column: e-folding depth of the O2 consumption, cm",
+    "shell_k_factor": "sediment column: the buried shells' rate constant per mass as a fraction of the sediment's "
+                      "calcite (1 = the same; below 1 for tests coarser than the fine fraction that dissolves)",
     "mixed_layer_cm": "sediment column: depth of the bioturbated mixed layer, cm (with biodiffusion_cm2_yr)",
     "biodiffusion_cm2_yr": "sediment column: biodiffusion coefficient in the mixed layer, cm2/yr",
     "porewater_profile": "burial: measured pore water, rows [depth below the seafloor cm, alkalinity umol/kg, DIC "
