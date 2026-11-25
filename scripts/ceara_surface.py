@@ -83,7 +83,8 @@ LIKELY_CM_KYR = (1.2, 1.85, 2.5)
 
 # the family of curves: a fixed O2 flux at every depth (0 = no organic rain, the bottom-water-only master curve)
 FAMILY_O2 = (0.0, 5.0, 10.0, 15.0, 20.0, 25.0, 30.0)
-FAMILY_M = tuple(float(z) for z in range(3300, 4701, 25))     # every 25 m, to resolve the measured profile
+FAMILY_M = (tuple(float(z) for z in range(2800, 3201, 100))  # up to the shallowest core top (Cullen and Curry 1997)
+            + tuple(float(z) for z in range(3300, 4701, 25)))  # every 25 m, to resolve the measured profile
 
 
 def family_site(z: float, o2: float) -> tuple[str, float, float, float]:
