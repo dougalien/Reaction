@@ -13,7 +13,7 @@ measurements there).  All else as in ceara_bracket.py: k 125 %/day, n 4.5, beta 
 respiration depth 0.5 cm, bottom water from GLODAP station 198, 20 cm burial, a 10 cm mixed layer with the
 Db of Boudreau (1994).  Sedimentation 0.5, 1, 2, 4 and 8 cm/kyr.  Writes a CSV.
 
-    python scripts/ceara_surface.py out.csv [--trend] [--likely] [--family]     (about 40 minutes, the trend grids 70 more on 4 cores; reruns skip cases already in out.csv)
+    python scripts/ceara_surface.py out.csv [--trend] [--likely] [--family] [--coretops]     (about 40 minutes, the trend grids 70 more on 4 cores; reruns skip cases already in out.csv)
 """
 from __future__ import annotations
 
@@ -90,7 +90,21 @@ def family_site(z: float, o2: float) -> tuple[str, float, float, float]:
     return f"o2={o2:g} {z:.0f} m", z, (interpolated(z)[2] if z <= 4685.0 else 40.0), o2
 
 
-def main(out: str, trend: bool = False, likely: bool = False, family: bool = False) -> int:
+# the 14 Ceara Rise core tops of Cullen and Curry (1997, Proc. ODP Sci. Results 154, ch. 14, Fig. 5): water depth (m)
+# and % whole foraminifers, read by eye from the figure (about +-30 m, +-2 %).  Each is run on the regional O2 trend
+# (extrapolated above 3270 m, the shallowest measured site) and one deviation either side.
+CORETOPS = ((2807.0, 92.0), (3057.0, 95.0), (3159.0, 96.0), (3295.0, 88.0), (3364.0, 85.0), (3534.0, 92.0),
+            (3636.0, 88.0), (3727.0, 85.0), (3795.0, 91.0), (4000.0, 89.0), (4284.0, 81.0), (4330.0, 88.0),
+            (4557.0, 29.0), (4580.0, 20.0))
+
+
+def coretop_cases() -> list[tuple]:
+    """The core tops on the central trend at the likely rates, and at 1.85 cm/kyr one O2 deviation either side."""
+    cases = [(trend_site(z), w) for z, _ in CORETOPS for w in LIKELY_CM_KYR]
+    return cases + [(trend_site(z, k), 1.85) for z, _ in CORETOPS for k in (-1.0, 1.0)]
+
+
+def main(out: str, trend: bool = False, likely: bool = False, family: bool = False, coretops: bool = False) -> int:
     """Runs the cases not already in ``out`` (same site, depth, CaCO3, O2 flux and rate) and appends them.
     ``trend``: the regional-trend grid at the fitted O2 flux and one deviation below and above it.
     ``likely``: only the sites and the central trend, at the likely sedimentation rates."""
@@ -109,8 +123,8 @@ def main(out: str, trend: bool = False, likely: bool = False, family: bool = Fal
     if family:
         sites = [family_site(z, o2) for o2 in FAMILY_O2 for z in FAMILY_M]
     rates = (1.85,) if family else LIKELY_CM_KYR if likely else RATES_CM_KYR
-    cases = [(s, w) for s in sites for w in rates
-             if (s[0], *(round(x, 3) for x in (*s[1:], w))) not in done]
+    cases = coretop_cases() if coretops else [(s, w) for s in sites for w in rates]
+    cases = [(s, w) for s, w in cases if (s[0], *(round(x, 3) for x in (*s[1:], w))) not in done]
     with ProcessPoolExecutor(4) as pool, open(out, "a", newline="") as f:
         wr = csv.writer(f)
         for row in pool.map(run, cases):
@@ -122,4 +136,4 @@ def main(out: str, trend: bool = False, likely: bool = False, family: bool = Fal
 if __name__ == "__main__":
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
     sys.exit(main(args[0] if args else "ceara_surface.csv", "--trend" in sys.argv, "--likely" in sys.argv,
-                  "--family" in sys.argv))
+                  "--family" in sys.argv, "--coretops" in sys.argv))
